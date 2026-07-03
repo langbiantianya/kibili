@@ -1,0 +1,603 @@
+/*
+ * Material Design 3 (MD3) - Pink & White Theme
+ * Primary: #FB7299 (B站粉)
+ * Background: #FFF8F7 (暖白)
+ * Surface: #FFFFFF (纯白)
+ * On Surface: #201A1B (深棕黑)
+ */
+
+/* ============ CSS Variables ============ */
+:root {
+  /* Primary palette */
+  --md-sys-color-primary: #FB7299;
+  --md-sys-color-on-primary: #FFFFFF;
+  --md-sys-color-primary-container: #FFD9E2;
+  --md-sys-color-on-primary-container: #3E001D;
+
+  /* Secondary palette */
+  --md-sys-color-secondary: #8C4955;
+  --md-sys-color-on-secondary: #FFFFFF;
+  --md-sys-color-secondary-container: #FFD9DE;
+  --md-sys-color-on-secondary-container: #3A0715;
+
+  /* Tertiary palette */
+  --md-sys-color-tertiary: #6D5C3E;
+  --md-sys-color-on-tertiary: #FFFFFF;
+  --md-sys-color-tertiary-container: #F6E0BB;
+  --md-sys-color-on-tertiary-container: #231A07;
+
+  /* Error palette */
+  --md-sys-color-error: #BA1A1A;
+  --md-sys-color-on-error: #FFFFFF;
+  --md-sys-color-error-container: #FFDAD6;
+  --md-sys-color-on-error-container: #410002;
+
+  /* Surface palette */
+  --md-sys-color-surface: #FFFFFF;
+  --md-sys-color-surface-dim: #EED4D6;
+  --md-sys-color-surface-bright: #FFF8F7;
+  --md-sys-color-surface-container-lowest: #FFFFFF;
+  --md-sys-color-surface-container-low: #FFF0F1;
+  --md-sys-color-surface-container: #FCEEEF;
+  --md-sys-color-surface-container-high: #F6E8E9;
+  --md-sys-color-surface-container-highest: #F0E2E3;
+  --md-sys-color-on-surface: #201A1B;
+  --md-sys-color-on-surface-variant: #524345;
+
+  /* Outline */
+  --md-sys-color-outline: #847374;
+  --md-sys-color-outline-variant: #D7C1C3;
+
+  /* Inverse */
+  --md-sys-color-inverse-surface: #362F30;
+  --md-sys-color-inverse-on-surface: #FBEEEE;
+  --md-sys-color-inverse-primary: #FFB1C5;
+
+  /* Elevation */
+  --md-sys-elevation-level0: 0px 0px 0px 0px rgba(0,0,0,0);
+  --md-sys-elevation-level1: 0px 1px 3px 1px rgba(0,0,0,0.15), 0px 1px 2px 0px rgba(0,0,0,0.3);
+  --md-sys-elevation-level2: 0px 2px 6px 2px rgba(0,0,0,0.15), 0px 1px 2px 0px rgba(0,0,0,0.3);
+  --md-sys-elevation-level3: 0px 4px 8px 3px rgba(0,0,0,0.15), 0px 1px 3px 0px rgba(0,0,0,0.3);
+  --md-sys-elevation-level4: 0px 6px 10px 4px rgba(0,0,0,0.15), 0px 2px 3px 0px rgba(0,0,0,0.3);
+  --md-sys-elevation-level5: 0px 8px 12px 6px rgba(0,0,0,0.15), 0px 4px 4px 0px rgba(0,0,0,0.3);
+
+  /* Shape */
+  --md-sys-shape-corner-none: 0px;
+  --md-sys-shape-corner-extra-small: 4px;
+  --md-sys-shape-corner-small: 8px;
+  --md-sys-shape-corner-medium: 12px;
+  --md-sys-shape-corner-large: 16px;
+  --md-sys-shape-corner-extra-large: 28px;
+  --md-sys-shape-corner-full: 50%;
+
+  /* Typography - 适配 240x320 小屏幕 */
+  --md-sys-typescale-display-large-size: 28px;
+  --md-sys-typescale-display-large-weight: 400;
+  --md-sys-typescale-display-medium-size: 24px;
+  --md-sys-typescale-display-medium-weight: 400;
+  --md-sys-typescale-display-small-size: 20px;
+  --md-sys-typescale-display-small-weight: 400;
+  --md-sys-typescale-headline-large-size: 18px;
+  --md-sys-typescale-headline-large-weight: 400;
+  --md-sys-typescale-headline-medium-size: 16px;
+  --md-sys-typescale-headline-medium-weight: 400;
+  --md-sys-typescale-headline-small-size: 14px;
+  --md-sys-typescale-headline-small-weight: 400;
+  --md-sys-typescale-title-large-size: 14px;
+  --md-sys-typescale-title-large-weight: 400;
+  --md-sys-typescale-title-medium-size: 12px;
+  --md-sys-typescale-title-medium-weight: 500;
+  --md-sys-typescale-title-small-size: 11px;
+  --md-sys-typescale-title-small-weight: 500;
+  --md-sys-typescale-body-large-size: 11px;
+  --md-sys-typescale-body-large-weight: 400;
+  --md-sys-typescale-body-medium-size: 10px;
+  --md-sys-typescale-body-medium-weight: 400;
+  --md-sys-typescale-body-small-size: 9px;
+  --md-sys-typescale-body-small-weight: 400;
+  --md-sys-typescale-label-large-size: 10px;
+  --md-sys-typescale-label-large-weight: 500;
+  --md-sys-typescale-label-medium-size: 9px;
+  --md-sys-typescale-label-medium-weight: 500;
+  --md-sys-typescale-label-small-size: 8px;
+  --md-sys-typescale-label-small-weight: 500;
+}
+
+/* ============ Reset ============ */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+* {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+input, textarea, [contenteditable] {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  user-select: text;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  background: var(--md-sys-color-surface-bright);
+  color: var(--md-sys-color-on-surface);
+}
+
+#app {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+  background: var(--md-sys-color-surface-bright);
+}
+
+/* ============ Focus Ring (MD3) ============ */
+[data-navable]:focus,
+button:focus,
+a:focus,
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+[data-navable] {
+  cursor: default;
+}
+
+/* ============ Button Reset ============ */
+button {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+/* ============ Image ============ */
+img {
+  display: block;
+  max-width: 100%;
+}
+
+/* ============ Scrollable ============ */
+.scroll-y {
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.scroll-y::-webkit-scrollbar {
+  display: none;
+}
+
+/* ============ Screen Layout ============ */
+.screen {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--md-sys-color-surface-bright);
+}
+
+/* ============ Top App Bar ============ */
+.top-bar {
+  height: 28px;
+  background: var(--md-sys-color-surface);
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  font-size: var(--md-sys-typescale-title-medium-size);
+  font-weight: var(--md-sys-typescale-title-medium-weight);
+  color: var(--md-sys-color-on-surface);
+  box-shadow: var(--md-sys-elevation-level1);
+  z-index: 10;
+  position: relative;
+}
+
+.top-bar .title {
+  flex: 1;
+  font-size: var(--md-sys-typescale-title-medium-size);
+  font-weight: var(--md-sys-typescale-title-medium-weight);
+  color: var(--md-sys-color-on-surface);
+}
+
+.top-bar .action {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--md-sys-shape-corner-full);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* ============ Main Content ============ */
+.main {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  background: var(--md-sys-color-surface-bright);
+}
+
+/* ============ Bottom Navigation ============ */
+.bottom-nav {
+  height: 64px;
+  background: var(--md-sys-color-surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  box-shadow: var(--md-sys-elevation-level2);
+  z-index: 10;
+  position: relative;
+}
+
+.bottom-nav .tab {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: var(--md-sys-typescale-label-medium-size);
+  font-weight: var(--md-sys-typescale-label-medium-weight);
+  color: var(--md-sys-color-on-surface-variant);
+  background: transparent;
+  border: none;
+  position: relative;
+  transition: color 0.2s ease;
+}
+
+.bottom-nav .tab::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 64px;
+  height: 32px;
+  border-radius: var(--md-sys-shape-corner-large);
+  background: var(--md-sys-color-primary);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.bottom-nav .tab.active {
+  color: var(--md-sys-color-primary);
+}
+
+.bottom-nav .tab.active::before {
+  opacity: 0.12;
+}
+
+.bottom-nav .tab .icon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.bottom-nav .tab .label {
+  font-size: var(--md-sys-typescale-label-small-size);
+  font-weight: var(--md-sys-typescale-label-small-weight);
+  line-height: 1;
+}
+
+/* ============ Soft Key Bar ============ */
+.softkey-bar {
+  height: 28px;
+  background: var(--md-sys-color-surface-container);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  font-size: var(--md-sys-typescale-label-medium-size);
+  font-weight: var(--md-sys-typescale-label-medium-weight);
+  color: var(--md-sys-color-on-surface-variant);
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.softkey-bar .left,
+.softkey-bar .right {
+  min-width: 24px;
+  text-align: center;
+  padding: 8px 12px;
+  border-radius: var(--md-sys-shape-corner-small);
+  transition: background 0.2s ease;
+}
+
+.softkey-bar .left:active,
+.softkey-bar .right:active {
+  background: var(--md-sys-color-surface-container-high);
+}
+
+/* ============ Cards ============ */
+.card {
+  background: var(--md-sys-color-surface);
+  border-radius: var(--md-sys-shape-corner-medium);
+  box-shadow: var(--md-sys-elevation-level1);
+  overflow: hidden;
+  margin: 8px 12px;
+}
+
+.card-outlined {
+  background: var(--md-sys-color-surface);
+  border-radius: var(--md-sys-shape-corner-medium);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  overflow: hidden;
+  margin: 8px 12px;
+}
+
+.card-filled {
+  background: var(--md-sys-color-surface-container-low);
+  border-radius: var(--md-sys-shape-corner-medium);
+  overflow: hidden;
+  margin: 8px 12px;
+}
+
+/* ============ Buttons ============ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 24px;
+  border-radius: var(--md-sys-shape-corner-large);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  color: var(--md-sys-color-primary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--md-sys-color-primary);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.btn:hover::before,
+.btn:active::before {
+  opacity: 0.08;
+}
+
+.btn-filled {
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  box-shadow: var(--md-sys-elevation-level1);
+}
+
+.btn-filled::before {
+  background: var(--md-sys-color-on-primary);
+}
+
+.btn-tonal {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.btn-tonal::before {
+  background: var(--md-sys-color-on-secondary-container);
+}
+
+.btn-outlined {
+  border: 1px solid var(--md-sys-color-outline);
+}
+
+/* ============ FAB (Floating Action Button) ============ */
+.fab {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--md-sys-elevation-level3);
+  border: none;
+  cursor: pointer;
+  font-size: 24px;
+  position: fixed;
+  bottom: 80px;
+  right: 16px;
+  z-index: 20;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.fab:active {
+  box-shadow: var(--md-sys-elevation-level1);
+  transform: scale(0.95);
+}
+
+/* ============ Loading ============ */
+.loading {
+  text-align: center;
+  padding: 24px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-medium-size);
+}
+
+/* ============ Empty State ============ */
+.empty {
+  text-align: center;
+  padding: 40px 24px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.empty .title {
+  font-size: var(--md-sys-typescale-title-medium-size);
+  font-weight: var(--md-sys-typescale-title-medium-weight);
+  color: var(--md-sys-color-on-surface);
+  margin-bottom: 8px;
+}
+
+.empty .hint {
+  font-size: var(--md-sys-typescale-body-medium-size);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* ============ Toast / Snackbar ============ */
+.toast {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--md-sys-color-inverse-surface);
+  color: var(--md-sys-color-inverse-on-surface);
+  padding: 14px 16px;
+  border-radius: var(--md-sys-shape-corner-small);
+  font-size: var(--md-sys-typescale-body-medium-size);
+  box-shadow: var(--md-sys-elevation-level3);
+  z-index: 1000;
+  min-width: 200px;
+  max-width: 90vw;
+  text-align: center;
+}
+
+/* ============ Lists ============ */
+.list-item {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  gap: 16px;
+  min-height: 56px;
+  position: relative;
+  transition: background 0.15s ease;
+}
+
+.list-item:hover,
+.list-item:focus {
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.list-item .leading {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--md-sys-shape-corner-small);
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 20px;
+}
+
+.list-item .content {
+  flex: 1;
+  min-width: 0;
+}
+
+.list-item .content .title {
+  font-size: var(--md-sys-typescale-body-large-size);
+  font-weight: var(--md-sys-typescale-body-large-weight);
+  color: var(--md-sys-color-on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.list-item .content .subtitle {
+  font-size: var(--md-sys-typescale-body-medium-size);
+  color: var(--md-sys-color-on-surface-variant);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+.list-item .trailing {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+/* ============ Dividers ============ */
+.divider {
+  height: 1px;
+  background: var(--md-sys-color-outline-variant);
+  margin: 0 16px;
+}
+
+/* ============ Chips ============ */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 16px;
+  border-radius: var(--md-sys-shape-corner-small);
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-label-large-size);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.chip.active {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  border-color: transparent;
+}
+
+/* ============ Progress ============ */
+.progress-linear {
+  width: 100%;
+  height: 4px;
+  background: var(--md-sys-color-surface-container-high);
+  border-radius: var(--md-sys-shape-corner-full);
+  overflow: hidden;
+}
+
+.progress-linear .fill {
+  height: 100%;
+  background: var(--md-sys-color-primary);
+  border-radius: var(--md-sys-shape-corner-full);
+  transition: width 0.3s ease;
+}
+
+/* ============ Ripple Effect (simplified) ============ */
+.ripple {
+  position: relative;
+  overflow: hidden;
+}
+
+.ripple::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--md-sys-color-on-surface);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.ripple:active::after {
+  opacity: 0.08;
+}

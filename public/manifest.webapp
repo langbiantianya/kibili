@@ -1,0 +1,24 @@
+{
+  "version": "1.0.0",
+  "name": "bilibili",
+  "description": "哔哩哔哩 - KaiOS 第三方客户端",
+  "launch_path": "/index.html",
+  "icons": {
+    "56": "/icons/icon-56.png",
+    "112": "/icons/icon-112.png"
+  },
+  "developer": {
+    "name": "Bilibili KaiOS",
+    "url": "https://example.com"
+  },
+  "type": "privileged",
+  "permissions": {
+    "systemXHR": { "description": "使用系统 XHR 访问 B 站 API" },
+    "audio-channel-content": { "description": "听视频模式后台音频" }
+  },
+  "locales": {
+    "zh-CN": { "name": "哔哩哔哩", "description": "KaiOS 哔哩哔哩第三方客户端" }
+  },
+  "default_locale": "zh-CN",
+  "orientation": "portrait"
+}
