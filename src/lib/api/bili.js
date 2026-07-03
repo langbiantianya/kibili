@@ -156,13 +156,22 @@ export function request(path, opts = {}) {
       xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
     }
 
-    // Cookie 处理: KaiOS 设备手动设置 Cookie header; dev 模式由浏览器自动管理
-    if (needCookie && !isDev) {
+    // Cookie 处理:
+    // - KaiOS 设备: 手动设置 Cookie header (mozSystem XHR 允许)
+    // - Dev 模式: 浏览器禁止设置 Cookie header, 通过 X-Cookie 自定义 header 传递,
+    //   Vite 代理会读取 X-Cookie 并转发为 Cookie header
+    if (needCookie) {
       const u = getStore(user);
       if (u.sessdata) {
         let cookie = 'SESSDATA=' + u.sessdata;
         if (u.bili_jct) cookie += '; bili_jct=' + u.bili_jct;
-        xhr.setRequestHeader('Cookie', cookie);
+        if (isDev) {
+          // Dev 模式: 浏览器禁止设置 Cookie, 通过 X-Cookie 传递
+          xhr.setRequestHeader('X-Cookie', cookie);
+        } else {
+          // KaiOS 设备: mozSystem XHR 允许设置 Cookie
+          xhr.setRequestHeader('Cookie', cookie);
+        }
       }
     }
 

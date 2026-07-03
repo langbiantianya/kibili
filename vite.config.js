@@ -10,11 +10,17 @@ function makeProxyConfig(target) {
     secure: true,
     rewrite: (path) => path.replace(/^\/api-proxy|^\/passport-proxy|^\/vc-proxy|^\/app-proxy|^\/search-proxy/, ''),
     configure: (proxy) => {
-      proxy.on('proxyReq', (proxyReq) => {
+      proxy.on('proxyReq', (proxyReq, req) => {
         // 改写 Referer: 浏览器自动设为 http://localhost:5173, B 站不认
         proxyReq.setHeader('Referer', 'https://www.bilibili.com/');
         proxyReq.setHeader('User-Agent',
           'Mozilla/5.0 (Mobile; KaiOS; rv:48.0) Gecko/48.0 Firefox/48.0 KaiOS/2.4');
+        // 转发客户端手动设置的 Cookie header
+        // 浏览器 XHR 无法直接设置 Cookie, 但可以通过 X-Cookie 等自定义 header 传递
+        const cookieHeader = req.headers['x-cookie'] || req.headers['cookie'];
+        if (cookieHeader) {
+          proxyReq.setHeader('Cookie', cookieHeader);
+        }
         // Host 也会被 changeOrigin 重写, OK
       });
     }

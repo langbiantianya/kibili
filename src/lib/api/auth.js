@@ -28,37 +28,39 @@ export async function webQrPoll(qrcode_key) {
 }
 
 // raw 轮询, 返回完整响应 (包括 code=86038 等非 0 情况)
+// 注意: 使用独立的 XHR, 不走 request() 的 code 校验
 function pollRaw(qrcode_key) {
   return new Promise((resolve, reject) => {
-    import('./bili.js').then(({ request, isDev }) => {
-      const path = '/x/passport-login/web/qrcode/poll?qrcode_key=' + encodeURIComponent(qrcode_key);
-      const base = isDev ? '/passport-proxy' : 'https://passport.bilibili.com';
-      const url = base + path;
+    const isDevMode = typeof import.meta !== 'undefined' &&
+                      import.meta.env && import.meta.env.MODE !== 'production';
+    const url = isDevMode
+      ? '/passport-proxy/x/passport-login/web/qrcode/poll?qrcode_key=' + encodeURIComponent(qrcode_key)
+      : 'https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key=' + encodeURIComponent(qrcode_key);
 
-      const xhr = new XMLHttpRequest(!isDev ? { mozSystem: true } : undefined);
-      xhr.open('GET', url, true);
-      xhr.setRequestHeader('Accept', 'application/json, text/plain, */*');
-      if (!isDev) {
-        xhr.setRequestHeader('User-Agent', 'Mozilla/5.0 (Mobile; KaiOS; rv:48.0) Gecko/48.0 Firefox/48.0 KaiOS/2.4');
-        xhr.setRequestHeader('Referer', 'https://www.bilibili.com/');
+    const xhr = new XMLHttpRequest(!isDevMode ? { mozSystem: true } : undefined);
+    xhr.open('GET', url, true);
+    xhr.setRequestHeader('Accept', 'application/json, text/plain, */*');
+    // KaiOS 设备手动设 Referer/UA (dev 模式浏览器会拒绝)
+    if (!isDevMode) {
+      xhr.setRequestHeader('User-Agent', 'Mozilla/5.0 (Mobile; KaiOS; rv:48.0) Gecko/48.0 Firefox/48.0 KaiOS/2.4');
+      xhr.setRequestHeader('Referer', 'https://www.bilibili.com/');
+    }
+    xhr.responseType = 'json';
+    xhr.timeout = 10000;
+    xhr.onload = () => {
+      let data = xhr.response;
+      if (typeof data === 'string') {
+        try { data = JSON.parse(data); } catch (e) {}
       }
-      xhr.responseType = 'json';
-      xhr.timeout = 10000;
-      xhr.onload = () => {
-        let data = xhr.response;
-        if (typeof data === 'string') {
-          try { data = JSON.parse(data); } catch (e) {}
-        }
-        if (data && typeof data === 'object') {
-          resolve(data);
-        } else {
-          reject(new Error('invalid poll response'));
-        }
-      };
-      xhr.onerror = () => reject(new Error('network error'));
-      xhr.ontimeout = () => reject(new Error('timeout'));
-      xhr.send();
-    });
+      if (data && typeof data === 'object') {
+        resolve(data);
+      } else {
+        reject(new Error('invalid poll response'));
+      }
+    };
+    xhr.onerror = () => reject(new Error('network error'));
+    xhr.ontimeout = () => reject(new Error('timeout'));
+    xhr.send();
   });
 }
 

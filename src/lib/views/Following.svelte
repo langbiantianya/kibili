@@ -1,8 +1,8 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { isLogin, user } from '../stores/user.js';
-  import { getDynamicNew, getDynamicHistory, extractArchive } from '../api/dynamic.js';
-  import { loadDynamicVideos, setIndex, queue } from '../stores/queue.js';
+  import { getDynamicNew, getDynamicHistory, getDynamicAll, extractArchive, extractAuthor } from '../api/dynamic.js';
+  import { setIndex } from '../stores/queue.js';
   import { navigate } from '../router/index.js';
   import { onKey, offKey, moveFocus } from '../keyboard/index.js';
   import { setSoftkeys, showToast } from '../stores/ui.js';
@@ -21,38 +21,75 @@
   // 视频流 (来自关注动态, 过滤 video)
   let videos = [];
   let videoLoading = false;
+  let videoLoadingMore = false;
   let videoError = '';
 
   // 动态流 (含文字 / 图片 / 视频)
   let dynamics = [];
   let dynLoading = false;
+  let dynLoadingMore = false;
   let dynError = '';
   let dynOffsetId = '';
 
-  async function loadVideos() {
+  // 视频分页
+  let videoOffset = '';
+  let videoHasMore = true;
+
+  // 动态分页
+  let dynOffset = '';
+  let dynHasMore = true;
+
+  async function loadVideos(isLoadMore = false) {
     if (!$isLogin) {
       videoError = '请先登录';
       return;
     }
-    videoLoading = true;
+    if (videoLoading || videoLoadingMore || !videoHasMore) return;
+    if (isLoadMore) videoLoadingMore = true;
+    else videoLoading = true;
     videoError = '';
     try {
-      await loadDynamicVideos($user.mid);
-      const unsub = queue.subscribe(q => videos = q.items);
-      unsub();
+      const { getDynamicAll } = await import('../api/dynamic.js');
+      const d = await getDynamicAll({ type: 'video', offset: videoOffset });
+      const items = (d && d.items) ? d.items : [];
+      if (items.length) {
+        const newVideos = items.map(it => {
+          const v = extractArchive(it);
+          if (!v) return null;
+          const author = extractAuthor(it);
+          return {
+            bvid: v.bvid,
+            cid: v.cid,
+            aid: v.aid,
+            title: v.title,
+            pic: v.pic,
+            owner: author,
+            duration: v.duration,
+            stat: v.stat
+          };
+        }).filter(Boolean);
+        videos = videos.concat(newVideos);
+        videoHasMore = d.has_more !== false;
+        videoOffset = d.offset || '';
+      } else {
+        videoHasMore = false;
+      }
     } catch (e) {
       videoError = e.message || '加载失败';
     } finally {
       videoLoading = false;
+      videoLoadingMore = false;
     }
   }
 
-  async function loadDynamics() {
+  async function loadDynamics(isLoadMore = false) {
     if (!$isLogin) {
       dynError = '请先登录';
       return;
     }
-    dynLoading = true;
+    if (dynLoading || dynLoadingMore || !dynHasMore) return;
+    if (isLoadMore) dynLoadingMore = true;
+    else dynLoading = true;
     dynError = '';
     try {
       let d;
@@ -64,17 +101,30 @@
       const cards = (d && d.cards) ? d.cards : [];
       if (cards.length) {
         dynamics = dynamics.concat(cards);
-        // 取最后一条的 desc.dynamic_id 作为下次 offset
         const last = cards[cards.length - 1];
         if (last && last.desc) {
           dynOffsetId = last.desc.dynamic_id;
         }
+      } else {
+        dynHasMore = false;
       }
     } catch (e) {
       dynError = e.message || '加载失败';
     } finally {
       dynLoading = false;
+      dynLoadingMore = false;
     }
+  }
+
+  // 滚动到末尾时加载更多
+  function onMoveFocus(delta) {
+    const moved = moveFocus(delta);
+    if (!moved && delta > 0) {
+      // 向下滚动到末尾, 加载下一页
+      if (activeTab === 0) loadVideos(true);
+      else loadDynamics(true);
+    }
+    return moved;
   }
 
   // 解析 card JSON 字符串
@@ -133,13 +183,10 @@
   onMount(() => {
     setSoftkeys('切Tab', '登录');
     onKey('following', {
-      ArrowDown: () => moveFocus(+1),
-      ArrowUp: () => moveFocus(-1),
+      ArrowDown: () => onMoveFocus(+1),
+      ArrowUp: () => onMoveFocus(-1),
       SoftLeft: () => changeTab(activeTab === 0 ? 1 : 0),
-      '1': () => changeTab(0),
-      '2': () => changeTab(1),
       '0': () => activeTab === 0 ? loadVideos() : loadDynamics(),
-      '5': () => gotoLogin()
     });
     // 默认加载第一个 Tab
     changeTab(0);
@@ -157,21 +204,33 @@
     {#if !$isLogin}
       <EmptyState message="登录后查看关注" hint="按 5 键登录" />
     {:else if activeTab === 0}
-      {#if videoLoading}
+      {#if videoLoading && videos.length === 0}
         <Loading message="加载中..." />
       {:else if videoError}
         <EmptyState message={videoError} />
       {:else}
+        {#if videoLoadingMore}
+          <div class="loading-top">
+            <div class="spinner-small"></div>
+            <span>加载中...</span>
+          </div>
+        {/if}
         <FeedList items={videos} on:play={(e) => playVideo(e.detail)} />
       {/if}
     {:else}
-      {#if dynLoading}
+      {#if dynLoading && dynamics.length === 0}
         <Loading message="加载中..." />
       {:else if dynError}
         <EmptyState message={dynError} />
       {:else if dynamics.length === 0}
         <EmptyState message="暂无动态" />
       {:else}
+        {#if dynLoadingMore}
+          <div class="loading-top">
+            <div class="spinner-small"></div>
+            <span>加载中...</span>
+          </div>
+        {/if}
         <div class="dyn-list scroll-y">
           {#each dynamics as d (d.desc && d.desc.dynamic_id)}
             {@const v = dynVideo(d)}
@@ -244,5 +303,29 @@
     color: var(--md-sys-color-on-surface-variant);
     font-size: var(--md-sys-typescale-body-small-size);
     margin-top: 1px;
+  }
+
+  /* ============ Loading Top ============ */
+  .loading-top {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px;
+    font-size: var(--md-sys-typescale-body-small-size);
+    color: var(--md-sys-color-on-surface-variant);
+    background: var(--md-sys-color-surface-container);
+    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  }
+  .spinner-small {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--md-sys-color-outline-variant);
+    border-top-color: var(--md-sys-color-primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
   }
 </style>

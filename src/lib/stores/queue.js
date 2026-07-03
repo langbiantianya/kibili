@@ -46,8 +46,10 @@ export async function loadFolder(media_id, label = '收藏夹') {
 
 // 加载首页推荐
 export async function loadFeed() {
-  const d = await getRecommend({ ps: 20, version: 1 });
-  const items = (d && d.item) ? d.item : [];
+  // 尝试旧版接口 (version=0), 新版可能需要登录
+  const d = await getRecommend({ ps: 20, version: 0, fresh_idx: 1, fresh_idx_1h: 1 });
+  // 新版推荐接口返回 data.item 数组, 旧版返回 data 数组
+  const items = (d && d.item) ? d.item : ((d && Array.isArray(d)) ? d : []);
   queue.set({
     items: items.map(v => ({
       bvid: v.bvid,
