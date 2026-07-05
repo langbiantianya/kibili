@@ -241,8 +241,27 @@
     }
   }
 
+  let isPlaying = false; // 当前播放状态
+
+  let activeTabKey = 'detail'; // 当前激活的 tab
+
+  function onTabChange(e) {
+    activeTabKey = e.detail;
+    updateSoftkeys();
+  }
+
+  function onPlayState(e) {
+    isPlaying = e.detail.playing;
+    updateSoftkeys();
+  }
+
+  function updateSoftkeys() {
+    const centerLabel = isPlaying ? '暂停' : '播放';
+    setSoftkeys('全屏', '回复', centerLabel);
+  }
+
   onMount(() => {
-    setSoftkeys('', '返回');
+    updateSoftkeys();
     loadVideo();
   });
 
@@ -276,6 +295,8 @@
         on:ended={onEnded}
         on:listenon={onListenOn}
         on:listenoff={onListenOff}
+        on:tabchange={onTabChange}
+        on:playstate={onPlayState}
       />
     {:else}
       <EmptyState message="暂无数据" />

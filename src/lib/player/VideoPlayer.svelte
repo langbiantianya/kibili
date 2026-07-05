@@ -4,6 +4,8 @@
   import { bumpVol } from './volume.js';
   import { settings } from '../stores/settings.js';
   import { moveFocus } from '../keyboard/index.js';
+  import { getSubReplies, addReply } from '../api/interact.js';
+  import { showToast } from '../stores/ui.js';
 
   // 双模式播放器:
   //  - mode='video': 用 <video> 播放视频流 (含画面)
@@ -26,6 +28,15 @@
   export let replies = [];
   export let replyLoading = false;
 
+  // 子评论展开状态: rpid -> { expanded: bool, loading: bool, replies: [] }
+  let subRepliesMap = {};
+
+  // 评论回复
+  let replyText = '';
+  let replySending = false;
+  let replyError = '';
+  let replyTarget = null; // { rpid, uname, rootRpid? } 回复目标，null 为回复视频
+
   let video;
   let audio;
   /** @type {any} */
@@ -37,6 +48,7 @@
   let duration = 0;
   let error = '';
   let buffered = 0; // 缓冲进度
+  let isFullscreen = false; // 全屏状态
 
   // 长按检测
   const LONG_PRESS_MS = 400; // 长按阈值
@@ -74,7 +86,7 @@
   }
 
   function onTimeUpdate() {
-    const m = media;
+    const m = mode === 'audio' ? audio : video;
     if (m) {
       currentTime = m.currentTime;
       // 更新缓冲进度
@@ -84,7 +96,13 @@
     }
   }
 
-  function onPlay() {}
+  function onPlay() {
+    dispatch('playstate', { playing: true });
+  }
+
+  function onPause() {
+    dispatch('playstate', { playing: false });
+  }
 
   function onMediaError(e) {
     error = mode === 'audio' ? '音频错误' : '视频错误';
@@ -99,20 +117,35 @@
   }
 
   function togglePlay() {
-    const m = media;
+    const m = mode === 'audio' ? audio : video;
     if (!m) return;
     if (m.paused) m.play().catch(() => {});
     else m.pause();
   }
 
+  function toggleFullscreen() {
+    if (!root) return;
+    if (document.mozFullScreenElement) {
+      document.mozCancelFullScreen();
+    } else {
+      if (root.mozRequestFullScreen) {
+        root.mozRequestFullScreen();
+      }
+    }
+  }
+
+  function onFullscreenChange() {
+    isFullscreen = !!document.mozFullScreenElement;
+  }
+
   function seek(delta) {
-    const m = media;
+    const m = mode === 'audio' ? audio : video;
     if (!m) return;
     m.currentTime = Math.max(0, Math.min(m.duration || 0, m.currentTime + delta));
   }
 
   function bumpVolume(delta) {
-    const m = media;
+    const m = mode === 'audio' ? audio : video;
     if (!m) return;
     const newVol = bumpVol(m.volume, delta);
     m.volume = newVol;
@@ -136,6 +169,89 @@
     const selector = activeTab === 0 ? '.detail-scroll' : '.comment-scroll';
     const el = root && root.querySelector(selector);
     if (el) el.scrollTop += delta * SCROLL_STEP;
+  }
+
+  // ========== 子评论 ==========
+  // 加载子评论，打平显示
+  async function loadSubReplies(c) {
+    if (!meta || !meta.aid) return;
+    const rpid = c.rpid;
+    // 已展开则收起
+    if (subRepliesMap[rpid] && subRepliesMap[rpid].expanded) {
+      subRepliesMap[rpid] = { ...subRepliesMap[rpid], expanded: false };
+      subRepliesMap = subRepliesMap;
+      return;
+    }
+    // 已加载过则直接展开
+    if (subRepliesMap[rpid] && subRepliesMap[rpid].replies.length) {
+      subRepliesMap[rpid] = { ...subRepliesMap[rpid], expanded: true };
+      subRepliesMap = subRepliesMap;
+      return;
+    }
+    // 首次加载
+    subRepliesMap[rpid] = { expanded: false, loading: true, replies: [] };
+    subRepliesMap = subRepliesMap;
+    try {
+      const oid = meta.aid || meta.bvid;
+      const data = await getSubReplies(oid, rpid);
+      const replies = (data && data.replies) ? data.replies : [];
+      subRepliesMap[rpid] = { expanded: true, loading: false, replies };
+      subRepliesMap = subRepliesMap;
+    } catch (e) {
+      subRepliesMap[rpid] = { expanded: false, loading: false, replies: [] };
+      subRepliesMap = subRepliesMap;
+    }
+  }
+
+  // 获取子评论中被回复人的名字
+  function getReplyToName(r, rootComment, siblingReplies) {
+    const msg = r.content && r.content.message || '';
+    const match = msg.match(/^回复 @(.+?)\s*:/);
+    if (match) return match[1];
+    if (r.parent === rootComment.rpid) return rootComment.member.uname;
+    const found = siblingReplies.find(s => s.rpid === r.parent);
+    if (found) return found.member.uname;
+    return '';
+  }
+
+  // ========== 评论回复 ==========
+  // 设置回复目标
+  function setReplyTarget(c, sub) {
+    if (sub) {
+      replyTarget = { rpid: sub.rpid, uname: sub.member.uname, rootRpid: c.rpid };
+    } else if (c) {
+      replyTarget = { rpid: c.rpid, uname: c.member.uname };
+    } else {
+      replyTarget = null;
+    }
+  }
+
+  // 发送评论
+  async function sendReply(text) {
+    if (!text.trim()) return;
+    if (!meta || !meta.aid) {
+      replyError = '无法评论';
+      return;
+    }
+    replySending = true;
+    replyError = '';
+    try {
+      const oid = meta.aid || meta.bvid;
+      let root = 0;
+      let parent = 0;
+      if (replyTarget) {
+        root = replyTarget.rootRpid || replyTarget.rpid;
+        parent = replyTarget.rpid;
+      }
+      await addReply(oid, text.trim(), { root, parent });
+      replyText = '';
+      replyTarget = null;
+      showToast('评论发送成功');
+    } catch (e) {
+      replyError = e.message || '发送失败';
+    } finally {
+      replySending = false;
+    }
   }
 
   // 长按检测: 开始
@@ -254,7 +370,13 @@
 
     const onKeyUp = (e) => {
       const key = e.key;
-      if (!keyTimers[key] && !longPressed[key]) return; // 不是我们的按键
+      // Enter 和 SoftLeft / SoftRight 不需要长按检测，直接处理
+      if (key === 'Enter' || key === 'SoftLeft' || key === 'SoftRight') {
+        // 这些按键在 keydown 中没有进入 startLongPress，所以 keyTimers[key] 为 undefined
+        // 直接处理即可
+      } else if (!keyTimers[key] && !longPressed[key]) {
+        return; // 不是我们的按键
+      }
 
       switch (key) {
         case 'ArrowUp':
@@ -297,18 +419,74 @@
           break;
         case 'Enter':
           e.preventDefault();
-          togglePlay();
+          // 只有在评论区且聚焦在某条评论上时，才展开子评论，否则播放/暂停
+          if (activeTab === 1) {
+            const focused = document.querySelector('.comment-item:focus, .sub-item:focus');
+            if (focused) {
+              const rpid = Number(focused.dataset.rpid);
+              // 查找对应的根评论
+              const rootComment = replies.find(c => c.rpid === rpid);
+              if (rootComment && rootComment.rcount > 0) {
+                loadSubReplies(rootComment);
+              }
+            } else {
+              togglePlay();
+            }
+          } else {
+            togglePlay();
+          }
+          break;
+        case 'SoftLeft':
+          e.preventDefault();
+          toggleFullscreen();
+          break;
+        case 'SoftRight':
+          e.preventDefault();
+          // 在评论区时，设置回复目标并聚焦输入框
+          if (activeTab === 1) {
+            const focused = document.querySelector('.comment-item:focus, .sub-item:focus');
+            if (focused) {
+              const rpid = Number(focused.dataset.rpid);
+              // 查找对应的根评论
+              const rootComment = replies.find(c => c.rpid === rpid);
+              if (rootComment) {
+                setReplyTarget(rootComment);
+              } else {
+                // 查找子评论
+                for (const c of replies) {
+                  const sub = subRepliesMap[c.rpid];
+                  if (sub && sub.replies) {
+                    const subComment = sub.replies.find(r => r.rpid === rpid);
+                    if (subComment) {
+                      setReplyTarget(c, subComment);
+                      break;
+                    }
+                  }
+                }
+              }
+            } else {
+              // 未选中评论，回复视频本身
+              setReplyTarget(null);
+            }
+            // 聚焦输入框
+            setTimeout(() => {
+              const textarea = document.querySelector('.reply-bar textarea');
+              if (textarea) textarea.focus();
+            }, 100);
+          }
           break;
       }
     };
 
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
+    document.addEventListener('mozfullscreenchange', onFullscreenChange);
 
     // 返回清理函数
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
+      document.removeEventListener('mozfullscreenchange', onFullscreenChange);
       clearAllTimers();
     };
   });
@@ -333,6 +511,7 @@
           on:timeupdate={onTimeUpdate}
           on:progress={onTimeUpdate}
           on:play={onPlay}
+          on:pause={onPause}
           on:ended={onVideoEnded}
           on:error={onMediaError}
         ></video>
@@ -347,6 +526,7 @@
           on:timeupdate={onTimeUpdate}
           on:progress={onTimeUpdate}
           on:play={onPlay}
+          on:pause={onPause}
           on:ended={onAudioEnded}
           on:error={onMediaError}
         ></audio>
@@ -486,7 +666,10 @@
           </div>
         {:else}
           {#each replies as c (c.rpid)}
-            <div class="comment-item" data-navable tabindex="0" data-rpid={c.rpid}>
+            {@const sub = subRepliesMap[c.rpid]}
+            <div class="comment-item" data-navable tabindex="0" data-rpid={c.rpid}
+                 on:click={() => setReplyTarget(c)}
+                 on:keydown={(e) => { if (e.key === 'Enter' && c.rcount > 0) loadSubReplies(c); }}>
               <div class="comment-head">
                 <img class="comment-face" src={c.member.face} alt="" />
                 <span class="comment-name">{c.member.uname}</span>
@@ -496,9 +679,35 @@
               <div class="comment-stat">
                 <span>❤ {formatCount(c.like)}</span>
                 {#if c.rcount > 0}
-                  <span>💬 {formatCount(c.rcount)}</span>
+                  <span class="sub-toggle">💬 {formatCount(c.rcount)}{sub && sub.expanded ? ' ▼' : ' ▶'}</span>
                 {/if}
               </div>
+              <!-- 子评论打平显示 -->
+              {#if sub && sub.loading}
+                <div class="sub-loading">
+                  <div class="spinner-small"></div>
+                  <span>加载中...</span>
+                </div>
+              {:else if sub && sub.expanded && sub.replies.length}
+                {#each sub.replies as r (r.rpid)}
+                  {@const replyName = getReplyToName(r, c, sub.replies)}
+                  <div class="sub-item" data-navable tabindex="0" data-rpid={r.rpid}
+                       on:click={() => setReplyTarget(c, r)}>
+                    <div class="comment-head">
+                      <img class="comment-face" src={r.member.face} alt="" />
+                      <span class="comment-name">{r.member.uname}</span>
+                      {#if replyName}
+                        <span class="reply-to">回复 @{replyName}</span>
+                      {/if}
+                      <span class="comment-time">{relativeTime(r.ctime)}</span>
+                    </div>
+                    <div class="comment-content">{r.content.message}</div>
+                    <div class="comment-stat">
+                      <span>❤ {formatCount(r.like)}</span>
+                    </div>
+                  </div>
+                {/each}
+              {/if}
             </div>
           {/each}
           {#if replyLoading}
@@ -506,6 +715,24 @@
               <div class="spinner-small"></div>
               <span>加载中...</span>
             </div>
+          {/if}
+        {/if}
+        <!-- 评论回复输入框 -->
+        {#if activeTab === 1}
+          <div class="reply-bar">
+            <textarea
+              placeholder={replyTarget ? `回复 @${replyTarget.uname}...` : '写评论...'}
+              disabled={replySending}
+              value={replyText}
+              on:input={(e) => replyText = e.target.value}
+              on:keydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply(replyText); } }}
+            ></textarea>
+            <button class="reply-send" disabled={replySending || !replyText.trim()} on:click={() => sendReply(replyText)}>
+              发送
+            </button>
+          </div>
+          {#if replyError}
+            <div class="reply-error">{replyError}</div>
           {/if}
         {/if}
       </div>
@@ -876,6 +1103,80 @@
     margin-top: 4px;
     display: flex;
     gap: 8px;
+  }
+  .sub-toggle {
+    cursor: pointer;
+  }
+
+  /* 子评论 */
+  .sub-loading {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 30px;
+    padding: 4px 0;
+    font-size: 10px;
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  .sub-item {
+    margin-left: 30px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+    outline: none;
+  }
+  .sub-item:focus {
+    background: var(--md-sys-color-surface-container-high);
+  }
+  .reply-to {
+    font-size: 10px;
+    color: var(--md-sys-color-on-surface-variant);
+  }
+
+  /* 评论回复输入框 */
+  .reply-bar {
+    display: flex;
+    gap: 8px;
+    padding: 8px;
+    border-top: 1px solid var(--md-sys-color-outline-variant);
+    background: var(--md-sys-color-surface);
+  }
+  .reply-bar textarea {
+    flex: 1;
+    min-height: 32px;
+    max-height: 80px;
+    padding: 6px 10px;
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: var(--md-sys-shape-corner-small);
+    background: var(--md-sys-color-surface-container-low);
+    color: var(--md-sys-color-on-surface);
+    font-size: var(--md-sys-typescale-body-medium-size);
+    resize: none;
+    outline: none;
+  }
+  .reply-bar textarea:focus {
+    border-color: var(--md-sys-color-primary);
+  }
+  .reply-send {
+    padding: 6px 12px;
+    border: none;
+    border-radius: var(--md-sys-shape-corner-small);
+    background: var(--md-sys-color-primary);
+    color: var(--md-sys-color-on-primary);
+    font-size: var(--md-sys-typescale-body-small-size);
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .reply-send:disabled {
+    background: var(--md-sys-color-outline-variant);
+    color: var(--md-sys-color-on-surface-variant);
+    cursor: not-allowed;
+  }
+  .reply-error {
+    padding: 4px 12px;
+    font-size: var(--md-sys-typescale-body-small-size);
+    color: var(--md-sys-color-error);
+    background: var(--md-sys-color-surface-container);
+    text-align: center;
   }
 
   /* ========== 空状态 / 加载 ========== */
