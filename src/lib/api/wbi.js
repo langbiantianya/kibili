@@ -39,14 +39,59 @@ function extractKey(url) {
 }
 
 // 主动从 getNav 拉一次 (用户登录或 app 启动时调用)
+// 注意: getNav 在未登录时返回 code=-101, 但 wbi_img 仍然可用
+// 所以这里用 rawRequest 绕过 code 校验, 直接提取 wbi_img
 export async function refreshWbiKeys() {
   if (wbiKeys.imgKey && wbiKeys.subKey && (Date.now() - wbiKeys.updatedAt) < WBI_KEYS_TTL) {
     return wbiKeys;
   }
   try {
-    const { getNav } = await import('./user.js');
-    const nav = await getNav();
-    if (nav) updateWbiKeysFromNav(nav);
+    // 直接请求 nav 接口, 不走 getNav (getNav 会因 code!==0 抛异常, 导致拿不到 wbi_img)
+    const isProd = !(typeof import.meta !== 'undefined' &&
+                     import.meta.env && import.meta.env.MODE !== 'production');
+    const baseUrl = isProd ? 'https://api.bilibili.com' : '/api-proxy';
+    const url = baseUrl + '/x/web-interface/nav';
+
+    // 在创建 XHR 之前准备好 buvid (KaiOS 设备端需要注入 Cookie)
+    let buvidCookie = '';
+    if (isProd) {
+      // 动态 import 避免循环依赖 (wbi.js ← bili.js ← wbi.js)
+      const { getBuvid } = await import('./bili.js');
+      const bv = getBuvid();
+      buvidCookie = 'buvid3=' + bv.buvid3 + '; buvid4=' + bv.buvid4 + '; b_nut=' + bv.b_nut;
+    }
+
+    const resp = await new Promise((resolve, reject) => {
+      // KaiOS 设备: 必须用 mozSystem XHR 才能跨域请求 api.bilibili.com
+      // Dev 模式: 普通 XHR 即可 (Vite 代理同源)
+      let xhr;
+      try { xhr = new XMLHttpRequest({ mozSystem: true }); } catch (e) { xhr = new XMLHttpRequest(); }
+      xhr.open('GET', url, true);
+      // KaiOS 设备: mozSystem XHR 允许设置 Referer 等 header
+      if (isProd) {
+        try { xhr.setRequestHeader('Referer', 'https://www.bilibili.com/'); } catch (e) {}
+        try { xhr.setRequestHeader('User-Agent', 'Mozilla/5.0 (Mobile; KaiOS; rv:48.0) Gecko/48.0 Firefox/48.0 KaiOS/2.4'); } catch (e) {}
+        if (buvidCookie) {
+          try { xhr.setRequestHeader('Cookie', buvidCookie); } catch (e) {}
+        }
+      }
+      xhr.responseType = 'json';
+      xhr.timeout = 10000;
+      xhr.onload = () => {
+        let data = xhr.response;
+        if (typeof data === 'string') {
+          try { data = JSON.parse(data); } catch (e) { reject(e); return; }
+        }
+        resolve(data);
+      };
+      xhr.onerror = () => reject(new Error('network error'));
+      xhr.ontimeout = () => reject(new Error('timeout'));
+      xhr.send(null);
+    });
+    // 即使 code !== 0 (如 -101 未登录), data.wbi_img 仍然可用
+    if (resp && resp.data && resp.data.wbi_img) {
+      updateWbiKeysFromNav(resp.data);
+    }
   } catch (e) {
     // ignore - keep existing
   }

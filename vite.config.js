@@ -1,9 +1,24 @@
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import legacy from '@vitejs/plugin-legacy';
+import crypto from 'crypto';
+
+// 生成 buvid 设备标识 (B站风控要求, 缺失会 -412)
+// buvid3: 32位hex + 8位随机hex
+// buvid4: 格式为 XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX+时间戳
+// b_nut: Unix 时间戳 (ms)
+function generateBuvid() {
+  const hex32 = crypto.randomBytes(16).toString('hex');
+  const buvid3 = hex32 + crypto.randomBytes(4).toString('hex');
+  const ts = Date.now();
+  const buvid4 = crypto.randomUUID().toUpperCase() + ts;
+  const b_nut = ts;
+  return { buvid3, buvid4, b_nut };
+}
 
 // 改写 Referer / User-Agent, 让 B 站服务端不拒绝 (请求来自 localhost)
 function makeProxyConfig(target) {
+  const buvid = generateBuvid();
   return {
     target,
     changeOrigin: true,
@@ -14,13 +29,22 @@ function makeProxyConfig(target) {
         // 改写 Referer: 浏览器自动设为 http://localhost:5173, B 站不认
         proxyReq.setHeader('Referer', 'https://www.bilibili.com/');
         proxyReq.setHeader('User-Agent',
-          'Mozilla/5.0 (Mobile; KaiOS; rv:48.0) Gecko/48.0 Firefox/48.0 KaiOS/2.4');
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
         // 转发客户端手动设置的 Cookie header
-        // 浏览器 XHR 无法直接设置 Cookie, 但可以通过 X-Cookie 等自定义 header 传递
-        const cookieHeader = req.headers['x-cookie'] || req.headers['cookie'];
-        if (cookieHeader) {
-          proxyReq.setHeader('Cookie', cookieHeader);
+        // 浏览器 XHR 无法直接设置 Cookie, 但可以通过 X-Cookie 自定义 header 传递
+        let cookieHeader = req.headers['x-cookie'] || req.headers['cookie'] || '';
+        // 补充 buvid 设备标识 (B站风控要求, 缺失会 -412)
+        // 注意: 即使无 x-cookie 也要注入 buvid
+        if (!cookieHeader.includes('buvid3')) {
+          cookieHeader += (cookieHeader ? '; ' : '') + 'buvid3=' + buvid.buvid3;
         }
+        if (!cookieHeader.includes('buvid4')) {
+          cookieHeader += '; buvid4=' + buvid.buvid4;
+        }
+        if (!cookieHeader.includes('b_nut')) {
+          cookieHeader += '; b_nut=' + buvid.b_nut;
+        }
+        proxyReq.setHeader('Cookie', cookieHeader);
         // Host 也会被 changeOrigin 重写, OK
       });
     }

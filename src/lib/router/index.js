@@ -6,14 +6,15 @@ import { writable } from 'svelte/store';
 export const route = writable(location.hash || '#/home');
 
 const ROUTES = {
-  '#/home':      () => import('../views/Home.svelte'),
-  '#/following': () => import('../views/Following.svelte'),
-  '#/profile':   () => import('../views/Profile.svelte'),
+  '#/home':      () => import('../views/MainLayout.svelte'),
+  '#/following': () => import('../views/MainLayout.svelte'),
+  '#/profile':   () => import('../views/MainLayout.svelte'),
   '#/history':   () => import('../views/History.svelte'),
   '#/favorites': () => import('../views/Favorites.svelte'),
   '#/folder':    () => import('../views/FolderContents.svelte'),
   '#/player':    () => import('../views/Player.svelte'),
-  '#/login':     () => import('../views/Login.svelte')
+  '#/login':     () => import('../views/Login.svelte'),
+  '#/dynamic-detail': () => import('../views/DynamicDetail.svelte')
 };
 
 window.addEventListener('hashchange', () => {
@@ -41,7 +42,9 @@ export function back() {
 }
 
 export async function loadView(hash) {
-  const loader = ROUTES[hash] || ROUTES['#/home'];
+  // 去掉 query 参数, 只取路径部分
+  const path = hash.split('?')[0];
+  const loader = ROUTES[path] || ROUTES['#/home'];
   const mod = await loader();
   return mod.default;
 }

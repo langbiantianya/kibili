@@ -17,8 +17,9 @@ export function formatDuration(s) {
 
 // 12345 -> 1.2万
 export function formatCount(n) {
-  if (n == null) return '0';
-  if (n < 10000) return String(n);
+  n = Number(n);
+  if (n == null || isNaN(n)) return '0';
+  if (n < 10000) return String(Math.floor(n));
   if (n < 100000000) return (n / 10000).toFixed(1) + '万';
   return (n / 100000000).toFixed(1) + '亿';
 }

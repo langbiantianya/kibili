@@ -4,13 +4,12 @@
   import { onKey, offKey, moveFocus } from './lib/keyboard/index.js';
   import { isLogin, hydrateFromNav } from './lib/stores/user.js';
   import { showToast, setSoftkeys } from './lib/stores/ui.js';
-  import TopNav from './lib/components/TopNav.svelte';
+  import { refreshWbiKeys } from './lib/api/wbi.js';
   import SoftkeyBar from './lib/components/SoftkeyBar.svelte';
   import Toast from './lib/components/Toast.svelte';
 
   let currentView = null;
   let currentRoute = '';
-  let topNavRef = null;
 
   async function renderRoute(hash) {
     if (hash === currentRoute && currentView) return;
@@ -55,6 +54,9 @@
   }
 
   onMount(() => {
+    // 启动时预加载 WBI keys (即使未登录也需要, B站多数接口强制 WBI 签名)
+    refreshWbiKeys();
+
     // 启动时尝试 hydrate 用户信息
     if ($isLogin) {
       hydrateFromNav();
@@ -76,7 +78,6 @@
 </script>
 
 <div class="app-root">
-  <TopNav bind:this={topNavRef} />
   {#if currentView}
     <svelte:component this={currentView} />
   {:else}
@@ -98,8 +99,10 @@
     background: var(--md-sys-color-surface-bright);
     color: var(--md-sys-color-on-surface);
   }
+  .app-root > :global(.main-layout),
   .app-root > :global(.screen) {
     flex: 1;
+    min-height: 0;
   }
   .loading-screen {
     flex: 1;

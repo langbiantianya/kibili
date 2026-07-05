@@ -11,7 +11,10 @@
   import { setSoftkeys, showToast } from "../stores/ui.js";
 
   onMount(() => {
-    setSoftkeys("操作", "登录");
+    // 根据登录状态设置软键
+    const leftLabel = $isLogin ? '操作' : '操作';
+    const rightLabel = $isLogin ? '登出' : '登录';
+    setSoftkeys(leftLabel, rightLabel);
     // 已登录则刷新用户信息
     if ($isLogin) {
       hydrateFromNav();

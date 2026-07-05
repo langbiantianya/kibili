@@ -55,24 +55,87 @@ export async function getDynamicHistory(uid, { offset_dynamic_id, type_list = 26
 }
 
 // ============ 解析辅助 ============
-// 解析 web 端 dynamic item, 提取视频 (type 8 = 视频)
+// 解析 web 端 dynamic item, 提取附件 (视频/合集/专栏/图片等)
 export function extractArchive(dynamicItem) {
   if (!dynamicItem) return null;
-  // web 端结构: modules.module_dynamic.major.archive
   const m = dynamicItem.modules && dynamicItem.modules.module_dynamic;
-  if (!m || !m.major || m.major.type !== 'MAJOR_TYPE_ARCHIVE') return null;
-  const a = m.major.archive;
-  if (!a) return null;
-  return {
-    bvid: a.bvid,
-    aid: a.aid,
-    cid: a.cid,
-    title: a.title,
-    pic: a.cover,
-    desc: a.desc,
-    duration: a.duration_text,
-    stat: a.stat
-  };
+  if (!m || !m.major) return null;
+
+  const majorType = m.major.type;
+
+  // 视频
+  if (majorType === 'MAJOR_TYPE_ARCHIVE' && m.major.archive) {
+    const a = m.major.archive;
+    return {
+      type: 'archive',
+      bvid: a.bvid,
+      aid: a.aid,
+      cid: a.cid,
+      title: a.title,
+      pic: a.cover,
+      desc: a.desc,
+      duration: a.duration_text,
+      stat: a.stat
+    };
+  }
+
+  // 合集
+  if (majorType === 'MAJOR_TYPE_UGC_SEASON' && m.major.ugc_season) {
+    const a = m.major.ugc_season;
+    return {
+      type: 'ugc_season',
+      title: a.title || '',
+      pic: a.cover || '',
+      desc: a.desc || '',
+      duration: a.duration_text || '',
+      stat: a.stat
+    };
+  }
+
+  // 专栏
+  if (majorType === 'MAJOR_TYPE_ARTICLE' && m.major.article) {
+    const a = m.major.article;
+    return {
+      type: 'article',
+      title: a.title || '',
+      pic: (a.covers && a.covers[0]) || '',
+      desc: a.desc || '',
+      label: a.label || ''
+    };
+  }
+
+  // 带图动态
+  if (majorType === 'MAJOR_TYPE_DRAW' && m.major.draw) {
+    const a = m.major.draw;
+    return {
+      type: 'draw',
+      items: (a.items || []).map(it => it.src)
+    };
+  }
+
+  // 图文动态 (opus)
+  if (majorType === 'MAJOR_TYPE_OPUS' && m.major.opus) {
+    const a = m.major.opus;
+    return {
+      type: 'opus',
+      title: a.title || '',
+      pic: (a.pics && a.pics[0]) || '',
+      desc: a.summary ? a.summary.text : ''
+    };
+  }
+
+  // 直播
+  if (majorType === 'MAJOR_TYPE_LIVE' && m.major.live) {
+    const a = m.major.live;
+    return {
+      type: 'live',
+      title: a.title || '',
+      pic: a.cover || '',
+      desc: a.desc || ''
+    };
+  }
+
+  return null;
 }
 
 // 解析 web 端 dynamic item, 提取作者
