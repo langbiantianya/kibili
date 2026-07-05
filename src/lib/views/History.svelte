@@ -23,7 +23,7 @@
     // 把这一项作为单元素 queue, 跳到 player
     import('../stores/queue.js').then(({ queue }) => {
       queue.set({ items: [{ ...item }], index: 0, source: 'history', label: '历史记录' });
-      navigate('#/player');
+      navigate('#/player?bvid=' + item.bvid);
     });
   }
 

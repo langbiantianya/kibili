@@ -38,13 +38,13 @@
   function playVideo(v) {
     const idx = items.findIndex(x => x.bvid === v.bvid);
     if (idx >= 0) setIndex(idx);
-    navigate('#/player');
+    navigate('#/player?bvid=' + v.bvid);
   }
 
   function playAll() {
     if (items.length === 0) return;
     setIndex(0);
-    navigate('#/player');
+    navigate('#/player?bvid=' + items[0].bvid);
   }
 
   onMount(() => {

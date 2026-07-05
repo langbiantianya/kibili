@@ -223,7 +223,7 @@
   function playVideo(v) {
     const idx = videos.findIndex(x => x.bvid === v.bvid);
     if (idx >= 0) setIndex(idx);
-    navigate('#/player');
+    navigate('#/player?bvid=' + v.bvid);
   }
 
   // 打开动态详情

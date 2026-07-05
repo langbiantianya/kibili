@@ -4,20 +4,13 @@
   import { getVideoInfo, getPlayUrl, getDashUrls } from '../api/video.js';
   import { getReplies, getStatus, likeVideo, coinVideo, favVideo, unfavVideo, tripleAction } from '../api/interact.js';
   import { isLogin } from '../stores/user.js';
-  import { onKey, offKey, moveFocus } from '../keyboard/index.js';
-  import { navigate, back } from '../router/index.js';
+  import { onKey, offKey } from '../keyboard/index.js';
+  import { back } from '../router/index.js';
   import { setSoftkeys, showToast } from '../stores/ui.js';
   import { addLocal } from '../stores/history.js';
   import VideoPlayer from '../player/VideoPlayer.svelte';
-  import VideoMeta from '../components/VideoMeta.svelte';
-  import InteractBar from '../components/InteractBar.svelte';
-  import CommentList from '../components/CommentList.svelte';
-  import TabBar from '../components/TabBar.svelte';
   import Loading from '../components/Loading.svelte';
   import EmptyState from '../components/EmptyState.svelte';
-
-  let tab = 'play';            // 'play' | 'detail'
-  let detailSection = 0;       // 0=meta, 1=interact, 2=comments
 
   let videoSrc = '';           // 视频流 URL (mp4 / m4s)
   let audioSrc = '';           // 音频流 URL (m4s, 听视频模式)
@@ -36,15 +29,33 @@
   let replySort = 2;
   let replyLoading = false;
 
-  const detailTabs = [
-    { key: 'meta',     label: '简介' },
-    { key: 'interact', label: '互动' },
-    { key: 'comments', label: '评论' }
-  ];
-
+  /** @type {any} */
   $: current = $queue.items[$queue.index];
 
+  // 从 URL query 参数获取 bvid
+  function getBvidFromUrl() {
+    const hash = location.hash || '';
+    const match = hash.match(/[?&]bvid=([^&]+)/);
+    return match ? match[1] : '';
+  }
+
   async function loadVideo() {
+    // 优先从 URL 参数获取 bvid
+    const urlBvid = getBvidFromUrl();
+    if (urlBvid) {
+      // 如果 URL 中有 bvid，但 queue 中没有对应视频，需要设置 queue
+      if (!current || current.bvid !== urlBvid) {
+        // 尝试在 queue 中查找
+        const idx = $queue.items.findIndex(/** @param {any} x */ x => x.bvid === urlBvid);
+        if (idx >= 0) {
+          // 在 queue 中，设置 index
+          import('../stores/queue.js').then(({ setIndex }) => {
+            setIndex(idx);
+          });
+        }
+      }
+    }
+
     if (!current) {
       error = '队列为空';
       loading = false;
@@ -151,7 +162,7 @@
   function needLogin() {
     if (!$isLogin) {
       showToast('请先登录');
-      navigate('#/login');
+      // navigate('#/login');
     }
     return $isLogin;
   }
@@ -230,89 +241,44 @@
     }
   }
 
-  function changeDetailSection(i) {
-    detailSection = i;
-  }
-
-  function onKeyEvent(e) {
-    // 数字键: 详情页
-    if (tab === 'detail') {
-      if (e.key === '1' || e.keyCode === 49) { e.preventDefault(); doLike(); return; }
-      if (e.key === '2' || e.keyCode === 50) { e.preventDefault(); doCoin(); return; }
-      if (e.key === '3' || e.keyCode === 51) { e.preventDefault(); doFav(); return; }
-      if (e.key === '0' || e.keyCode === 48) { e.preventDefault(); doTriple(); return; }
-    }
-    // 5: 切 tab
-    if (e.key === '5' || e.keyCode === 53) {
-      e.preventDefault();
-      tab = tab === 'play' ? 'detail' : 'play';
-      setSoftkeys(tab === 'play' ? '详情' : '播放', '返回');
-      return;
-    }
-  }
-
   onMount(() => {
-    setSoftkeys('详情', '返回');
+    setSoftkeys('', '返回');
     loadVideo();
-    window.addEventListener('keydown', onKeyEvent);
   });
 
   onDestroy(() => {
     offKey('player');
-    window.removeEventListener('keydown', onKeyEvent);
   });
 </script>
 
 <div class="screen">
   <div class="main player-main">
-    {#if tab === 'play'}
-      {#if loading}
-        <Loading message="加载中..." />
-      {:else if error}
-        <div class="status err">
-          <p>{error}</p>
-          <p class="hint">按 Back 返回</p>
-        </div>
-      {:else if videoSrc}
-        <VideoPlayer
-          src={videoSrc}
-          audioSrc={audioSrc}
-          {poster}
-          {title}
-          mode={playerMode}
-          resumeAt={resumeAt}
-          on:ended={onEnded}
-          on:listenon={onListenOn}
-          on:listenoff={onListenOff}
-        />
-      {/if}
-    {:else}
-      <TabBar tabs={detailTabs} active={detailSection} on:change={(e) => changeDetailSection(e.detail)} />
-      <div class="detail-area">
-        {#if detailSection === 0}
-          <VideoMeta {meta} />
-        {:else if detailSection === 1}
-          <InteractBar
-            {status}
-            {counts}
-            loading={loadingFlag}
-            on:like={doLike}
-            on:coin={doCoin}
-            on:fav={doFav}
-            on:needlogin={needLogin}
-          />
-          <div class="tip">
-            <p>1=点赞  2=投币  3=收藏  0=一键三连</p>
-            <p>←→ 切换区段  5 返回播放</p>
-          </div>
-        {:else}
-          {#if replyLoading}
-            <Loading message="加载评论..." />
-          {:else}
-            <CommentList {replies} />
-          {/if}
-        {/if}
+    {#if loading}
+      <Loading message="加载中..." />
+    {:else if error}
+      <div class="status err">
+        <p>{error}</p>
+        <p class="hint">按 Back 返回</p>
       </div>
+    {:else if videoSrc}
+      <VideoPlayer
+        src={videoSrc}
+        audioSrc={audioSrc}
+        {poster}
+        {title}
+        mode={playerMode}
+        resumeAt={resumeAt}
+        {meta}
+        {status}
+        {counts}
+        {replies}
+        {replyLoading}
+        on:ended={onEnded}
+        on:listenon={onListenOn}
+        on:listenoff={onListenOff}
+      />
+    {:else}
+      <EmptyState message="暂无数据" />
     {/if}
   </div>
 </div>
@@ -322,15 +288,6 @@
     background: var(--md-sys-color-surface-bright);
     display: flex;
     flex-direction: column;
-  }
-  .detail-area {
-    flex: 1;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-  }
-  .detail-area > :global(*) {
-    flex-shrink: 0;
   }
   .status {
     padding: 20px 8px;
@@ -345,15 +302,5 @@
     font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
     margin-top: 4px;
-  }
-  .tip {
-    padding: 4px 8px;
-    background: var(--md-sys-color-surface-container-low);
-    font-size: var(--md-sys-typescale-body-small-size);
-    color: var(--md-sys-color-on-surface-variant);
-    border-top: 1px solid var(--md-sys-color-outline-variant);
-  }
-  .tip p {
-    margin: 1px 0;
   }
 </style>
