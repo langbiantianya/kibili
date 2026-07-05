@@ -1,28 +1,29 @@
 <script>
-  import { route, navigate } from '../router/index.js';
+  import { location as routerLocation } from 'svelte-spa-router';
+  import { navigate } from '../router/index.js';
 
   // 三 Tab: home / following / profile
   const tabs = [
-    { key: 'home',      label: '首页',   hash: '#/home' },
-    { key: 'following', label: '关注',   hash: '#/following' },
-    { key: 'profile',   label: '我的',   hash: '#/profile' }
+    { key: 'home',      label: '首页',   path: '/home' },
+    { key: 'following', label: '关注',   path: '/following' },
+    { key: 'profile',   label: '我的',   path: '/profile' }
   ];
 
-  function currentKey(/** @type {string} */ hash) {
-    const h = hash || '#/home';
-    const t = tabs.find(x => h.startsWith(x.hash));
+  function currentKey(/** @type {string} */ path) {
+    const p = path || '/home';
+    const t = tabs.find(x => p.startsWith(x.path));
     if (t) return t.key;
-    if (h.startsWith('#/folder') || h.startsWith('#/favorites')) return 'profile';
-    if (h.startsWith('#/player')) return 'home';
-    if (h.startsWith('#/history')) return 'profile';
-    if (h.startsWith('#/login')) return 'profile';
+    if (p.startsWith('/folder') || p.startsWith('/favorites')) return 'profile';
+    if (p.startsWith('/player')) return 'home';
+    if (p.startsWith('/history')) return 'profile';
+    if (p.startsWith('/login')) return 'profile';
     return 'home';
   }
 
-  $: cur = currentKey($route);
+  $: cur = currentKey($routerLocation);
 
   function clickTab(t) {
-    navigate(t.hash);
+    navigate(t.path);
   }
 
   // 暴露给父组件用于程序化切换
@@ -30,7 +31,7 @@
     const idx = tabs.findIndex(t => t.key === cur);
     const newIdx = Math.max(0, Math.min(tabs.length - 1, idx + direction));
     if (newIdx !== idx) {
-      navigate(tabs[newIdx].hash);
+      navigate(tabs[newIdx].path);
     }
   }
 

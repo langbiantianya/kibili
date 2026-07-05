@@ -1,29 +1,35 @@
 <script>
+  import Router, { location as routerLocation } from 'svelte-spa-router';
   import { onMount } from 'svelte';
-  import { route, loadView, navigate } from './lib/router/index.js';
-  import { onKey, offKey, moveFocus } from './lib/keyboard/index.js';
+  import { onKey, offKey } from './lib/keyboard/index.js';
   import { isLogin, hydrateFromNav } from './lib/stores/user.js';
-  import { showToast, setSoftkeys } from './lib/stores/ui.js';
+  import { setSoftkeys } from './lib/stores/ui.js';
   import { refreshWbiKeys } from './lib/api/wbi.js';
+  import { navigate } from './lib/router/index.js';
   import SoftkeyBar from './lib/components/SoftkeyBar.svelte';
   import Toast from './lib/components/Toast.svelte';
 
-  let currentView = null;
-  let currentRoute = '';
+  // Route definitions
+  import MainLayout from './lib/views/MainLayout.svelte';
+  import History from './lib/views/History.svelte';
+  import Favorites from './lib/views/Favorites.svelte';
+  import FolderContents from './lib/views/FolderContents.svelte';
+  import Player from './lib/views/Player.svelte';
+  import Login from './lib/views/Login.svelte';
+  import DynamicDetail from './lib/views/DynamicDetail.svelte';
 
-  async function renderRoute(hash) {
-    if (hash === currentRoute && currentView) return;
-    currentRoute = hash;
-    try {
-      const Comp = await loadView(hash);
-      currentView = Comp;
-    } catch (e) {
-      console.error('load view err:', e);
-      showToast('页面加载失败');
-    }
-  }
-
-  $: renderRoute($route);
+  const routes = {
+    '/home': MainLayout,
+    '/following': MainLayout,
+    '/profile': MainLayout,
+    '/history': History,
+    '/favorites': Favorites,
+    '/folder': FolderContents,
+    '/player': Player,
+    '/login': Login,
+    '/dynamic-detail': DynamicDetail,
+    '*': MainLayout // fallback
+  };
 
   // 全局键位
   function onGlobalKey(e) {
@@ -33,18 +39,18 @@
 
   // 主 Tab 切换：左右键切换首页/关注/我的
   function switchMainTab(direction) {
-    const mainTabs = ['#/home', '#/following', '#/profile'];
-    const currentHash = $route || '#/home';
+    const mainTabs = ['/home', '/following', '/profile'];
+    const currentPath = $routerLocation || '/home';
     // 找到当前属于哪个主 tab
     let currentMainIdx = 0;
     for (let i = 0; i < mainTabs.length; i++) {
-      if (currentHash.startsWith(mainTabs[i])) {
+      if (currentPath.startsWith(mainTabs[i])) {
         currentMainIdx = i;
         break;
       }
     }
     // 只在主页面之间切换
-    const isMainPage = mainTabs.some(t => currentHash.startsWith(t));
+    const isMainPage = mainTabs.some(t => currentPath.startsWith(t));
     if (!isMainPage) return;
 
     const newIdx = Math.max(0, Math.min(mainTabs.length - 1, currentMainIdx + direction));
@@ -66,7 +72,7 @@
     onKey('global', {
       ArrowLeft: () => switchMainTab(-1),
       ArrowRight: () => switchMainTab(+1),
-      '0': () => { location.hash = '#/home'; }
+      '0': () => { navigate('/home'); }
     });
 
     window.addEventListener('keydown', onGlobalKey);
@@ -78,14 +84,7 @@
 </script>
 
 <div class="app-root">
-  {#if currentView}
-    <svelte:component this={currentView} />
-  {:else}
-    <div class="loading-screen">
-      <div class="spinner"></div>
-      <span>加载中...</span>
-    </div>
-  {/if}
+  <Router {routes} />
   <SoftkeyBar />
   <Toast />
 </div>
@@ -103,26 +102,5 @@
   .app-root > :global(.screen) {
     flex: 1;
     min-height: 0;
-  }
-  .loading-screen {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    color: var(--md-sys-color-on-surface-variant);
-    font-size: var(--md-sys-typescale-body-medium-size);
-  }
-  .loading-screen .spinner {
-    width: 32px;
-    height: 32px;
-    border: 3px solid var(--md-sys-color-outline-variant);
-    border-top-color: var(--md-sys-color-primary);
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-  }
-  @keyframes spin {
-    to { transform: rotate(360deg); }
   }
 </style>

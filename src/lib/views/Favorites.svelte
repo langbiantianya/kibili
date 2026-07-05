@@ -35,11 +35,11 @@
   }
 
   function openFolder(f) {
-    navigate('#/folder?fid=' + f.fid + '&title=' + encodeURIComponent(f.title));
+    navigate('/folder?fid=' + f.fid + '&title=' + encodeURIComponent(f.title));
   }
 
   function gotoLogin() {
-    navigate('#/login');
+    navigate('/login');
   }
 
   onMount(() => {

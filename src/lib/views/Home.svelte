@@ -51,7 +51,7 @@
   function playVideo(video) {
     const idx = items.findIndex(x => x.bvid === video.bvid);
     if (idx >= 0) setIndex(idx);
-    navigate('#/player?bvid=' + video.bvid);
+    navigate('/player?bvid=' + video.bvid);
   }
 
   function refresh() {

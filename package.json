@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "core-js": "^3.35.0",
-    "qrcode-generator": "^2.0.4"
+    "qrcode-generator": "^2.0.4",
+    "svelte-spa-router": "^4.0.2"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^2.5.0",

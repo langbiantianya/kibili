@@ -31,11 +31,11 @@
   });
 
   $: visibleMenuItems = [
-    { key: "history", label: "历史记录", action: () => navigate("#/history") },
+    { key: "history", label: "历史记录", action: () => navigate("/history") },
     {
       key: "favorites",
       label: "我的收藏",
-      action: () => navigate("#/favorites"),
+      action: () => navigate("/favorites"),
     },
     ...($isLogin ? [{ key: "logout", label: "登出", action: () => onLogoutClick() }] : []),
   ];
@@ -55,9 +55,9 @@
       data-navable
       tabindex="0"
       role="button"
-      on:click={() => navigate("#/login")}
+      on:click={() => navigate("/login")}
       on:keydown={(e) => {
-        if (e.key === "Enter") navigate("#/login");
+        if (e.key === "Enter") navigate("/login");
       }}
     >
       <div class="avatar">

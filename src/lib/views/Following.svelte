@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { isLogin, user } from '../stores/user.js';
   import { getDynamicNew, getDynamicHistory, getDynamicAll, extractArchive, extractAuthor } from '../api/dynamic.js';
-  import { setIndex } from '../stores/queue.js';
+  import { queue } from '../stores/queue.js';
   import { navigate } from '../router/index.js';
   import { onKey, offKey, moveFocus } from '../keyboard/index.js';
   import { setSoftkeys, showToast } from '../stores/ui.js';
@@ -20,6 +20,7 @@
   let activeTab = 0;
 
   // 视频流 (来自关注动态, 过滤 video)
+  /** @type {any[]} */
   let videos = [];
   let videoLoading = false;
   let videoLoadingMore = false;
@@ -222,8 +223,9 @@
 
   function playVideo(v) {
     const idx = videos.findIndex(x => x.bvid === v.bvid);
-    if (idx >= 0) setIndex(idx);
-    navigate('#/player?bvid=' + v.bvid);
+    // 将 Following 视频列表写入 queue，而非沿用首页推荐的 queue
+    queue.set({ items: [...videos], index: idx >= 0 ? idx : 0, source: 'following', label: '关注·视频' });
+    navigate('/player?bvid=' + v.bvid);
   }
 
   // 打开动态详情
@@ -231,12 +233,12 @@
   function openDynamicDetail(d) {
     const id = d.id_str || (d.desc && d.desc.dynamic_id);
     if (id) {
-      navigate('#/dynamic-detail?id=' + id);
+      navigate('/dynamic-detail?id=' + id);
     }
   }
 
   function gotoLogin() {
-    navigate('#/login');
+    navigate('/login');
   }
 
   function changeTab(i) {
@@ -260,7 +262,7 @@
           else { dynamics = []; dynOffset = ''; dynHasMore = true; loadDynamics(); }
         } else {
           // 未登录: 跳转登录页
-          navigate('#/login');
+          navigate('/login');
         }
       },
       SoftRight: () => changeTab(activeTab === 0 ? 1 : 0),

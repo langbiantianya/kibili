@@ -95,7 +95,7 @@
         } catch (e) { /* ignore */ }
         stage = 'success';
         showToast('登录成功');
-        setTimeout(() => navigate('#/profile'), 1000);
+        setTimeout(() => navigate('/profile'), 1000);
       } else if (POLL_HINTS[statusCode]) {
         pollHint = POLL_HINTS[statusCode];
         if (statusCode === 86038) {

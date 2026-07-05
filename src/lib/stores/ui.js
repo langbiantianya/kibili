@@ -1,7 +1,7 @@
 import { writable } from 'svelte/store';
 
 export const ui = writable({
-  route: '#/home',
+  route: '/home',
   softkeys: { left: '菜单', center: '', right: '...' },
   toast: '',
   toastTimer: null

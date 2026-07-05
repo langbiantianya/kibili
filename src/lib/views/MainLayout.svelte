@@ -1,22 +1,23 @@
 <script>
-  import { route } from '../router/index.js';
+  import { location as routerLocation } from 'svelte-spa-router';
   import TopNav from '../components/TopNav.svelte';
   import Home from './Home.svelte';
   import Following from './Following.svelte';
   import Profile from './Profile.svelte';
 
   const pages = {
-    '#/home': Home,
-    '#/following': Following,
-    '#/profile': Profile
+    '/home': Home,
+    '/following': Following,
+    '/profile': Profile
   };
 
-  function getPage(hash) {
-    const path = hash.split('?')[0];
-    return pages[path] || Home;
+  function getPage(path) {
+    // Remove query string if any
+    const cleanPath = path.split('?')[0];
+    return pages[cleanPath] || Home;
   }
 
-  $: currentPage = getPage($route);
+  $: currentPage = getPage($routerLocation);
 </script>
 
 <div class="main-layout">
