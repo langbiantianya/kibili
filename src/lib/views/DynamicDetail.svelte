@@ -1,14 +1,14 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { navigate, back } from '../router/index.js';
   import { onKey, offKey, moveFocus } from '../keyboard/index.js';
   import { setSoftkeys } from '../stores/ui.js';
   import Loading from '../components/Loading.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import { getDynamicDetail } from '../api/dynamic.js';
-  import { getReplies } from '../api/interact.js';
+  import { getReplies, getSubReplies, addReply } from '../api/interact.js';
   import { formatCount, relativeTime, stripHtml } from '../utils/format.js';
   import { biliImg } from '../utils/platform.js';
+  import CommentReply from '../components/CommentReply.svelte';
 
   // 从 URL hash 参数获取动态 ID
   // 格式: #/dynamic-detail?id=xxx
@@ -36,6 +36,31 @@
   let commentsError = '';
   let commentPage = 1;
   let commentHasMore = true;
+
+  // 子评论展开状态: rpid -> { expanded: bool, loading: bool, replies: [] }
+  let subRepliesMap = {};
+
+  // 评论回复
+  let replyText = '';
+  let replySending = false;
+  let replyError = '';
+  let replyTarget = null; // { rpid, uname } 回复目标，null 为回复视频
+  let focusedCommentRpid = null; // 当前键盘聚焦的评论 rpid
+
+  // 获取子评论中被回复人的名字
+  // 优先从 message 中的 "回复 @xxx :" 提取，其次从 parent 匹配已有评论
+  function getReplyToName(r, rootComment, siblingReplies) {
+    // 从 message 提取 "回复 @xxx :"
+    const msg = r.content && r.content.message || '';
+    const match = msg.match(/^回复 @(.+?)\s*:/);
+    if (match) return match[1];
+    // 从 parent 匹配: 如果 parent === root，则是回复根评论
+    if (r.parent === rootComment.rpid) return rootComment.member.uname;
+    // 从兄弟评论中查找 parent
+    const found = siblingReplies.find(s => s.rpid === r.parent);
+    if (found) return found.member.uname;
+    return '';
+  }
 
   // 解析动态详情数据
   function parseDetail(data) {
@@ -166,21 +191,161 @@
     }
   }
 
-  function goBack() {
-    back();
+  // 加载子评论，打平显示
+  async function loadSubReplies(c) {
+    if (!detail || !detail.archive || !detail.archive.bvid) return;
+    const rpid = c.rpid;
+    // 已展开则收起
+    if (subRepliesMap[rpid] && subRepliesMap[rpid].expanded) {
+      subRepliesMap[rpid] = { ...subRepliesMap[rpid], expanded: false };
+      subRepliesMap = subRepliesMap; // 触发响应式更新
+      return;
+    }
+    // 已加载过则直接展开
+    if (subRepliesMap[rpid] && subRepliesMap[rpid].replies.length) {
+      subRepliesMap[rpid] = { ...subRepliesMap[rpid], expanded: true };
+      subRepliesMap = subRepliesMap;
+      return;
+    }
+    // 首次加载
+    subRepliesMap[rpid] = { expanded: false, loading: true, replies: [] };
+    subRepliesMap = subRepliesMap;
+    try {
+      const oid = detail.archive.bvid;
+      const data = await getSubReplies(oid, rpid);
+      const replies = (data && data.replies) ? data.replies : [];
+      subRepliesMap[rpid] = { expanded: true, loading: false, replies };
+      subRepliesMap = subRepliesMap;
+    } catch (e) {
+      subRepliesMap[rpid] = { expanded: false, loading: false, replies: [] };
+      subRepliesMap = subRepliesMap;
+    }
+  }
+
+  // 滚动距离（像素）
+  const SCROLL_STEP = 60;
+
+  function scrollDetail(delta) {
+    const el = document.querySelector('.detail-content');
+    if (el) el.scrollTop += delta * SCROLL_STEP;
+  }
+
+  function scrollComments(delta) {
+    const el = document.querySelector('.comment-list');
+    if (el) el.scrollTop += delta * SCROLL_STEP;
+  }
+
+  // 发送评论
+  async function sendReply(text) {
+    if (!text.trim()) return;
+    if (!detail || !detail.archive || !detail.archive.bvid) {
+      replyError = '无法评论';
+      return;
+    }
+    replySending = true;
+    replyError = '';
+    try {
+      const oid = detail.archive.bvid;
+      // replyTarget: { rpid, uname, isSub? }
+      // 如果是子评论，root 是根评论 rpid，parent 是当前评论 rpid
+      // 如果是根评论，root 和 parent 都是该评论 rpid
+      // 回复帖子本身：root=0, parent=0
+      let root = 0;
+      let parent = 0;
+      if (replyTarget) {
+        root = replyTarget.rootRpid || replyTarget.rpid;
+        parent = replyTarget.rpid;
+      }
+      await addReply(oid, text.trim(), { root, parent });
+      replyText = '';
+      replyTarget = null;
+      // 刷新评论列表
+      commentPage = 1;
+      comments = [];
+      commentHasMore = true;
+      await loadComments();
+    } catch (e) {
+      replyError = e.message || '发送失败';
+    } finally {
+      replySending = false;
+    }
+  }
+
+  // 设置回复目标（点击评论卡片时）
+  // c: 根评论; sub: 子评论（可选）
+  function setReplyTarget(c, sub) {
+    if (sub) {
+      // 回复子评论：root 是根评论 rpid，parent 是子评论 rpid
+      replyTarget = { rpid: sub.rpid, uname: sub.member.uname, rootRpid: c.rpid };
+    } else if (c) {
+      // 回复根评论
+      replyTarget = { rpid: c.rpid, uname: c.member.uname };
+    } else {
+      replyTarget = null;
+    }
   }
 
   onMount(() => {
     // 初始软键设置
-    setSoftkeys('返回', '');
+    setSoftkeys('刷新', '');
     loadDetail();
     onKey('dynamic-detail', {
-      ArrowDown: () => moveFocus(+1),
-      ArrowUp: () => moveFocus(-1),
-      SoftLeft: () => goBack(),
+      ArrowDown: () => {
+        if (activeTab === 0) scrollDetail(+1);
+        else {
+          const moved = moveFocus(+1);
+          if (!moved) scrollComments(+1);
+        }
+      },
+      ArrowUp: () => {
+        if (activeTab === 0) scrollDetail(-1);
+        else {
+          const moved = moveFocus(-1);
+          if (!moved) scrollComments(-1);
+        }
+      },
+      ArrowLeft: () => { if (activeTab > 0) changeTab(activeTab - 1); },
+      ArrowRight: () => { if (activeTab < tabs.length - 1) changeTab(activeTab + 1); },
+      SoftLeft: () => loadDetail(),
       SoftRight: () => {
-        if (activeTab === 1) {
-          loadComments(true);
+        if (activeTab === 0) {
+          // 详情 tab：直接评论帖子
+          replyTarget = null;
+          changeTab(1); // 切换到评论 tab
+          // 聚焦输入框
+          setTimeout(() => {
+            const textarea = document.querySelector('.reply-bar textarea');
+            if (textarea) textarea.focus();
+          }, 100);
+        } else if (activeTab === 1) {
+          // 评论 tab：回复当前聚焦的评论
+          const focused = document.querySelector('.comment-item:focus, .sub-item:focus');
+          if (focused) {
+            const rpid = Number(focused.dataset.rpid);
+            // 先查找根评论
+            const rootComment = comments.find(c => c.rpid === rpid);
+            if (rootComment) {
+              setReplyTarget(rootComment);
+            } else {
+              // 查找子评论
+              for (const c of comments) {
+                const sub = subRepliesMap[c.rpid];
+                if (sub && sub.replies) {
+                  const subComment = sub.replies.find(r => r.rpid === rpid);
+                  if (subComment) {
+                    setReplyTarget(c, subComment);
+                    break;
+                  }
+                }
+              }
+            }
+          } else {
+            // 未选中评论，回复帖子本身
+            replyTarget = null;
+          }
+          // 聚焦输入框
+          const textarea = document.querySelector('.reply-bar textarea');
+          if (textarea) textarea.focus();
         }
       },
       '0': () => changeTab(activeTab === 0 ? 1 : 0),
@@ -193,9 +358,9 @@
 
   // 当切换 tab 时更新软键
   $: if (activeTab === 0) {
-    setSoftkeys('返回', '');
+    setSoftkeys('刷新', '评论');
   } else {
-    setSoftkeys('返回', '加载更多');
+    setSoftkeys('刷新', '回复');
   }
 </script>
 
@@ -271,7 +436,10 @@
       {:else}
         <div class="comment-list scroll-y">
           {#each comments as c (c.rpid)}
-            <div class="comment-item" data-navable tabindex="0">
+            {@const sub = subRepliesMap[c.rpid]}
+            <div class="comment-item" data-navable tabindex="0" data-rpid={c.rpid}
+                 on:click={() => setReplyTarget(c)}
+                 on:keydown={(e) => { if (e.key === 'Enter' && c.rcount > 0) loadSubReplies(c); }}>
               <div class="comment-head">
                 <img class="comment-face" src={biliImg(c.member.face, 32, 32)} alt="" />
                 <span class="comment-name">{c.member.uname}</span>
@@ -280,8 +448,36 @@
               <div class="comment-content">{c.content.message}</div>
               <div class="comment-stat">
                 <span>❤ {formatCount(c.like)}</span>
-                {#if c.rcount > 0}<span>💬 {formatCount(c.rcount)}</span>{/if}
+                {#if c.rcount > 0}
+                  <span class="sub-toggle">💬 {formatCount(c.rcount)}{sub && sub.expanded ? ' ▼' : ' ▶'}</span>
+                {/if}
               </div>
+              <!-- 子评论打平显示 -->
+              {#if sub && sub.loading}
+                <div class="sub-loading">
+                  <div class="spinner-small"></div>
+                  <span>加载中...</span>
+                </div>
+              {:else if sub && sub.expanded && sub.replies.length}
+                {#each sub.replies as r (r.rpid)}
+                  {@const replyName = getReplyToName(r, c, sub.replies)}
+                  <div class="sub-item" data-navable tabindex="0" data-rpid={r.rpid}
+                       on:click={() => setReplyTarget(c, r)}>
+                    <div class="comment-head">
+                      <img class="comment-face" src={biliImg(r.member.face, 24, 24)} alt="" />
+                      <span class="comment-name">{r.member.uname}</span>
+                      {#if replyName}
+                        <span class="reply-to">回复 @{replyName}</span>
+                      {/if}
+                      <span class="comment-time">{relativeTime(r.ctime)}</span>
+                    </div>
+                    <div class="comment-content">{r.content.message}</div>
+                    <div class="comment-stat">
+                      <span>❤ {formatCount(r.like)}</span>
+                    </div>
+                  </div>
+                {/each}
+              {/if}
             </div>
           {/each}
           {#if commentsLoading}
@@ -293,6 +489,17 @@
             <div class="no-more">没有更多评论了</div>
           {/if}
         </div>
+        <!-- 评论回复输入框 -->
+        <CommentReply
+          placeholder={replyTarget ? `回复 @${replyTarget.uname}...` : '写评论...'}
+          disabled={replySending}
+          value={replyText}
+          on:input={(e) => replyText = e.detail}
+          on:send={(e) => sendReply(e.detail)}
+        />
+        {#if replyError}
+          <div class="reply-error">{replyError}</div>
+        {/if}
       {/if}
     {/if}
   </div>
@@ -338,6 +545,13 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+    height: 100%;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .detail-content::-webkit-scrollbar {
+    display: none;
   }
   .author-row {
     display: flex;
@@ -430,6 +644,13 @@
 
   .comment-list {
     padding: 4px 8px;
+    height: 100%;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .comment-list::-webkit-scrollbar {
+    display: none;
   }
   .comment-item {
     padding: 8px 0;
@@ -491,6 +712,34 @@
   }
   @keyframes spin {
     to { transform: rotate(360deg); }
+  }
+  .sub-loading {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 30px;
+    padding: 4px 0;
+    font-size: 10px;
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  .sub-item {
+    margin-left: 30px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  }
+  .reply-to {
+    font-size: 10px;
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  .sub-toggle {
+    cursor: pointer;
+  }
+  .reply-error {
+    padding: 4px 12px;
+    font-size: var(--md-sys-typescale-body-small-size);
+    color: var(--md-sys-color-error);
+    background: var(--md-sys-color-surface-container);
+    text-align: center;
   }
   .no-more {
     text-align: center;

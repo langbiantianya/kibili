@@ -29,6 +29,16 @@ export async function getReplies(oid, { pn = 1, ps = 20, sort = 2, nohot = 0 } =
   });
 }
 
+// 获取指定评论的回复（子评论）
+// 端点: GET /x/v2/reply/reply
+// root: 根评论 rpid; type=1 = 视频
+export async function getSubReplies(oid, root, { pn = 1, ps = 20 } = {}) {
+  return get('/x/v2/reply/reply', {
+    query: { type: 1, oid, root, pn, ps },
+    needCookie: true
+  });
+}
+
 // 发表评论 (需登录 + bili_jct)
 // 端点: POST /x/v2/reply/add
 export async function addReply(oid, message, { root = 0, parent = 0, plat = 1 } = {}) {
