@@ -54,30 +54,18 @@ export default defineConfig(({ mode }) => {
 
   return {
     // ⚠️ 重要：使用相对路径，确保 KaiOS 设备上能正确加载资源
-    base: '',
+    base: './',
 
     plugins: [
       svelte(),
       // legacy 插件：只在 build 时生成 legacy chunk
       // dev 模式下 Vite 使用原生 ES Modules，这是正常的
       legacy({
-        targets: ['firefox 48'],
-        renderLegacyChunks: true,
-        modernPolyfills: false,
-        polyfills: [
-          'es.promise',
-          'es.array.iterator',
-          'es.object.assign',
-          'es.symbol',
-          'es.string.starts-with',
-          'es.string.includes',
-          'es.array.from',
-          'es.array.find',
-          'es.array.find-index',
-          'es.object.keys',
-          'es.object.values',
-          'es.object.entries'
-        ]
+        targets: ['Firefox >= 48'], // KaiOS 2.4 的真实内核版本
+        // core-js 会自动根据 targets 注入所需的 polyfill（如 Promise, Map 等）
+        polyfills: true,
+        // 如果你用到了 async/await，必须开启 regenerator
+        additionalLegacyPolyfills: ['regenerator-runtime/runtime']
       })
     ],
 
@@ -96,43 +84,25 @@ export default defineConfig(({ mode }) => {
     },
 
     build: {
-      target: 'es2015',
-      cssCodeSplit: false,
-      outDir: 'build',
-      sourcemap: false,
-      assetsInlineLimit: 4096,
+      // 3. 基础目标设置为 es2015
+      target: "es2015",
+      cssTarget: "firefox48",
+      // 4. 指定压缩器为 terser（Vite 3+ 默认是 esbuild，但 legacy 插件最好配合 terser 使用）
       minify: 'terser',
-      terserOptions: {
-        compress: {
-          drop_console: true,
-          drop_debugger: true,
-          passes: 2
-        },
-        mangle: {
-          properties: false
-        }
-      },
+      // 5. 设置打包输出目录（可选，KaiOS 常用 build 或 www）
+      outDir: 'build',
+      // 让打包后的文件结构更扁平一点，避免某些奇怪的文件系统截断问题
+      assetsDir: 'assets',
+      cssCodeSplit: false,
+      modulePreload: false,
+      assetsInlineLimit: 0,
+      minify: true,
+      ssr: false,
       rollupOptions: {
         output: {
-          manualChunks(id) {
-            if (id.includes('node_modules')) {
-              if (id.includes('svelte')) {
-                return 'svelte'
-              }
-              return 'vendor'
-            }
-            if (id.includes('/lib/api/')) {
-              return 'api'
-            }
-            if (id.includes('/lib/stores/')) {
-              return 'stores'
-            }
-            if (id.includes('/lib/utils/') || id.includes('/lib/helpers/')) {
-              return 'utils'
-            }
-          }
-        }
-      }
+          format: "iife",
+        },
+      },
     },
 
     preview: {

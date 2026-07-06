@@ -313,52 +313,54 @@
         {/if}
         <div class="dyn-list scroll-y">
           {#each dynamics as d (d.id_str)}
-            {@const v = dynVideo(d)}
-            <div class="dyn-item" data-navable tabindex="0"
-                 on:click={() => openDynamicDetail(d)}
-                 on:keydown={(e) => { if (e.key === 'Enter') openDynamicDetail(d); }}>
-              <div class="head">
-                <img class="face" src={dynFace(d)} alt="" />
-                <span class="name">{dynAuthor(d)}</span>
-                <span class="time">{dynTime(d)}</span>
-              </div>
-              {#if dynText(d)}<div class="text">{dynText(d)}</div>{/if}
-              {#if v}
-                <div class="archive">
-                  {#if v.type === 'archive' || v.type === 'ugc_season'}
-                    <!-- 视频/合集 -->
-                    <div class="atitle">{v.title}</div>
-                    <div class="astat">▶ {formatCount((v.stat && (v.stat.play || v.stat.view)) || 0)}</div>
-                  {:else if v.type === 'article'}
-                    <!-- 专栏 -->
-                    <div class="atitle">📄 {v.title}</div>
-                    <div class="astat">{v.label || ''}</div>
-                  {:else if v.type === 'draw'}
-                    <!-- 图片 -->
-                    <div class="draw-preview">
-                      {#each v.items.slice(0, 3) as imgSrc}
-                        <img src={biliImg(imgSrc, 60, 60)} alt="" />
-                      {/each}
+            {#each [dynVideo(d)] as v}
+              <div class="dyn-item" data-navable tabindex="0"
+                   on:click={() => openDynamicDetail(d)}
+                   on:keydown={(e) => { if (e.key === 'Enter') openDynamicDetail(d); }}>
+                <div class="head">
+                  <img class="face" src={dynFace(d)} alt="" />
+                  <span class="name">{dynAuthor(d)}</span>
+                  <span class="time">{dynTime(d)}</span>
+                </div>
+                {#if dynText(d)}<div class="text">{dynText(d)}</div>{/if}
+                {#if v}
+                  <div class="archive">
+                    {#if v.type === 'archive' || v.type === 'ugc_season'}
+                      <!-- 视频/合集 -->
+                      <div class="atitle">{v.title}</div>
+                      <div class="astat">▶ {formatCount((v.stat && (v.stat.play || v.stat.view)) || 0)}</div>
+                    {:else if v.type === 'article'}
+                      <!-- 专栏 -->
+                      <div class="atitle">📄 {v.title}</div>
+                      <div class="astat">{v.label || ''}</div>
+                    {:else if v.type === 'draw'}
+                      <!-- 图片 -->
+                      <div class="draw-preview">
+                        {#each v.items.slice(0, 3) as imgSrc}
+                          <img src={biliImg(imgSrc, 60, 60)} alt="" />
+                        {/each}
+                      </div>
+                    {:else if v.type === 'opus'}
+                      <!-- 图文 -->
+                      <div class="atitle">{v.title || v.desc}</div>
+                    {:else if v.type === 'live'}
+                      <!-- 直播 -->
+                      <div class="atitle">🔴 {v.title}</div>
+                    {/if}
+                  </div>
+                {/if}
+                <!-- 点赞/转发/评论统计 -->
+                {#if d.modules && d.modules.module_stat}
+                  {#each [d.modules.module_stat] as stat}
+                    <div class="dyn-stat">
+                      <span class="stat-item" class:liked={stat.like && stat.like.status}>❤ {formatCount(stat.like && stat.like.count)}</span>
+                      <span class="stat-item">↗ {formatCount(stat.forward && stat.forward.count)}</span>
+                      <span class="stat-item">💬 {formatCount(stat.comment && stat.comment.count)}</span>
                     </div>
-                  {:else if v.type === 'opus'}
-                    <!-- 图文 -->
-                    <div class="atitle">{v.title || v.desc}</div>
-                  {:else if v.type === 'live'}
-                    <!-- 直播 -->
-                    <div class="atitle">🔴 {v.title}</div>
-                  {/if}
-                </div>
-              {/if}
-              <!-- 点赞/转发/评论统计 -->
-              {#if d.modules && d.modules.module_stat}
-                {@const stat = d.modules.module_stat}
-                <div class="dyn-stat">
-                  <span class="stat-item" class:liked={stat.like && stat.like.status}>❤ {formatCount(stat.like && stat.like.count)}</span>
-                  <span class="stat-item">↗ {formatCount(stat.forward && stat.forward.count)}</span>
-                  <span class="stat-item">💬 {formatCount(stat.comment && stat.comment.count)}</span>
-                </div>
-              {/if}
-            </div>
+                  {/each}
+                {/if}
+              </div>
+            {/each}
           {/each}
         </div>
       {/if}

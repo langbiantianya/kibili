@@ -9,8 +9,8 @@
     "112": "/icons/icon-112.png"
   },
   "developer": {
-    "name": "Bilibili KaiOS",
-    "url": "https://example.com"
+    "name": "lnagbiantianya",
+    "url": "https://blog.kxxnzstdsw.com/"
   },
   "type": "privileged",
   "permissions": {
@@ -29,5 +29,5 @@
   "orientation": "portrait",
   "fullscreen": "true",
   "cursor": "false",
-  "origin": "app://bilibili.kaios"
+  "origin": "app://bilibili.com"
 }

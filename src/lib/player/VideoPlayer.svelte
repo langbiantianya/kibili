@@ -670,49 +670,51 @@
           </div>
         {:else}
           {#each replies as c (c.rpid)}
-            {@const sub = subRepliesMap[c.rpid]}
-            <div class="comment-item" data-navable tabindex="0" data-rpid={c.rpid}
-                 on:click={() => setReplyTarget(c)}
-                 on:keydown={(e) => { if (e.key === 'Enter' && c.rcount > 0) loadSubReplies(c); }}>
-              <div class="comment-head">
-                <img class="comment-face" src={c.member.face} alt="" />
-                <span class="comment-name">{c.member.uname}</span>
-                <span class="comment-time">{relativeTime(c.ctime)}</span>
-              </div>
-              <div class="comment-content">{c.content.message}</div>
-              <div class="comment-stat">
-                <span>❤ {formatCount(c.like)}</span>
-                {#if c.rcount > 0}
-                  <span class="sub-toggle">💬 {formatCount(c.rcount)}{sub && sub.expanded ? ' ▼' : ' ▶'}</span>
+            {#each [subRepliesMap[c.rpid]] as sub}
+              <div class="comment-item" data-navable tabindex="0" data-rpid={c.rpid}
+                   on:click={() => setReplyTarget(c)}
+                   on:keydown={(e) => { if (e.key === 'Enter' && c.rcount > 0) loadSubReplies(c); }}>
+                <div class="comment-head">
+                  <img class="comment-face" src={c.member.face} alt="" />
+                  <span class="comment-name">{c.member.uname}</span>
+                  <span class="comment-time">{relativeTime(c.ctime)}</span>
+                </div>
+                <div class="comment-content">{c.content.message}</div>
+                <div class="comment-stat">
+                  <span>❤ {formatCount(c.like)}</span>
+                  {#if c.rcount > 0}
+                    <span class="sub-toggle">💬 {formatCount(c.rcount)}{sub && sub.expanded ? ' ▼' : ' ▶'}</span>
+                  {/if}
+                </div>
+                <!-- 子评论打平显示 -->
+                {#if sub && sub.loading}
+                  <div class="sub-loading">
+                    <div class="spinner-small"></div>
+                    <span>加载中...</span>
+                  </div>
+                {:else if sub && sub.expanded && sub.replies.length}
+                  {#each sub.replies as r (r.rpid)}
+                    {#each [getReplyToName(r, c, sub.replies)] as replyName}
+                      <div class="sub-item" data-navable tabindex="0" data-rpid={r.rpid}
+                           on:click={() => setReplyTarget(c, r)}>
+                        <div class="comment-head">
+                          <img class="comment-face" src={r.member.face} alt="" />
+                          <span class="comment-name">{r.member.uname}</span>
+                          {#if replyName}
+                            <span class="reply-to">回复 @{replyName}</span>
+                          {/if}
+                          <span class="comment-time">{relativeTime(r.ctime)}</span>
+                        </div>
+                        <div class="comment-content">{r.content.message}</div>
+                        <div class="comment-stat">
+                          <span>❤ {formatCount(r.like)}</span>
+                        </div>
+                      </div>
+                    {/each}
+                  {/each}
                 {/if}
               </div>
-              <!-- 子评论打平显示 -->
-              {#if sub && sub.loading}
-                <div class="sub-loading">
-                  <div class="spinner-small"></div>
-                  <span>加载中...</span>
-                </div>
-              {:else if sub && sub.expanded && sub.replies.length}
-                {#each sub.replies as r (r.rpid)}
-                  {@const replyName = getReplyToName(r, c, sub.replies)}
-                  <div class="sub-item" data-navable tabindex="0" data-rpid={r.rpid}
-                       on:click={() => setReplyTarget(c, r)}>
-                    <div class="comment-head">
-                      <img class="comment-face" src={r.member.face} alt="" />
-                      <span class="comment-name">{r.member.uname}</span>
-                      {#if replyName}
-                        <span class="reply-to">回复 @{replyName}</span>
-                      {/if}
-                      <span class="comment-time">{relativeTime(r.ctime)}</span>
-                    </div>
-                    <div class="comment-content">{r.content.message}</div>
-                    <div class="comment-stat">
-                      <span>❤ {formatCount(r.like)}</span>
-                    </div>
-                  </div>
-                {/each}
-              {/if}
-            </div>
+            {/each}
           {/each}
           {#if replyLoading}
             <div class="loading-more">
