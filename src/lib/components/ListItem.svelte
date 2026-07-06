@@ -7,7 +7,7 @@
 </script>
 
 <div
-  class="row"
+  class="list-item-row"
   data-navable
   tabindex="0"
   on:click={() => dispatch('activate', item)}
@@ -17,7 +17,7 @@
   <div class="content">
     <div class="title">{item.title || item.name || ''}</div>
     {#if item.subtitle}
-      <div class="sub">{item.subtitle}</div>
+      <div class="subtitle">{item.subtitle}</div>
     {/if}
   </div>
   {#if item.badge}
@@ -26,7 +26,7 @@
 </div>
 
 <style>
-  .row {
+  .list-item-row {
     display: flex;
     align-items: center;
     min-height: 48px;
@@ -36,8 +36,8 @@
     transition: background 0.15s ease;
     cursor: pointer;
   }
-  .row:focus,
-  .row:hover {
+  .list-item-row:focus,
+  .list-item-row:hover {
     background: var(--md-sys-color-surface-container-high);
   }
   .index {
@@ -61,7 +61,7 @@
     text-overflow: ellipsis;
     font-weight: var(--md-sys-typescale-body-large-weight);
   }
-  .sub {
+  .subtitle {
     font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
     margin-top: 2px;

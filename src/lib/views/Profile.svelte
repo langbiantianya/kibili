@@ -171,7 +171,7 @@
   }
   .arrow {
     color: var(--md-sys-color-on-surface-variant);
-    font-size: 14px;
+    font-size: var(--md-sys-typescale-body-large-size);
   }
   .version {
     text-align: center;

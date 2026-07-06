@@ -24,7 +24,7 @@
 <style>
   .tabbar {
     display: flex;
-    height: 28px;
+    height: var(--kai-top-bar-height);
     background: var(--md-sys-color-surface);
     border-bottom: 1px solid var(--md-sys-color-outline-variant);
     padding: 2px 6px;
@@ -39,7 +39,7 @@
     border: none;
     border-radius: var(--md-sys-shape-corner-small);
     cursor: pointer;
-    transition: background 0.2s ease, color 0.2s ease;
+    transition: background 0.15s ease, color 0.15s ease;
     padding: 0;
   }
   .tab.active {

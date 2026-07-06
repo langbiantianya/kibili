@@ -237,6 +237,10 @@
     replyError = '';
     try {
       const oid = meta.aid || meta.bvid;
+      // replyTarget: { rpid, uname, isSub? }
+      // 如果是子评论，root 是根评论 rpid，parent 是当前评论 rpid
+      // 如果是根评论，root 和 parent 都是该评论 rpid
+      // 回复帖子本身：root=0, parent=0
       let root = 0;
       let parent = 0;
       if (replyTarget) {
@@ -792,22 +796,22 @@
     background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
     color: #fff;
     padding: 4px 6px;
-    font-size: 11px;
+    font-size: var(--md-sys-typescale-body-small-size);
     pointer-events: none;
   }
   .overlay.hidden {
     display: none;
   }
-  .title {
-    font-size: 12px;
+  .overlay .title {
+    font-size: var(--md-sys-typescale-body-large-size);
     color: #fff;
     margin-bottom: 2px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .time {
-    font-size: 10px;
+  .overlay .time {
+    font-size: var(--md-sys-typescale-body-small-size);
     color: #aaa;
   }
   .vol-slider {
@@ -815,7 +819,7 @@
     display: flex;
     align-items: center;
     gap: 4px;
-    font-size: 10px;
+    font-size: var(--md-sys-typescale-body-small-size);
   }
   .vol-slider .bar {
     flex: 1;
@@ -830,12 +834,12 @@
   .listen-badge {
     margin-top: 4px;
     color: var(--md-sys-color-primary);
-    font-size: 10px;
+    font-size: var(--md-sys-typescale-body-small-size);
   }
   .err {
     margin-top: 4px;
-    color: #ff6666;
-    font-size: 10px;
+    color: var(--md-sys-color-error);
+    font-size: var(--md-sys-typescale-body-small-size);
   }
 
   /* ========== 播放进度条 ========== */
@@ -853,7 +857,7 @@
     width: 100%;
     height: 3px;
     background: rgba(255,255,255,0.2);
-    border-radius: 2px;
+    border-radius: var(--md-sys-shape-corner-small);
     overflow: hidden;
   }
   .progress-buffered {
@@ -862,7 +866,7 @@
     left: 0;
     height: 100%;
     background: rgba(255,255,255,0.35);
-    border-radius: 2px;
+    border-radius: var(--md-sys-shape-corner-small);
     transition: width 0.3s ease;
   }
   .progress-played {
@@ -871,14 +875,14 @@
     left: 0;
     height: 100%;
     background: var(--md-sys-color-primary);
-    border-radius: 2px;
+    border-radius: var(--md-sys-shape-corner-small);
     transition: width 0.2s linear;
   }
   .progress-time {
     display: flex;
     justify-content: space-between;
     margin-top: 3px;
-    font-size: 9px;
+    font-size: var(--md-sys-typescale-label-small-size);
     color: rgba(255,255,255,0.8);
   }
 
@@ -890,23 +894,23 @@
     border-bottom: 1px solid var(--md-sys-color-outline-variant);
     flex-shrink: 0;
   }
-  .tab {
+  .tab-bar .tab {
     flex: 1;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: var(--md-sys-typescale-body-small-size);
-    font-weight: 500;
+    font-weight: var(--md-sys-typescale-label-medium-weight);
     color: var(--md-sys-color-on-surface-variant);
     background: transparent;
     border: none;
     cursor: pointer;
     position: relative;
   }
-  .tab.active {
+  .tab-bar .tab.active {
     color: var(--md-sys-color-primary);
   }
-  .tab.active::after {
+  .tab-bar .tab.active::after {
     content: '';
     position: absolute;
     bottom: 0;
@@ -914,7 +918,7 @@
     right: 20%;
     height: 2px;
     background: var(--md-sys-color-primary);
-    border-radius: 1px;
+    border-radius: var(--md-sys-shape-corner-small);
   }
 
   /* ========== 内容区域 ========== */
@@ -983,7 +987,7 @@
   }
   .up-name {
     font-size: var(--md-sys-typescale-body-medium-size);
-    font-weight: 500;
+    font-weight: var(--md-sys-typescale-label-medium-weight);
     color: var(--md-sys-color-primary);
   }
   .up-fans {
@@ -1081,11 +1085,11 @@
   }
   .comment-name {
     font-size: var(--md-sys-typescale-body-small-size);
-    font-weight: 500;
+    font-weight: var(--md-sys-typescale-label-medium-weight);
     color: var(--md-sys-color-primary);
   }
   .comment-time {
-    font-size: 10px;
+    font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
     margin-left: auto;
   }
@@ -1097,7 +1101,7 @@
     word-break: break-word;
   }
   .comment-stat {
-    font-size: 10px;
+    font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
     margin-left: 30px;
     margin-top: 4px;
@@ -1115,7 +1119,7 @@
     gap: 6px;
     margin-left: 30px;
     padding: 4px 0;
-    font-size: 10px;
+    font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
   }
   .sub-item {
@@ -1128,7 +1132,7 @@
     background: var(--md-sys-color-surface-container-high);
   }
   .reply-to {
-    font-size: 10px;
+    font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
   }
 
@@ -1163,7 +1167,7 @@
     background: var(--md-sys-color-primary);
     color: var(--md-sys-color-on-primary);
     font-size: var(--md-sys-typescale-body-small-size);
-    font-weight: 500;
+    font-weight: var(--md-sys-typescale-label-medium-weight);
     cursor: pointer;
   }
   .reply-send:disabled {

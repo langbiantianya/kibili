@@ -18,7 +18,7 @@
   }
 </script>
 
-<div class="bar">
+<div class="interact-bar">
   <button
     class="btn"
     class:active={status.like}
@@ -55,7 +55,7 @@
 </div>
 
 <style>
-  .bar {
+  .interact-bar {
     display: flex;
     height: 48px;
     background: var(--md-sys-color-surface);
@@ -74,7 +74,7 @@
     font-size: var(--md-sys-typescale-label-large-size);
     font-weight: var(--md-sys-typescale-label-large-weight);
     cursor: pointer;
-    transition: background 0.2s ease, color 0.2s ease;
+    transition: background 0.15s ease, color 0.15s ease;
     position: relative;
   }
   .btn:last-child { border-right: none; }

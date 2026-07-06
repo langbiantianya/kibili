@@ -519,7 +519,7 @@
     align-items: center;
     justify-content: center;
     font-size: var(--md-sys-typescale-body-small-size);
-    font-weight: 500;
+    font-weight: var(--md-sys-typescale-label-medium-weight);
     color: var(--md-sys-color-on-surface-variant);
     background: transparent;
     border: none;
@@ -537,7 +537,7 @@
     right: 20%;
     height: 2px;
     background: var(--md-sys-color-primary);
-    border-radius: 1px;
+    border-radius: var(--md-sys-shape-corner-small);
   }
 
   .detail-content {
@@ -561,7 +561,7 @@
   .author-face {
     width: 36px;
     height: 36px;
-    border-radius: 50%;
+    border-radius: var(--md-sys-shape-corner-full);
     object-fit: cover;
   }
   .author-info {
@@ -570,7 +570,7 @@
   }
   .author-name {
     font-size: var(--md-sys-typescale-body-medium-size);
-    font-weight: 500;
+    font-weight: var(--md-sys-typescale-label-medium-weight);
     color: var(--md-sys-color-primary);
   }
   .author-action {
@@ -616,7 +616,7 @@
     overflow: hidden;
   }
   .archive-dur {
-    font-size: 10px;
+    font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
   }
   .draw-list {
@@ -655,6 +655,12 @@
   .comment-item {
     padding: 8px 0;
     border-bottom: 1px solid var(--md-sys-color-outline-variant);
+    transition: background 0.15s ease;
+    cursor: pointer;
+  }
+  .comment-item:focus,
+  .comment-item:hover {
+    background: var(--md-sys-color-surface-container-high);
   }
   .comment-head {
     display: flex;
@@ -665,16 +671,16 @@
   .comment-face {
     width: 24px;
     height: 24px;
-    border-radius: 50%;
+    border-radius: var(--md-sys-shape-corner-full);
     object-fit: cover;
   }
   .comment-name {
     font-size: var(--md-sys-typescale-body-small-size);
-    font-weight: 500;
+    font-weight: var(--md-sys-typescale-label-medium-weight);
     color: var(--md-sys-color-primary);
   }
   .comment-time {
-    font-size: 10px;
+    font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
     margin-left: auto;
   }
@@ -686,7 +692,7 @@
     word-break: break-word;
   }
   .comment-stat {
-    font-size: 10px;
+    font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
     margin-left: 30px;
     margin-top: 4px;
@@ -719,16 +725,22 @@
     gap: 6px;
     margin-left: 30px;
     padding: 4px 0;
-    font-size: 10px;
+    font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
   }
   .sub-item {
     margin-left: 30px;
     padding: 6px 0;
     border-bottom: 1px solid var(--md-sys-color-outline-variant);
+    transition: background 0.15s ease;
+    cursor: pointer;
+  }
+  .sub-item:focus,
+  .sub-item:hover {
+    background: var(--md-sys-color-surface-container-high);
   }
   .reply-to {
-    font-size: 10px;
+    font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
   }
   .sub-toggle {

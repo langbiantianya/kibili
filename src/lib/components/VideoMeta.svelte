@@ -4,9 +4,9 @@
 </script>
 
 {#if meta}
-  <div class="meta">
+  <div class="video-meta">
     <h2 class="title">{meta.title}</h2>
-    <div class="up">
+    <div class="up-info">
       {#if meta.owner}
         <span class="name">{meta.owner.name}</span>
         <span class="mid">UID {meta.owner.mid}</span>
@@ -35,7 +35,7 @@
 {/if}
 
 <style>
-  .meta {
+  .video-meta {
     padding: 12px 16px;
     background: var(--md-sys-color-surface);
     border-bottom: 1px solid var(--md-sys-color-outline-variant);
@@ -47,7 +47,7 @@
     margin-bottom: 8px;
     line-height: 1.4;
   }
-  .up {
+  .up-info {
     font-size: var(--md-sys-typescale-body-medium-size);
     margin-bottom: 8px;
     display: flex;
@@ -56,7 +56,7 @@
   }
   .name {
     color: var(--md-sys-color-primary);
-    font-weight: 500;
+    font-weight: var(--md-sys-typescale-label-medium-weight);
   }
   .mid {
     color: var(--md-sys-color-on-surface-variant);

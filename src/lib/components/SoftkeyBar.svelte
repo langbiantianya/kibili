@@ -13,7 +13,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 28px;
+    height: var(--kai-softkey-height);
     padding: 0 12px;
     background: var(--md-sys-color-surface);
     border-top: 1px solid var(--md-sys-color-outline-variant);

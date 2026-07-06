@@ -4,7 +4,7 @@
   import EmptyState from './EmptyState.svelte';
 </script>
 
-<div class="replies">
+<div class="comment-list">
   <div class="header">评论 ({replies.length})</div>
   {#if replies.length === 0}
     <EmptyState message="还没有评论" />
@@ -26,7 +26,7 @@
 </div>
 
 <style>
-  .replies {
+  .comment-list {
     height: 100%;
     overflow-y: auto;
     background: var(--md-sys-color-surface-bright);
@@ -55,7 +55,7 @@
   }
   .name {
     color: var(--md-sys-color-primary);
-    font-weight: 500;
+    font-weight: var(--md-sys-typescale-label-medium-weight);
   }
   .time {
     color: var(--md-sys-color-on-surface-variant);

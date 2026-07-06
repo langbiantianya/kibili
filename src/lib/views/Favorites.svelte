@@ -70,7 +70,7 @@
       <div class="folder-list scroll-y">
         {#each folders as f, i (f.id)}
           <div
-            class="folder"
+            class="folder-item"
             data-navable
             tabindex="0"
             on:click={() => openFolder(f)}
@@ -89,7 +89,7 @@
   .folder-list {
     height: 100%;
   }
-  .folder {
+  .folder-item {
     min-height: 36px;
     padding: 4px 8px;
     border-bottom: 1px solid var(--md-sys-color-outline-variant);
@@ -100,8 +100,8 @@
     transition: background 0.15s ease;
     cursor: pointer;
   }
-  .folder:focus,
-  .folder:hover {
+  .folder-item:focus,
+  .folder-item:hover {
     background: var(--md-sys-color-surface-container-high);
   }
   .title {

@@ -54,7 +54,7 @@
       <div class="hist-list scroll-y">
         {#each $histStore.items as v, i (v.bvid || i)}
           <div
-            class="hist"
+            class="hist-item"
             data-navable
             tabindex="0"
             on:click={() => playItem(v)}
@@ -76,7 +76,7 @@
   .hist-list {
     height: 100%;
   }
-  .hist {
+  .hist-item {
     min-height: 36px;
     padding: 4px 8px;
     border-bottom: 1px solid var(--md-sys-color-outline-variant);
@@ -87,8 +87,8 @@
     transition: background 0.15s ease;
     cursor: pointer;
   }
-  .hist:focus,
-  .hist:hover {
+  .hist-item:focus,
+  .hist-item:hover {
     background: var(--md-sys-color-surface-container-high);
   }
   .title {

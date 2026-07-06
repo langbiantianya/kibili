@@ -314,7 +314,7 @@
         <div class="dyn-list scroll-y">
           {#each dynamics as d (d.id_str)}
             {@const v = dynVideo(d)}
-            <div class="dyn" data-navable tabindex="0"
+            <div class="dyn-item" data-navable tabindex="0"
                  on:click={() => openDynamicDetail(d)}
                  on:keydown={(e) => { if (e.key === 'Enter') openDynamicDetail(d); }}>
               <div class="head">
@@ -370,15 +370,15 @@
   .dyn-list {
     height: 100%;
   }
-  .dyn {
+  .dyn-item {
     padding: 6px 8px;
     border-bottom: 1px solid var(--md-sys-color-outline-variant);
     background: var(--md-sys-color-surface);
     font-size: var(--md-sys-typescale-body-medium-size);
     transition: background 0.15s ease;
   }
-  .dyn:focus,
-  .dyn:hover {
+  .dyn-item:focus,
+  .dyn-item:hover {
     background: var(--md-sys-color-surface-container-high);
   }
   .head {
@@ -391,13 +391,13 @@
   .face {
     width: 20px;
     height: 20px;
-    border-radius: 50%;
+    border-radius: var(--md-sys-shape-corner-full);
     object-fit: cover;
     flex-shrink: 0;
   }
   .name {
     color: var(--md-sys-color-primary);
-    font-weight: 500;
+    font-weight: var(--md-sys-typescale-label-medium-weight);
     flex: 1;
     min-width: 0;
     overflow: hidden;
@@ -423,7 +423,7 @@
   .atitle {
     color: var(--md-sys-color-on-surface);
     font-size: var(--md-sys-typescale-body-medium-size);
-    font-weight: 500;
+    font-weight: var(--md-sys-typescale-label-medium-weight);
   }
   .astat {
     color: var(--md-sys-color-on-surface-variant);

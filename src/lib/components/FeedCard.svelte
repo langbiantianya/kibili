@@ -37,7 +37,7 @@
 </script>
 
 <div
-  class="card"
+  class="feed-card"
   data-navable
   tabindex="0"
   on:click={() => dispatch('play', video)}
@@ -63,7 +63,7 @@
 </div>
 
 <style>
-  .card {
+  .feed-card {
     display: flex;
     min-height: 48px;
     padding: 6px 8px;
@@ -74,8 +74,8 @@
     transition: background 0.15s ease;
     cursor: pointer;
   }
-  .card:focus,
-  .card:hover {
+  .feed-card:focus,
+  .feed-card:hover {
     background: var(--md-sys-color-surface-container-high);
   }
   .cover {
@@ -97,9 +97,10 @@
     bottom: 2px;
     background: rgba(32, 26, 27, 0.8);
     color: var(--md-sys-color-on-primary);
-    font-size: 8px;
+    font-size: var(--md-sys-typescale-label-small-size);
     padding: 1px 3px;
-    font-weight: 500;
+    font-weight: var(--md-sys-typescale-label-small-weight);
+    border-radius: var(--md-sys-shape-corner-extra-small);
   }
   .info {
     flex: 1;
@@ -128,7 +129,7 @@
   }
   .up {
     color: var(--md-sys-color-primary);
-    font-weight: 500;
+    font-weight: var(--md-sys-typescale-label-medium-weight);
   }
   .stat-row {
     display: flex;

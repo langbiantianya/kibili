@@ -1,6 +1,8 @@
 <script>
+  import { onMount, onDestroy } from 'svelte';
   import { location as routerLocation } from 'svelte-spa-router';
   import { navigate } from '../router/index.js';
+  import { ui, setSoftkeys } from '../stores/ui.js';
 
   // 三 Tab: home / following / profile
   const tabs = [
@@ -58,7 +60,7 @@
 
 <style>
   .top-nav {
-    height: 28px;
+    height: var(--kai-top-bar-height);
     background: var(--md-sys-color-surface);
     display: flex;
     align-items: center;
@@ -67,7 +69,6 @@
     z-index: 10;
     position: relative;
     flex-shrink: 0;
-    margin-bottom: 1px;
   }
   .tab {
     flex: 1;
@@ -75,13 +76,13 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 11px;
-    font-weight: 500;
+    font-size: var(--md-sys-typescale-title-small-size);
+    font-weight: var(--md-sys-typescale-title-small-weight);
     color: var(--md-sys-color-on-surface-variant);
     background: transparent;
     border: none;
     position: relative;
-    transition: color 0.2s ease;
+    transition: color 0.15s ease;
     cursor: pointer;
     padding: 0;
   }
@@ -96,11 +97,11 @@
     right: 20%;
     height: 2px;
     background: var(--md-sys-color-primary);
-    border-radius: 1px;
+    border-radius: var(--md-sys-shape-corner-small);
   }
   .tab .label {
-    font-size: 11px;
-    font-weight: 500;
+    font-size: var(--md-sys-typescale-title-small-size);
+    font-weight: var(--md-sys-typescale-title-small-weight);
     line-height: 1;
     position: relative;
     z-index: 1;
