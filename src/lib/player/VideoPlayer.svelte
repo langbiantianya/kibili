@@ -1,7 +1,6 @@
 <script>
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { acquireWakeLock, releaseWakeLock } from './wake.js';
-  import { bumpVol } from './volume.js';
   import { settings } from '../stores/settings.js';
   import { moveFocus } from '../keyboard/index.js';
   import { getSubReplies, addReply } from '../api/interact.js';
@@ -39,10 +38,12 @@
 
   let video;
   let audio;
+  let dashAudio = /** @type {HTMLAudioElement|null} */ (null);
   /** @type {any} */
   let root;
   let showControls = false;
   let showVolSlider = false;
+  /** @type {number|null} */
   let volTimer = null;
   let currentTime = 0;
   let duration = 0;
@@ -69,6 +70,12 @@
   $: vol = $settings.volume;
   $: muted = $settings.muted;
 
+  // 当音量/静音状态变化时, 同步更新 DASH 音频
+  $: if (dashAudio && mode === 'video') {
+    dashAudio.volume = vol;
+    dashAudio.muted = muted;
+  }
+
   // 当前激活的媒体元素
   $: media = mode === 'audio' ? audio : video;
 
@@ -78,6 +85,13 @@
     duration = m.duration || 0;
     m.volume = vol;
     m.muted = muted;
+    // DASH 模式下, 同步播放独立音频流
+    if (mode === 'video' && dashAudio && audioSrc) {
+      dashAudio.volume = vol;
+      dashAudio.muted = muted;
+      dashAudio.currentTime = m.currentTime;
+      dashAudio.play().catch(() => {});
+    }
     // 听视频模式下, 从父组件传入的 resumeAt 开始
     if (mode === 'audio' && resumeAt > 0 && m.duration) {
       try { m.currentTime = Math.min(resumeAt, m.duration - 1); } catch (e) {}
@@ -93,19 +107,35 @@
       if (m.buffered && m.buffered.length > 0) {
         buffered = m.buffered.end(m.buffered.length - 1);
       }
+      // DASH 模式下同步音频时间
+      if (mode === 'video' && dashAudio && audioSrc) {
+        const diff = Math.abs(dashAudio.currentTime - m.currentTime);
+        if (diff > 0.3) {
+          dashAudio.currentTime = m.currentTime;
+        }
+      }
     }
   }
 
   function onPlay() {
+    if (mode === 'video' && dashAudio && audioSrc) {
+      dashAudio.play().catch(() => {});
+    }
     dispatch('playstate', { playing: true });
   }
 
   function onPause() {
+    if (mode === 'video' && dashAudio && audioSrc) {
+      dashAudio.pause();
+    }
     dispatch('playstate', { playing: false });
   }
 
   function onMediaError(e) {
     error = mode === 'audio' ? '音频错误' : '视频错误';
+    if (dashAudio) {
+      dashAudio.pause();
+    }
     dispatch('error', error);
   }
 
@@ -113,14 +143,26 @@
     dispatch('ended');
   }
   function onVideoEnded() {
+    if (dashAudio) {
+      dashAudio.pause();
+    }
     dispatch('ended');
   }
 
   function togglePlay() {
     const m = mode === 'audio' ? audio : video;
     if (!m) return;
-    if (m.paused) m.play().catch(() => {});
-    else m.pause();
+    if (m.paused) {
+      m.play().catch(() => {});
+      if (mode === 'video' && dashAudio && audioSrc) {
+        dashAudio.play().catch(() => {});
+      }
+    } else {
+      m.pause();
+      if (mode === 'video' && dashAudio && audioSrc) {
+        dashAudio.pause();
+      }
+    }
   }
 
   function toggleFullscreen() {
@@ -141,15 +183,31 @@
   function seek(delta) {
     const m = mode === 'audio' ? audio : video;
     if (!m) return;
-    m.currentTime = Math.max(0, Math.min(m.duration || 0, m.currentTime + delta));
+    const newTime = Math.max(0, Math.min(m.duration || 0, m.currentTime + delta));
+    m.currentTime = newTime;
+    if (mode === 'video' && dashAudio && audioSrc) {
+      dashAudio.currentTime = newTime;
+    }
   }
 
+  // KaiOS 系统音量调节 (使用 navigator.volumeManager)
+  // 参考: navigator.volumeManager.requestUp() / requestDown()
+
+  /** @param {number} delta */
   function bumpVolume(delta) {
-    const m = mode === 'audio' ? audio : video;
-    if (!m) return;
-    const newVol = bumpVol(m.volume, delta);
-    m.volume = newVol;
-    settings.update(s => ({ ...s, volume: newVol }));
+    // delta > 0 增加音量, delta < 0 降低音量
+    if (typeof navigator !== 'undefined' && /** @type {any} */ (navigator).volumeManager) {
+      try {
+        if (delta > 0) {
+          /** @type {any} */ (navigator).volumeManager.requestUp();
+        } else if (delta < 0) {
+          /** @type {any} */ (navigator).volumeManager.requestDown();
+        }
+      } catch (e) {
+        // 降级: 不执行任何操作
+      }
+    }
+    // 显示音量提示 (KaiOS 系统会显示自己的音量 UI)
     showVolSlider = true;
     if (volTimer) clearTimeout(volTimer);
     volTimer = setTimeout(() => showVolSlider = false, 1500);
@@ -344,15 +402,15 @@
         case 'ArrowUp':
           e.preventDefault();
           startLongPress(key, () => {
-            // 长按: 持续增加音量
-            bumpVolume(0.1);
+            // 长按: 持续增加系统音量 (KaiOS 音量级别 +1)
+            bumpVolume(1);
           });
           break;
         case 'ArrowDown':
           e.preventDefault();
           startLongPress(key, () => {
-            // 长按: 持续降低音量
-            bumpVolume(-0.1);
+            // 长按: 持续降低系统音量 (KaiOS 音量级别 -1)
+            bumpVolume(-1);
           });
           break;
         case 'ArrowLeft':
@@ -497,6 +555,10 @@
 
   onDestroy(() => {
     releaseWakeLock();
+    if (dashAudio) {
+      dashAudio.pause();
+      dashAudio.src = '';
+    }
   });
 </script>
 
@@ -519,6 +581,15 @@
           on:ended={onVideoEnded}
           on:error={onMediaError}
         ></video>
+        <!-- DASH 模式下同步播放独立音频流 -->
+        {#if audioSrc}
+          <audio
+            bind:this={dashAudio}
+            src={audioSrc}
+            preload="metadata"
+            style="display: none;"
+          ></audio>
+        {/if}
       {:else}
         <!-- 听视频模式: 仅渲染 <audio>, 不画任何画面, 真正省电省带宽 -->
         <audio
@@ -543,9 +614,9 @@
           <div class="vol-slider">
             <span>音量</span>
             <div class="bar">
-              <div class="fill" style="width: {vol * 100}%"></div>
+              <div class="fill" style="width: {(vol * 100)}%"></div>
             </div>
-            <span>{Math.round(vol * 100)}</span>
+            <span>{Math.round(vol * 100)}%</span>
           </div>
         {/if}
         {#if mode === 'audio'}
