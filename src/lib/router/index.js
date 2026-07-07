@@ -1,8 +1,7 @@
 // Router wrapper for svelte-spa-router
 // Provides a compatible API for the existing codebase
 
-import { push, pop, location as routerLocation } from 'svelte-spa-router';
-import { get } from 'svelte/store';
+import { push, pop } from 'svelte-spa-router';
 
 /**
  * Navigate to a new route.
