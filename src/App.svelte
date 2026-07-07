@@ -13,6 +13,7 @@
   import Favorites from "./lib/views/Favorites.svelte";
   import FolderContents from "./lib/views/FolderContents.svelte";
   import Player from "./lib/views/Player.svelte";
+  import FullscreenPlayer from "./lib/views/FullscreenPlayer.svelte";
   import Login from "./lib/views/Login.svelte";
   import DynamicDetail from "./lib/views/DynamicDetail.svelte";
 
@@ -24,6 +25,7 @@
     "/favorites": Favorites,
     "/folder": FolderContents,
     "/player": Player,
+    "/fullscreen": FullscreenPlayer,
     "/login": Login,
     "/dynamic-detail": DynamicDetail,
     "*": MainLayout, // fallback

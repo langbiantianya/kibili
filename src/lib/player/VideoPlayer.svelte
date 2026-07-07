@@ -1,6 +1,6 @@
 <script>
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
-  import { acquireWakeLock, releaseWakeLock } from './wake.js';
+  import { releaseWakeLock } from './wake.js';
   import { settings } from '../stores/settings.js';
   import { moveFocus } from '../keyboard/index.js';
   import { getSubReplies, addReply } from '../api/interact.js';
@@ -49,7 +49,6 @@
   let duration = 0;
   let error = '';
   let buffered = 0; // 缓冲进度
-  let isFullscreen = false; // 全屏状态
 
   // 长按检测
   const LONG_PRESS_MS = 400; // 长按阈值
@@ -166,18 +165,8 @@
   }
 
   function toggleFullscreen() {
-    if (!root) return;
-    if (document.mozFullScreenElement) {
-      document.mozCancelFullScreen();
-    } else {
-      if (root.mozRequestFullScreen) {
-        root.mozRequestFullScreen();
-      }
-    }
-  }
-
-  function onFullscreenChange() {
-    isFullscreen = !!document.mozFullScreenElement;
+    // 触发全屏事件,由父组件 Player.svelte 处理跳转
+    dispatch('fullscreen');
   }
 
   function seek(delta) {
@@ -542,13 +531,11 @@
 
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
-    document.addEventListener('mozfullscreenchange', onFullscreenChange);
 
     // 返回清理函数
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
-      document.removeEventListener('mozfullscreenchange', onFullscreenChange);
       clearAllTimers();
     };
   });
@@ -855,6 +842,7 @@
     object-fit: contain;
     background: #000;
   }
+
   audio {
     width: 100%;
     height: 32px;

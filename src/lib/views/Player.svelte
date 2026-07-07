@@ -4,8 +4,8 @@
   import { getVideoInfo, getPlayUrl, getDashUrls } from '../api/video.js';
   import { getReplies, getStatus, likeVideo, coinVideo, favVideo, unfavVideo, tripleAction } from '../api/interact.js';
   import { isLogin } from '../stores/user.js';
-  import { onKey, offKey } from '../keyboard/index.js';
-  import { back } from '../router/index.js';
+  import { offKey } from '../keyboard/index.js';
+  import { navigate } from '../router/index.js';
   import { setSoftkeys, showToast } from '../stores/ui.js';
   import { addLocal } from '../stores/history.js';
   import VideoPlayer from '../player/VideoPlayer.svelte';
@@ -255,6 +255,16 @@
     updateSoftkeys();
   }
 
+  function onFullscreen() {
+    // 跳转到全屏页面,带上当前视频信息
+    const hash = location.hash || '';
+    const bvidMatch = hash.match(/[?&]bvid=([^&]+)/);
+    const bvid = bvidMatch ? bvidMatch[1] : '';
+    if (bvid) {
+      navigate('/fullscreen?bvid=' + bvid);
+    }
+  }
+
   function updateSoftkeys() {
     const centerLabel = isPlaying ? '暂停' : '播放';
     setSoftkeys('全屏', '回复', centerLabel);
@@ -297,6 +307,7 @@
         on:listenoff={onListenOff}
         on:tabchange={onTabChange}
         on:playstate={onPlayState}
+        on:fullscreen={onFullscreen}
       />
     {:else}
       <EmptyState message="暂无数据" />
