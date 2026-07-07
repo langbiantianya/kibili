@@ -12,6 +12,11 @@ let installed = false;
 function matches(map, e) {
   if (!map) return null;
   if (map[e.key]) return map[e.key];
+  // KaiOS Firefox 48 兼容：方向键 e.key 可能是 Left/Right/Up/Down（无 Arrow 前缀）
+  if (e.key === 'Left' && map['ArrowLeft']) return map['ArrowLeft'];
+  if (e.key === 'Right' && map['ArrowRight']) return map['ArrowRight'];
+  if (e.key === 'Up' && map['ArrowUp']) return map['ArrowUp'];
+  if (e.key === 'Down' && map['ArrowDown']) return map['ArrowDown'];
   if (map[e.keyCode]) return map[e.keyCode];
   return null;
 }

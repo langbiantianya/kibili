@@ -1,6 +1,24 @@
 // Focus mover for [data-navable] lists
 // 在容器中找所有可聚焦元素,按 DOM 顺序排列,移动焦点
 
+// KaiOS (Gecko 48) 不支持 ScrollIntoViewOptions 的 block 参数,
+// 手动计算居中位置并滚动到视口中心.
+function scrollIntoViewCenter(element) {
+  const parent = element.offsetParent || document.documentElement;
+  const elementTop = element.offsetTop;
+  const elementHeight = element.offsetHeight;
+  const parentHeight = parent.clientHeight;
+
+  // 目标滚动位置 = 元素顶部 - (容器高度/2) + (元素高度/2)
+  const targetScrollTop = elementTop - (parentHeight / 2) + (elementHeight / 2);
+
+  if (parent.scrollTo) {
+    parent.scrollTo(0, targetScrollTop);
+  } else {
+    parent.scrollTop = targetScrollTop;
+  }
+}
+
 export function getFocusables(root) {
   if (!root) return [];
   return Array.from(root.querySelectorAll('[data-navable]:not([disabled])'))
@@ -11,7 +29,7 @@ export function focusFirst(root) {
   const list = getFocusables(root || document);
   if (list.length) {
     list[0].focus();
-    list[0].scrollIntoView({ block: 'center' });
+    scrollIntoViewCenter(list[0]);
   }
 }
 
@@ -28,7 +46,7 @@ export function moveFocus(delta, root) {
   const next = list[i];
   if (next && next !== cur) {
     next.focus();
-    next.scrollIntoView({ block: 'center' });
+    scrollIntoViewCenter(next);
     return true;
   }
   return false;

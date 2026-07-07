@@ -1,8 +1,8 @@
 <script>
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount } from 'svelte';
   import { location as routerLocation } from 'svelte-spa-router';
+  import { onKey, offKey } from '../keyboard/index.js';
   import { navigate } from '../router/index.js';
-  import { ui, setSoftkeys } from '../stores/ui.js';
 
   // 三 Tab: home / following / profile
   const tabs = [
@@ -44,6 +44,17 @@
   export function getTabCount() {
     return tabs.length;
   }
+
+  onMount(() => {
+    onKey('top-nav', {
+      ArrowLeft: () => switchTab(-1),
+      ArrowRight: () => switchTab(+1)
+    });
+
+    return () => {
+      offKey('top-nav');
+    };
+  });
 </script>
 
 <nav class="top-nav">

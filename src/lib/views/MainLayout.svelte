@@ -11,9 +11,11 @@
     '/profile': Profile
   };
 
+  /** @param {string} path */
   function getPage(path) {
     // Remove query string if any
     const cleanPath = path.split('?')[0];
+    // @ts-ignore
     return pages[cleanPath] || Home;
   }
 

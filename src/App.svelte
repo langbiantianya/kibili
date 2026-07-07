@@ -1,11 +1,8 @@
 <script>
-  import Router, { location as routerLocation } from 'svelte-spa-router';
+  import Router from 'svelte-spa-router';
   import { onMount } from 'svelte';
-  import { onKey, offKey } from './lib/keyboard/index.js';
   import { isLogin, hydrateFromNav } from './lib/stores/user.js';
-  import { setSoftkeys } from './lib/stores/ui.js';
   import { refreshWbiKeys } from './lib/api/wbi.js';
-  import { navigate } from './lib/router/index.js';
   import SoftkeyBar from './lib/components/SoftkeyBar.svelte';
   import Toast from './lib/components/Toast.svelte';
 
@@ -37,28 +34,6 @@
     if (e.key === 'BrowserStop' || e.keyCode === 413) return;
   }
 
-  // 主 Tab 切换：左右键切换首页/关注/我的
-  function switchMainTab(direction) {
-    const mainTabs = ['/home', '/following', '/profile'];
-    const currentPath = $routerLocation || '/home';
-    // 找到当前属于哪个主 tab
-    let currentMainIdx = 0;
-    for (let i = 0; i < mainTabs.length; i++) {
-      if (currentPath.startsWith(mainTabs[i])) {
-        currentMainIdx = i;
-        break;
-      }
-    }
-    // 只在主页面之间切换
-    const isMainPage = mainTabs.some(t => currentPath.startsWith(t));
-    if (!isMainPage) return;
-
-    const newIdx = Math.max(0, Math.min(mainTabs.length - 1, currentMainIdx + direction));
-    if (newIdx !== currentMainIdx) {
-      navigate(mainTabs[newIdx]);
-    }
-  }
-
   onMount(() => {
     // 启动时预加载 WBI keys (即使未登录也需要, B站多数接口强制 WBI 签名)
     refreshWbiKeys();
@@ -68,17 +43,9 @@
       hydrateFromNav();
     }
 
-    // 全局左右键切换主 Tab
-    onKey('global', {
-      ArrowLeft: () => switchMainTab(-1),
-      ArrowRight: () => switchMainTab(+1),
-      '0': () => { navigate('/home'); }
-    });
-
     window.addEventListener('keydown', onGlobalKey);
     return () => {
       window.removeEventListener('keydown', onGlobalKey);
-      offKey('global');
     };
   });
 </script>
