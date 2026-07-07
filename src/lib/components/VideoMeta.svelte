@@ -52,7 +52,10 @@
     margin-bottom: 8px;
     display: flex;
     align-items: center;
-    gap: 8px;
+    /* gap: 8px; Firefox 48 不支持 flex gap */
+  }
+  .up-info .name {
+    margin-right: 8px;
   }
   .name {
     color: var(--md-sys-color-primary);
@@ -64,11 +67,14 @@
   }
   .stats {
     display: flex;
-    gap: 8px;
+    /* gap: 8px; Firefox 48 不支持 flex gap */
     flex-wrap: wrap;
     font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
     margin-bottom: 8px;
+  }
+  .stats span {
+    margin-right: 8px;
   }
   .time {
     font-size: var(--md-sys-typescale-body-small-size);

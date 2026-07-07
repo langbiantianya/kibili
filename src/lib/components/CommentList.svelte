@@ -69,6 +69,9 @@
     font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
     display: flex;
-    gap: 8px;
+    /* gap: 8px; Firefox 48 不支持 flex gap */
+  }
+  .stat > * + * {
+    margin-left: 8px;
   }
 </style>

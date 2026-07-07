@@ -386,9 +386,12 @@
   .head {
     display: flex;
     align-items: center;
-    gap: 6px;
+    /* gap: 6px; Firefox 48 不支持 flex gap */
     font-size: var(--md-sys-typescale-body-small-size);
     margin-bottom: 2px;
+  }
+  .head .face {
+    margin-right: 6px;
   }
   .face {
     width: 20px;
@@ -435,8 +438,11 @@
 
   .draw-preview {
     display: flex;
-    gap: 4px;
+    /* gap: 4px; Firefox 48 不支持 flex gap */
     margin-top: 4px;
+  }
+  .draw-preview img {
+    margin-right: 4px;
   }
   .draw-preview img {
     width: 60px;
@@ -447,7 +453,7 @@
 
   .dyn-stat {
     display: flex;
-    gap: 12px;
+    /* gap: 12px; Firefox 48 不支持 flex gap */
     margin-top: 4px;
     padding-top: 4px;
     border-top: 1px solid var(--md-sys-color-outline-variant);
@@ -455,9 +461,15 @@
     color: var(--md-sys-color-on-surface-variant);
   }
   .dyn-stat .stat-item {
+    margin-right: 12px;
+  }
+  .dyn-stat .stat-item {
     display: flex;
     align-items: center;
-    gap: 2px;
+    /* gap: 2px; Firefox 48 不支持 flex gap */
+  }
+  .dyn-stat .stat-item > * + * {
+    margin-left: 2px;
   }
   .dyn-stat .stat-item.liked {
     color: var(--md-sys-color-primary);
@@ -468,12 +480,15 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    /* gap: 8px; Firefox 48 不支持 flex gap */
     padding: 8px;
     font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
     background: var(--md-sys-color-surface-container);
     border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  }
+  .loading-top > * + * {
+    margin-left: 8px;
   }
   .spinner-small {
     width: 16px;

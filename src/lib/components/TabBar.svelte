@@ -28,7 +28,10 @@
     background: var(--md-sys-color-surface);
     border-bottom: 1px solid var(--md-sys-color-outline-variant);
     padding: 2px 6px;
-    gap: 2px;
+    /* gap: 2px; Firefox 48 不支持 flex gap */
+  }
+  .tabbar .tab + .tab {
+    margin-left: 2px;
   }
   .tab {
     flex: 1;

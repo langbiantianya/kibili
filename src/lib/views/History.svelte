@@ -104,7 +104,10 @@
     color: var(--md-sys-color-on-surface-variant);
     margin-top: 1px;
     display: flex;
-    gap: 4px;
+    /* gap: 4px; Firefox 48 不支持 flex gap */
+  }
+  .meta .up {
+    margin-right: 4px;
   }
   .up {
     color: var(--md-sys-color-primary);

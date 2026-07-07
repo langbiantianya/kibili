@@ -546,19 +546,25 @@
     padding: 8px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    /* gap: 8px; Firefox 48 不支持 flex gap */
     height: 100%;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    /* scrollbar-width: none; Firefox 48 不支持 */
   }
   .detail-content::-webkit-scrollbar {
     display: none;
   }
+  .detail-content > * + * {
+    margin-top: 8px;
+  }
   .author-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    /* gap: 8px; Firefox 48 不支持 flex gap */
+  }
+  .author-row .author-face {
+    margin-right: 8px;
   }
   .author-face {
     width: 36px;
@@ -584,15 +590,18 @@
     color: var(--md-sys-color-on-surface);
     line-height: 1.4;
     white-space: pre-wrap;
-    word-break: break-word;
+    word-break: break-all;
   }
   .archive-card {
     display: flex;
-    gap: 8px;
+    /* gap: 8px; Firefox 48 不支持 flex gap */
     padding: 8px;
     background: var(--md-sys-color-surface-container-low);
     border-radius: var(--md-sys-shape-corner-small);
     border-left: 2px solid var(--md-sys-color-primary);
+  }
+  .archive-card .archive-cover {
+    margin-right: 8px;
   }
   .archive-cover {
     width: 80px;
@@ -607,7 +616,10 @@
     display: flex;
     flex-direction: column;
     justify-content: center;
-    gap: 4px;
+    /* gap: 4px; Firefox 48 不支持 flex gap */
+  }
+  .archive-info .archive-dur {
+    margin-top: 4px;
   }
   .archive-title {
     font-size: var(--md-sys-typescale-body-small-size);
@@ -624,7 +636,11 @@
   .draw-list {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    /* gap: 4px; Firefox 48 不支持 flex gap */
+  }
+  .draw-list img {
+    margin-right: 4px;
+    margin-bottom: 4px;
   }
   .draw-list img {
     width: 100px;
@@ -649,7 +665,7 @@
     height: 100%;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    /* scrollbar-width: none; Firefox 48 不支持 */
   }
   .comment-list::-webkit-scrollbar {
     display: none;
@@ -667,8 +683,11 @@
   .comment-head {
     display: flex;
     align-items: center;
-    gap: 6px;
+    /* gap: 6px; Firefox 48 不支持 flex gap */
     margin-bottom: 4px;
+  }
+  .comment-head .comment-face {
+    margin-right: 6px;
   }
   .comment-face {
     width: 24px;
@@ -691,7 +710,7 @@
     color: var(--md-sys-color-on-surface);
     line-height: 1.4;
     margin-left: 30px;
-    word-break: break-word;
+    word-break: break-all;
   }
   .comment-stat {
     font-size: var(--md-sys-typescale-body-small-size);
@@ -699,16 +718,22 @@
     margin-left: 30px;
     margin-top: 4px;
     display: flex;
-    gap: 8px;
+    /* gap: 8px; Firefox 48 不支持 flex gap */
+  }
+  .comment-stat > * + * {
+    margin-left: 8px;
   }
   .loading-more {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    /* gap: 8px; Firefox 48 不支持 flex gap */
     padding: 12px;
     font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
+  }
+  .loading-more > * + * {
+    margin-left: 8px;
   }
   .spinner-small {
     width: 16px;
@@ -724,11 +749,14 @@
   .sub-loading {
     display: flex;
     align-items: center;
-    gap: 6px;
+    /* gap: 6px; Firefox 48 不支持 flex gap */
     margin-left: 30px;
     padding: 4px 0;
     font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
+  }
+  .sub-loading > * + * {
+    margin-left: 6px;
   }
   .sub-item {
     margin-left: 30px;

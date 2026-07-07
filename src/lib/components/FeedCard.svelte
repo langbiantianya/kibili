@@ -54,10 +54,10 @@
     </div>
     <!-- 点赞/播放/转发/评论统计 -->
     <div class="stat-row">
-      <span class="stat-item">▶ {playDisplay}</span>
-      <span class="stat-item">❤ {formatCount(likeCount)}</span>
-      {#if forwardCount}<span class="stat-item">↗ {formatCount(forwardCount)}</span>{/if}
-      {#if commentCount}<span class="stat-item">💬 {formatCount(commentCount)}</span>{/if}
+      <span class="stat-item"><span>▶</span><span>{playDisplay}</span></span>
+      <span class="stat-item"><span>❤</span><span>{formatCount(likeCount)}</span></span>
+      {#if forwardCount}<span class="stat-item"><span>↗</span><span>{formatCount(forwardCount)}</span></span>{/if}
+      {#if commentCount}<span class="stat-item"><span>💬</span><span>{formatCount(commentCount)}</span></span>{/if}
     </div>
   </div>
 </div>
@@ -67,12 +67,15 @@
     display: flex;
     min-height: 48px;
     padding: 6px 8px;
-    gap: 6px;
+    /* gap: 6px; Firefox 48 不支持 flex gap */
     background: var(--md-sys-color-surface);
     border-bottom: 1px solid var(--md-sys-color-outline-variant);
     align-items: center;
     transition: background 0.15s ease;
     cursor: pointer;
+  }
+  .feed-card .cover {
+    margin-right: 6px;
   }
   .feed-card:focus,
   .feed-card:hover {
@@ -108,7 +111,10 @@
     display: flex;
     flex-direction: column;
     justify-content: center;
-    gap: 2px;
+    /* gap: 2px; Firefox 48 不支持 flex gap */
+  }
+  .info .title {
+    margin-bottom: 2px;
   }
   .title {
     font-size: var(--md-sys-typescale-body-large-size);
@@ -124,8 +130,11 @@
     font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
     display: flex;
-    gap: 4px;
+    /* gap: 4px; Firefox 48 不支持 flex gap */
     align-items: center;
+  }
+  .meta .up {
+    margin-right: 4px;
   }
   .up {
     color: var(--md-sys-color-primary);
@@ -133,13 +142,22 @@
   }
   .stat-row {
     display: flex;
-    gap: 10px;
+    /* gap: 10px; Firefox 48 不支持 flex gap */
     font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
+  }
+  .stat-row .stat-item {
+    margin-right: 10px;
+  }
+  .stat-row .stat-item:last-child {
+    margin-right: 0;
   }
   .stat-item {
     display: flex;
     align-items: center;
-    gap: 2px;
+    /* gap: 2px; Firefox 48 不支持 flex gap */
+  }
+  .stat-item > * + * {
+    margin-left: 2px;
   }
 </style>

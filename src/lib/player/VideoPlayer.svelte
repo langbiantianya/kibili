@@ -761,8 +761,8 @@
   .player-area {
     flex-shrink: 0;
     width: 100%;
-    /* 自适应高度: 16:9 比例, 最大不超过屏幕高度的 45% */
-    aspect-ratio: 16 / 9;
+    /* aspect-ratio: 16 / 9; Firefox 48 不支持 */
+    height: 135px; /* 240 * 9/16 = 135px, 固定 16:9 高度 */
     max-height: 45vh;
     background: #000;
     position: relative;
@@ -820,8 +820,11 @@
     margin-top: 4px;
     display: flex;
     align-items: center;
-    gap: 4px;
+    /* gap: 4px; Firefox 48 不支持 flex gap */
     font-size: var(--md-sys-typescale-body-small-size);
+  }
+  .vol-slider > * + * {
+    margin-left: 4px;
   }
   .vol-slider .bar {
     flex: 1;
@@ -937,7 +940,7 @@
     flex: 1;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    /* scrollbar-width: none; Firefox 48 不支持 */
     padding: 8px;
   }
   .detail-scroll::-webkit-scrollbar {
@@ -962,9 +965,15 @@
 
   .video-meta-row {
     display: flex;
-    gap: 12px;
+    /* gap: 12px; Firefox 48 不支持 flex gap */
     font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
+  }
+  .video-meta-row .meta-item {
+    margin-right: 12px;
+  }
+  .video-meta-row .meta-item:last-child {
+    margin-right: 0;
   }
   .meta-item {
     white-space: nowrap;
@@ -974,7 +983,10 @@
   .up-info {
     display: flex;
     align-items: center;
-    gap: 8px;
+    /* gap: 8px; Firefox 48 不支持 flex gap */
+  }
+  .up-info .up-face {
+    margin-right: 8px;
   }
   .up-face {
     width: 36px;
@@ -1009,7 +1021,7 @@
     color: var(--md-sys-color-on-surface);
     line-height: 1.4;
     white-space: pre-wrap;
-    word-break: break-word;
+    word-break: break-all;
   }
 
   /* 互动按钮 */
@@ -1021,9 +1033,12 @@
   .interact-item {
     display: flex;
     align-items: center;
-    gap: 4px;
+    /* gap: 4px; Firefox 48 不支持 flex gap */
     font-size: var(--md-sys-typescale-body-medium-size);
     color: var(--md-sys-color-on-surface-variant);
+  }
+  .interact-item .interact-icon {
+    margin-right: 4px;
   }
   .interact-item.active {
     color: var(--md-sys-color-primary);
@@ -1039,7 +1054,11 @@
   .tag-list {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    /* gap: 4px; Firefox 48 不支持 flex gap */
+  }
+  .tag-list .tag {
+    margin-right: 4px;
+    margin-bottom: 4px;
   }
   .tag {
     padding: 2px 8px;
@@ -1054,7 +1073,7 @@
     flex: 1;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    /* scrollbar-width: none; Firefox 48 不支持 */
     padding: 4px 8px;
   }
   .comment-scroll::-webkit-scrollbar {
@@ -1075,8 +1094,11 @@
   .comment-head {
     display: flex;
     align-items: center;
-    gap: 6px;
+    /* gap: 6px; Firefox 48 不支持 flex gap */
     margin-bottom: 4px;
+  }
+  .comment-head .comment-face {
+    margin-right: 6px;
   }
   .comment-face {
     width: 24px;
@@ -1100,7 +1122,7 @@
     color: var(--md-sys-color-on-surface);
     line-height: 1.4;
     margin-left: 30px;
-    word-break: break-word;
+    word-break: break-all;
   }
   .comment-stat {
     font-size: var(--md-sys-typescale-body-small-size);
@@ -1108,7 +1130,10 @@
     margin-left: 30px;
     margin-top: 4px;
     display: flex;
-    gap: 8px;
+    /* gap: 8px; Firefox 48 不支持 flex gap */
+  }
+  .comment-stat > * + * {
+    margin-left: 8px;
   }
   .sub-toggle {
     cursor: pointer;
@@ -1118,11 +1143,14 @@
   .sub-loading {
     display: flex;
     align-items: center;
-    gap: 6px;
+    /* gap: 6px; Firefox 48 不支持 flex gap */
     margin-left: 30px;
     padding: 4px 0;
     font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
+  }
+  .sub-loading > * + * {
+    margin-left: 6px;
   }
   .sub-item {
     margin-left: 30px;
@@ -1141,10 +1169,14 @@
   /* 评论回复输入框 */
   .reply-bar {
     display: flex;
-    gap: 8px;
+    /* gap: 8px; Firefox 48 不支持 flex gap */
     padding: 8px;
     border-top: 1px solid var(--md-sys-color-outline-variant);
     background: var(--md-sys-color-surface);
+  }
+  .reply-bar textarea {
+    flex: 1;
+    margin-right: 8px;
   }
   .reply-bar textarea {
     flex: 1;
@@ -1192,7 +1224,10 @@
     align-items: center;
     justify-content: center;
     padding: 24px 8px;
-    gap: 8px;
+    /* gap: 8px; Firefox 48 不支持 flex gap */
+  }
+  .empty-state > * + * {
+    margin-top: 8px;
   }
   .empty-text {
     font-size: var(--md-sys-typescale-body-medium-size);
@@ -1202,10 +1237,13 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    /* gap: 8px; Firefox 48 不支持 flex gap */
     padding: 12px;
     font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
+  }
+  .loading-more > * + * {
+    margin-left: 8px;
   }
   .spinner-small {
     width: 16px;

@@ -106,9 +106,12 @@
     border-bottom: 1px solid var(--md-sys-color-outline-variant);
     display: flex;
     align-items: center;
-    gap: 8px;
+    /* gap: 8px; Firefox 48 不支持 flex gap */
     transition: background 0.15s ease;
     cursor: pointer;
+  }
+  .user-card .avatar {
+    margin-right: 8px;
   }
   .user-card:focus,
   .user-card:hover {

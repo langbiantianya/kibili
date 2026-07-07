@@ -66,7 +66,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 4px;
+    /* gap: 4px; Firefox 48 不支持 flex gap */
     background: none;
     border: none;
     border-right: 1px solid var(--md-sys-color-outline-variant);
@@ -76,6 +76,10 @@
     cursor: pointer;
     transition: background 0.15s ease, color 0.15s ease;
     position: relative;
+    padding: 0;
+  }
+  .btn > * + * {
+    margin-left: 4px;
   }
   .btn:last-child { border-right: none; }
   .btn:focus {
