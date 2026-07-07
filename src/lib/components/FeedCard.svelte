@@ -41,7 +41,13 @@
   data-navable
   tabindex="0"
   on:click={() => dispatch('play', video)}
-  on:keydown={(e) => { if (e.key === 'Enter') dispatch('play', video); }}
+  on:keydown={(e) => {
+    if (e.key === 'Enter') dispatch('play', video);
+    // 阻止卡片上的方向键触发浏览器默认行为
+    if (['ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      e.preventDefault();
+    }
+  }}
 >
   <div class="cover">
     <img src={cover} alt="" loading="lazy" />
