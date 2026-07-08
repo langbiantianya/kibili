@@ -3,8 +3,9 @@
   import { releaseWakeLock } from './wake.js';
   import { settings } from '../stores/settings.js';
   import { moveFocus } from '../keyboard/index.js';
-  import { getSubReplies, addReply } from '../api/interact.js';
+  import { addReply } from '../api/interact.js';
   import { showToast } from '../stores/ui.js';
+  import CommentSection from '../components/CommentSection.svelte';
 
   // 双模式播放器:
   //  - mode='video': 用 <video> 播放视频流 (含画面)
@@ -30,11 +31,9 @@
   // 子评论展开状态: rpid -> { expanded: bool, loading: bool, replies: [] }
   let subRepliesMap = {};
 
-  // 评论回复
-  let replyText = '';
-  let replySending = false;
-  let replyError = '';
-  let replyTarget = null; // { rpid, uname, rootRpid? } 回复目标，null 为回复视频
+  // CommentSection 组件实例引用
+  /** @type {any} */
+  let commentSectionRef;
 
   let video;
   let audio;
@@ -277,11 +276,8 @@
   async function sendReply(text) {
     if (!text.trim()) return;
     if (!meta || !meta.aid) {
-      replyError = '无法评论';
       return;
     }
-    replySending = true;
-    replyError = '';
     try {
       const oid = meta.aid || meta.bvid;
       // replyTarget: { rpid, uname, isSub? }
@@ -295,13 +291,10 @@
         parent = replyTarget.rpid;
       }
       await addReply(oid, text.trim(), { root, parent });
-      replyText = '';
       replyTarget = null;
       showToast('评论发送成功');
     } catch (e) {
-      replyError = e.message || '发送失败';
-    } finally {
-      replySending = false;
+      throw e;
     }
   }
 
@@ -502,6 +495,9 @@
               const rootComment = replies.find(c => c.rpid === rpid);
               if (rootComment) {
                 setReplyTarget(rootComment);
+                if (commentSectionRef) {
+                  commentSectionRef.openReply(rootComment);
+                }
               } else {
                 // 查找子评论
                 for (const c of replies) {
@@ -510,6 +506,9 @@
                     const subComment = sub.replies.find(r => r.rpid === rpid);
                     if (subComment) {
                       setReplyTarget(c, subComment);
+                      if (commentSectionRef) {
+                        commentSectionRef.openReply(c, subComment);
+                      }
                       break;
                     }
                   }
@@ -517,13 +516,10 @@
               }
             } else {
               // 未选中评论，回复视频本身
-              setReplyTarget(null);
+              if (commentSectionRef) {
+                commentSectionRef.openReply();
+              }
             }
-            // 聚焦输入框
-            setTimeout(() => {
-              const textarea = document.querySelector('.reply-bar textarea');
-              if (textarea) textarea.focus();
-            }, 100);
           }
           break;
       }
@@ -717,88 +713,15 @@
     {:else}
       <!-- 评论区 Tab -->
       <div class="comment-scroll">
-        {#if replyLoading && replies.length === 0}
-          <div class="empty-state">
-            <div class="spinner-small"></div>
-            <span class="empty-text">加载评论...</span>
-          </div>
-        {:else if replies.length === 0}
-          <div class="empty-state">
-            <span class="empty-text">暂无评论</span>
-          </div>
-        {:else}
-          {#each replies as c (c.rpid)}
-            {#each [subRepliesMap[c.rpid]] as sub}
-              <div class="comment-item" data-navable tabindex="0" data-rpid={c.rpid}
-                   on:click={() => setReplyTarget(c)}
-                   on:keydown={(e) => { if (e.key === 'Enter' && c.rcount > 0) loadSubReplies(c); }}>
-                <div class="comment-head">
-                  <img class="comment-face" src={c.member.face} alt="" />
-                  <span class="comment-name">{c.member.uname}</span>
-                  <span class="comment-time">{relativeTime(c.ctime)}</span>
-                </div>
-                <div class="comment-content">{c.content.message}</div>
-                <div class="comment-stat">
-                  <span>❤ {formatCount(c.like)}</span>
-                  {#if c.rcount > 0}
-                    <span class="sub-toggle">💬 {formatCount(c.rcount)}{sub && sub.expanded ? ' ▼' : ' ▶'}</span>
-                  {/if}
-                </div>
-                <!-- 子评论打平显示 -->
-                {#if sub && sub.loading}
-                  <div class="sub-loading">
-                    <div class="spinner-small"></div>
-                    <span>加载中...</span>
-                  </div>
-                {:else if sub && sub.expanded && sub.replies.length}
-                  {#each sub.replies as r (r.rpid)}
-                    {#each [getReplyToName(r, c, sub.replies)] as replyName}
-                      <div class="sub-item" data-navable tabindex="0" data-rpid={r.rpid}
-                           on:click={() => setReplyTarget(c, r)}>
-                        <div class="comment-head">
-                          <img class="comment-face" src={r.member.face} alt="" />
-                          <span class="comment-name">{r.member.uname}</span>
-                          {#if replyName}
-                            <span class="reply-to">回复 @{replyName}</span>
-                          {/if}
-                          <span class="comment-time">{relativeTime(r.ctime)}</span>
-                        </div>
-                        <div class="comment-content">{r.content.message}</div>
-                        <div class="comment-stat">
-                          <span>❤ {formatCount(r.like)}</span>
-                        </div>
-                      </div>
-                    {/each}
-                  {/each}
-                {/if}
-              </div>
-            {/each}
-          {/each}
-          {#if replyLoading}
-            <div class="loading-more">
-              <div class="spinner-small"></div>
-              <span>加载中...</span>
-            </div>
-          {/if}
-        {/if}
-        <!-- 评论回复输入框 -->
-        {#if activeTab === 1}
-          <div class="reply-bar">
-            <textarea
-              placeholder={replyTarget ? `回复 @${replyTarget.uname}...` : '写评论...'}
-              disabled={replySending}
-              value={replyText}
-              on:input={(e) => replyText = e.target.value}
-              on:keydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply(replyText); } }}
-            ></textarea>
-            <button class="reply-send" disabled={replySending || !replyText.trim()} on:click={() => sendReply(replyText)}>
-              发送
-            </button>
-          </div>
-          {#if replyError}
-            <div class="reply-error">{replyError}</div>
-          {/if}
-        {/if}
+        <CommentSection
+          bind:this={commentSectionRef}
+          comments={replies}
+          commentsLoading={replyLoading}
+          commentsError=""
+          commentHasMore={false}
+          oid={meta ? (meta.aid || meta.bvid) : ''}
+          on:send={(/** @type {any} */ e) => sendReply(e.detail.text)}
+        />
       </div>
     {/if}
   </div>
@@ -1137,143 +1060,6 @@
   }
   .comment-scroll::-webkit-scrollbar {
     display: none;
-  }
-
-  .comment-item {
-    padding: 8px 0;
-    border-bottom: 1px solid var(--md-sys-color-outline-variant);
-    outline: none;
-  }
-  .comment-item:focus {
-    background: var(--md-sys-color-surface-container-high);
-  }
-  .comment-item:last-child {
-    border-bottom: none;
-  }
-  .comment-head {
-    display: flex;
-    align-items: center;
-    /* gap: 6px; Firefox 48 不支持 flex gap */
-    margin-bottom: 4px;
-  }
-  .comment-head .comment-face {
-    margin-right: 6px;
-  }
-  .comment-face {
-    width: 24px;
-    height: 24px;
-    border-radius: var(--md-sys-shape-corner-full);
-    object-fit: cover;
-    flex-shrink: 0;
-  }
-  .comment-name {
-    font-size: var(--md-sys-typescale-body-small-size);
-    font-weight: var(--md-sys-typescale-label-medium-weight);
-    color: var(--md-sys-color-primary);
-  }
-  .comment-time {
-    font-size: var(--md-sys-typescale-body-small-size);
-    color: var(--md-sys-color-on-surface-variant);
-    margin-left: auto;
-  }
-  .comment-content {
-    font-size: var(--md-sys-typescale-body-small-size);
-    color: var(--md-sys-color-on-surface);
-    line-height: 1.4;
-    margin-left: 30px;
-    word-break: break-all;
-  }
-  .comment-stat {
-    font-size: var(--md-sys-typescale-body-small-size);
-    color: var(--md-sys-color-on-surface-variant);
-    margin-left: 30px;
-    margin-top: 4px;
-    display: flex;
-    /* gap: 8px; Firefox 48 不支持 flex gap */
-  }
-  .comment-stat > * + * {
-    margin-left: 8px;
-  }
-  .sub-toggle {
-    cursor: pointer;
-  }
-
-  /* 子评论 */
-  .sub-loading {
-    display: flex;
-    align-items: center;
-    /* gap: 6px; Firefox 48 不支持 flex gap */
-    margin-left: 30px;
-    padding: 4px 0;
-    font-size: var(--md-sys-typescale-body-small-size);
-    color: var(--md-sys-color-on-surface-variant);
-  }
-  .sub-loading > * + * {
-    margin-left: 6px;
-  }
-  .sub-item {
-    margin-left: 30px;
-    padding: 6px 0;
-    border-bottom: 1px solid var(--md-sys-color-outline-variant);
-    outline: none;
-  }
-  .sub-item:focus {
-    background: var(--md-sys-color-surface-container-high);
-  }
-  .reply-to {
-    font-size: var(--md-sys-typescale-body-small-size);
-    color: var(--md-sys-color-on-surface-variant);
-  }
-
-  /* 评论回复输入框 */
-  .reply-bar {
-    display: flex;
-    /* gap: 8px; Firefox 48 不支持 flex gap */
-    padding: 8px;
-    border-top: 1px solid var(--md-sys-color-outline-variant);
-    background: var(--md-sys-color-surface);
-  }
-  .reply-bar textarea {
-    flex: 1;
-    margin-right: 8px;
-  }
-  .reply-bar textarea {
-    flex: 1;
-    min-height: 32px;
-    max-height: 80px;
-    padding: 6px 10px;
-    border: 1px solid var(--md-sys-color-outline-variant);
-    border-radius: var(--md-sys-shape-corner-small);
-    background: var(--md-sys-color-surface-container-low);
-    color: var(--md-sys-color-on-surface);
-    font-size: var(--md-sys-typescale-body-medium-size);
-    resize: none;
-    outline: none;
-  }
-  .reply-bar textarea:focus {
-    border-color: var(--md-sys-color-primary);
-  }
-  .reply-send {
-    padding: 6px 12px;
-    border: none;
-    border-radius: var(--md-sys-shape-corner-small);
-    background: var(--md-sys-color-primary);
-    color: var(--md-sys-color-on-primary);
-    font-size: var(--md-sys-typescale-body-small-size);
-    font-weight: var(--md-sys-typescale-label-medium-weight);
-    cursor: pointer;
-  }
-  .reply-send:disabled {
-    background: var(--md-sys-color-outline-variant);
-    color: var(--md-sys-color-on-surface-variant);
-    cursor: not-allowed;
-  }
-  .reply-error {
-    padding: 4px 12px;
-    font-size: var(--md-sys-typescale-body-small-size);
-    color: var(--md-sys-color-error);
-    background: var(--md-sys-color-surface-container);
-    text-align: center;
   }
 
   /* ========== 空状态 / 加载 ========== */
