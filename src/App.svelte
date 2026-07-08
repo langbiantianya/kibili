@@ -50,6 +50,15 @@
         // 这样系统就会执行默认的“删除文字”功能
         return;
       }
+
+      // 3. 在 /home /following /profile 这三个主页面不拦截返回键
+      //    让系统默认行为生效（通常是退出应用）
+      const currentPath = location.hash.replace("#", "").split("?")[0] || "/home";
+      const topLevelRoutes = ["/home", "/following", "/profile"];
+      if (topLevelRoutes.includes(currentPath)) {
+        return;
+      }
+
       e.preventDefault();
       back();
     }

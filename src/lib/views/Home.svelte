@@ -128,3 +128,20 @@
     {/if}
   </div>
 </div>
+
+<style>
+  .loading-top {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* gap: 8px; Firefox 48 不支持 flex gap */
+    padding: 8px;
+    font-size: var(--md-sys-typescale-body-small-size);
+    color: var(--md-sys-color-on-surface-variant);
+    background: var(--md-sys-color-surface-container);
+    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  }
+  .loading-top > * + * {
+    margin-left: 8px;
+  }
+</style>
