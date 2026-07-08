@@ -27,10 +27,27 @@ export async function getDynamicSpace(hostMid, { offset = '', features = 'itemOp
 
 // 动态详情
 // 端点: GET /x/polymer/web-dynamic/v1/detail
-export async function getDynamicDetail(id) {
-  return get('/x/polymer/web-dynamic/v1/detail', {
-    query: { id, timezone_offset: -480 }
-  });
+// 该接口偶发 -352 风控错误, 指数退避重试 (首次 500ms)
+export async function getDynamicDetail(id, { maxRetries = 3 } = {}) {
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await get('/x/polymer/web-dynamic/v1/detail', {
+        query: { id, timezone_offset: -480 }
+      });
+    } catch (e) {
+      lastError = e;
+      const code = e && typeof e === 'object' ? /** @type {any} */(e).code : undefined;
+      // 非 -352 错误直接抛, 不再重试
+      if (code !== -352) throw e;
+      // 最后一次也失败了, 抛出去
+      if (attempt === maxRetries) throw e;
+      // 指数退避: 500ms, 1000ms, 2000ms...
+      const delay = 500 * Math.pow(2, attempt);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw lastError;
 }
 
 // ============ 旧协议 (api.vc.bilibili.com) - 备用 ============

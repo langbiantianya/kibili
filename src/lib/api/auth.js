@@ -1,7 +1,7 @@
 // Web 端 QR 登录
 // 端点参考: SocialSisterYi/bilibili-API-collect/docs/login/login_action/QR.md
 
-import { get, post } from './bili.js';
+import { get, isDev } from './bili.js';
 
 // 1. 申请二维码 (web 端)
 // 端点: GET https://passport.bilibili.com/x/passport-login/web/qrcode/generate
@@ -31,17 +31,15 @@ export async function webQrPoll(qrcode_key) {
 // 注意: 使用独立的 XHR, 不走 request() 的 code 校验
 function pollRaw(qrcode_key) {
   return new Promise((resolve, reject) => {
-    const isDevMode = typeof import.meta !== 'undefined' &&
-                      import.meta.env && import.meta.env.MODE !== 'production';
-    const url = isDevMode
+    const url = isDev
       ? '/passport-proxy/x/passport-login/web/qrcode/poll?qrcode_key=' + encodeURIComponent(qrcode_key)
       : 'https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key=' + encodeURIComponent(qrcode_key);
 
-    const xhr = new XMLHttpRequest(!isDevMode ? { mozSystem: true } : undefined);
+    const xhr = new XMLHttpRequest(!isDev ? { mozSystem: true } : undefined);
     xhr.open('GET', url, true);
     xhr.setRequestHeader('Accept', 'application/json, text/plain, */*');
     // KaiOS 设备手动设 Referer/UA (dev 模式浏览器会拒绝)
-    if (!isDevMode) {
+    if (!isDev) {
       xhr.setRequestHeader('User-Agent', 'Mozilla/5.0 (Mobile; KaiOS; rv:48.0) Gecko/48.0 Firefox/48.0 KaiOS/2.4');
       xhr.setRequestHeader('Referer', 'https://www.bilibili.com/');
     }

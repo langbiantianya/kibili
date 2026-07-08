@@ -3,7 +3,7 @@
 //
 // 关键点:
 // - KaiOS 2.4 privileged 模式: XMLHttpRequest({mozSystem:true}) 绕过 CORS
-// - 桌面 dev 调试: 走 Vite 代理 (/api-proxy, /passport-proxy) 绕过 CORS
+// - 桌面 dev 调试: 走 dev server 代理 (/api-proxy, /passport-proxy) 绕过 CORS
 // - Web 端请求使用 Cookie 鉴权 (SESSDATA)
 // - WBI 鉴权: 2023+ 强制的反爬, 通过 wbi.js 给 query 加 wts + w_rid
 //
@@ -25,20 +25,19 @@ const VC = 'https://api.vc.bilibili.com';
 const APP_BASE = 'https://app.bilibili.com';
 const SEARCH = 'https://s.search.bilibili.com';
 
-// Vite 代理前缀 (开发环境用)
+// dev server 代理前缀 (开发环境用)
 const DEV_PROXY_API = '/api-proxy';
 const DEV_PROXY_PASSPORT = '/passport-proxy';
 const DEV_PROXY_VC = '/vc-proxy';
 const DEV_PROXY_APP = '/app-proxy';
 const DEV_PROXY_SEARCH = '/search-proxy';
 
-// Vite 构建时静态替换
-const isDev = (typeof import.meta !== 'undefined' &&
-               import.meta.env && import.meta.env.MODE !== 'production');
+// Rollup 构建时静态替换
+export const isDev = process.env.NODE_ENV !== 'production';
 
 // ============ buvid 设备标识 ============
 // B站风控要求 buvid3/buvid4/b_nut, 缺失会 -412
-// Dev 模式由 Vite 代理注入; KaiOS 设备端手动生成
+// Dev 模式由 dev server 代理注入; KaiOS 设备端手动生成
 
 let _buvid = null;
 
@@ -173,10 +172,10 @@ export function request(path, opts = {}) {
 
     xhr.open(method, url, true);
 
-    // KaiOS 设备 (mozSystem) 需要手动设 Referer/UA 等; 桌面 dev 浏览器禁止 JS 设这些头
-    // 用 devMode 区分: dev 模式不设, 让浏览器走默认 (Vite 代理同源, B 站只检查 Referer 而非同源 Referer)
-    // 注意: Vite 代理转发时不会改 Referer, B 站后端会拒 Referer != bilibili.com 的请求
-    // 解决方案: 在 vite.config.js 代理里用 configure 钩子改写 Referer
+    // Dev 模式: 浏览器禁止 JS 设 Referer/UA, 让浏览器走默认
+    // (dev server 代理同源, B 站只检查 Referer 而非同源 Referer)
+    // 注意: dev server 代理转发时不会改 Referer, B 站后端会拒 Referer != bilibili.com 的请求
+    // 解决方案: 在 dev-server.js 代理里用 onProxyReq 钩子改写 Referer
     if (!isDev) {
       xhr.setRequestHeader('User-Agent', UA);
       xhr.setRequestHeader('Referer', REFERER);
@@ -190,7 +189,7 @@ export function request(path, opts = {}) {
     // Cookie 处理:
     // - KaiOS 设备: 手动设置 Cookie header (mozSystem XHR 允许)
     // - Dev 模式: 浏览器禁止设置 Cookie header, 通过 X-Cookie 自定义 header 传递,
-    //   Vite 代理会读取 X-Cookie 并转发为 Cookie header
+    //   dev server 代理会读取 X-Cookie 并转发为 Cookie header
     let cookie = '';
     if (needCookie) {
       const u = getStore(user);
@@ -200,7 +199,7 @@ export function request(path, opts = {}) {
       }
     }
     // KaiOS 设备端: 始终注入 buvid 设备标识 (B站风控要求, 缺失会 -412)
-    // Dev 模式: 也注入 buvid, Vite 代理会读取 X-Cookie 并转发
+    // Dev 模式: 也注入 buvid, dev server 代理会读取 X-Cookie 并转发
     if (!isDev) {
       const bv = getBuvid();
       cookie += (cookie ? '; ' : '') + 'buvid3=' + bv.buvid3;

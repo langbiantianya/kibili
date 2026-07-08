@@ -42,6 +42,7 @@ function makeProxy(target) {
     pathRewrite: { '^/(api|passport|vc|app|search)-proxy': '' },
     onProxyReq(proxyReq, req) {
       proxyReq.setHeader('Referer', 'https://www.bilibili.com/');
+      proxyReq.setHeader('Origin', 'https://www.bilibili.com');
       proxyReq.setHeader(
         'User-Agent',
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -80,12 +81,17 @@ rollup.on('exit', (code) => {
 // 2. 等 build/app.js 出现后启动 server
 const startServer = () => {
   const app = express();
-  app.use(history({ index: '/index.html' }));
+
+  // 代理路由必须在 history() 之前，否则会被 SPA fallback 拦截
   app.use('/api-proxy',      makeProxy('https://api.bilibili.com'));
   app.use('/passport-proxy', makeProxy('https://passport.bilibili.com'));
   app.use('/vc-proxy',       makeProxy('https://api.vc.bilibili.com'));
   app.use('/app-proxy',      makeProxy('https://app.bilibili.com'));
   app.use('/search-proxy',   makeProxy('https://s.search.bilibili.com'));
+
+  // SPA fallback: 必须在代理之后，否则代理请求会被重定向到 index.html
+  app.use(history({ index: '/index.html' }));
+
   app.use(express.static(buildDir));
 
   http.createServer(app).listen(4173, '0.0.0.0', () => {

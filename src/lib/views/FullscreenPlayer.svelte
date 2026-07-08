@@ -1,6 +1,5 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { queue } from '../stores/queue.js';
   import { getVideoInfo, getPlayUrl, getDashUrls } from '../api/video.js';
   import { setSoftkeys } from '../stores/ui.js';
 
@@ -15,8 +14,7 @@
   /** @type {HTMLAudioElement|null} */
   let dashAudio = null;
 
-  /** @type {any} */
-  $: current = $queue.items[$queue.index];
+  let currentBvid = '';        // 当前播放视频的 bvid
 
   let normalPlaybackRate = 1.0; // 保存正常播放速度
   let speedUpTimer = null;      // 长按右键倍速定时器
@@ -34,42 +32,30 @@
   }
 
   async function loadVideo() {
-    const urlBvid = getBvidFromUrl();
-    if (urlBvid) {
-      if (!current || current.bvid !== urlBvid) {
-        const idx = $queue.items.findIndex(/** @param {any} x */ x => x.bvid === urlBvid);
-        if (idx >= 0) {
-          import('../stores/queue.js').then(({ setIndex }) => {
-            setIndex(idx);
-          });
-        }
-      }
-    }
+    const bvid = getBvidFromUrl();
 
-    if (!current) {
-      error = '队列为空';
+    if (!bvid) {
+      error = '缺少视频 ID';
       loading = false;
       return;
     }
 
+    currentBvid = bvid;
     loading = true;
     error = '';
 
     try {
-      const info = await getVideoInfo(current.bvid);
-      current.cid = info.cid;
-      current.aid = info.aid;
-      if (!current.title) current.title = info.title;
-      title = current.title;
+      const info = await getVideoInfo(bvid);
+      title = info.title;
 
       try {
-        const dash = await getDashUrls(current.bvid, info.cid, 16);
+        const dash = await getDashUrls(bvid, info.cid, 16);
         if (dash) {
           videoSrc = dash.videoUrl;
           audioSrc = dash.audioUrl;
         }
       } catch (e) {
-        videoSrc = await getPlayUrl(current.bvid, info.cid, 16);
+        videoSrc = await getPlayUrl(bvid, info.cid, 16);
         audioSrc = '';
       }
 

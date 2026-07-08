@@ -47,8 +47,7 @@ export async function refreshWbiKeys() {
   }
   try {
     // 直接请求 nav 接口, 不走 getNav (getNav 会因 code!==0 抛异常, 导致拿不到 wbi_img)
-    const isProd = !(typeof import.meta !== 'undefined' &&
-                     import.meta.env && import.meta.env.MODE !== 'production');
+    const isProd = process.env.NODE_ENV === 'production';
     const baseUrl = isProd ? 'https://api.bilibili.com' : '/api-proxy';
     const url = baseUrl + '/x/web-interface/nav';
 
@@ -63,7 +62,7 @@ export async function refreshWbiKeys() {
 
     const resp = await new Promise((resolve, reject) => {
       // KaiOS 设备: 必须用 mozSystem XHR 才能跨域请求 api.bilibili.com
-      // Dev 模式: 普通 XHR 即可 (Vite 代理同源)
+      // Dev 模式: 普通 XHR 即可 (dev server 代理同源)
       let xhr;
       try { xhr = new XMLHttpRequest({ mozSystem: true }); } catch (e) { xhr = new XMLHttpRequest(); }
       xhr.open('GET', url, true);

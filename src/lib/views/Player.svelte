@@ -1,6 +1,5 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { queue, next } from '../stores/queue.js';
   import { getVideoInfo, getPlayUrl, getDashUrls } from '../api/video.js';
   import { getReplies, getStatus, likeVideo, coinVideo, favVideo, unfavVideo, tripleAction } from '../api/interact.js';
   import { isLogin } from '../stores/user.js';
@@ -29,8 +28,11 @@
   let replySort = 2;
   let replyLoading = false;
 
-  /** @type {any} */
-  $: current = $queue.items[$queue.index];
+  let currentBvid = '';        // 当前播放视频的 bvid
+  let currentAid = 0;          // 当前视频的 aid
+  let currentCid = 0;          // 当前视频的 cid
+  let currentOwner = null;     // 当前视频的作者信息
+  let currentDuration = 0;     // 当前视频时长
 
   // 从 URL query 参数获取 bvid
   function getBvidFromUrl() {
@@ -40,42 +42,32 @@
   }
 
   async function loadVideo() {
-    // 优先从 URL 参数获取 bvid
-    const urlBvid = getBvidFromUrl();
-    if (urlBvid) {
-      // 如果 URL 中有 bvid，但 queue 中没有对应视频，需要设置 queue
-      if (!current || current.bvid !== urlBvid) {
-        // 尝试在 queue 中查找
-        const idx = $queue.items.findIndex(/** @param {any} x */ x => x.bvid === urlBvid);
-        if (idx >= 0) {
-          // 在 queue 中，设置 index
-          import('../stores/queue.js').then(({ setIndex }) => {
-            setIndex(idx);
-          });
-        }
-      }
-    }
+    // 从 URL query 参数获取 bvid
+    const bvid = getBvidFromUrl();
 
-    if (!current) {
-      error = '队列为空';
+    if (!bvid) {
+      error = '缺少视频 ID';
       loading = false;
       return;
     }
+
+    currentBvid = bvid;
     loading = true;
     error = '';
     // 重置听视频状态
     playerMode = 'video';
     resumeAt = 0;
+
     try {
       // 1. 视频信息
-      const info = await getVideoInfo(current.bvid);
+      const info = await getVideoInfo(bvid);
       meta = info;
-      current.cid = info.cid;
-      current.aid = info.aid;
-      if (!current.title) current.title = info.title;
-      if (!current.pic) current.pic = info.pic;
-      title = current.title;
-      poster = current.pic;
+      currentAid = info.aid;
+      currentCid = info.cid;
+      currentOwner = info.owner || null;
+      currentDuration = info.duration || 0;
+      title = info.title;
+      poster = info.pic;
       counts = {
         like: info.stat ? info.stat.like : 0,
         coin: info.stat ? info.stat.coin : 0,
@@ -84,14 +76,14 @@
 
       // 2. 拉 DASH 拿独立音视频流 (供听视频模式用)
       try {
-        const dash = await getDashUrls(current.bvid, info.cid, 16);
+        const dash = await getDashUrls(bvid, info.cid, 16);
         if (dash) {
           videoSrc = dash.videoUrl;
           audioSrc = dash.audioUrl;
         }
       } catch (e) {
         // DASH 拉取失败, 退回到 MP4 单流 (听视频功能不可用, 但视频能播)
-        videoSrc = await getPlayUrl(current.bvid, info.cid, 16);
+        videoSrc = await getPlayUrl(bvid, info.cid, 16);
         audioSrc = '';
       }
       if (!videoSrc) {
@@ -101,19 +93,19 @@
 
       // 3. 状态 + 评论 (登录后才查)
       if ($isLogin) {
-        try { status = await getStatus(current.bvid); } catch (e) { /* ignore */ }
+        try { status = await getStatus(bvid); } catch (e) { /* ignore */ }
       }
       await loadReplies();
 
       // 4. 记录到历史
       addLocal({
-        bvid: current.bvid,
-        aid: current.aid,
-        cid: current.cid,
+        bvid: bvid,
+        aid: currentAid,
+        cid: currentCid,
         title: title,
         pic: poster,
-        owner: current.owner || (info.owner || null),
-        duration: info.duration
+        owner: currentOwner,
+        duration: currentDuration
       });
     } catch (e) {
       error = e.message || '加载失败';
@@ -151,12 +143,7 @@
   }
 
   function onEnded() {
-    if ($queue.index < $queue.items.length - 1) {
-      next();
-      loadVideo();
-    } else {
-      showToast('已播完');
-    }
+    showToast('已播完');
   }
 
   function needLogin() {
@@ -176,7 +163,7 @@
     status.like = old ? 0 : 1;
     counts.like += old ? -1 : 1;
     try {
-      await likeVideo(current.bvid, !old);
+      await likeVideo(currentBvid, !old);
     } catch (e) {
       status.like = old;
       counts.like += old ? 1 : -1;
@@ -194,7 +181,7 @@
     status.coin = 1;
     counts.coin += old ? 0 : 1;
     try {
-      await coinVideo(current.bvid, 1);
+      await coinVideo(currentBvid, 1);
     } catch (e) {
       status.coin = old;
       counts.coin += old ? 0 : -1;
@@ -213,9 +200,9 @@
     counts.fav += old ? -1 : 1;
     try {
       if (old) {
-        await unfavVideo(current.bvid);
+        await unfavVideo(currentBvid);
       } else {
-        await favVideo(current.bvid);
+        await favVideo(currentBvid);
       }
     } catch (e) {
       status.fav = old;
@@ -230,7 +217,7 @@
     if (!needLogin()) return;
     // 一键三连: 赞 + 币 + 藏
     try {
-      await tripleAction(current.bvid, { multiply: 1 });
+      await tripleAction(currentBvid);
       status = { ...status, like: 1, coin: 1, fav: 1 };
       showToast('✓ 一键三连');
     } catch (e) {
@@ -256,12 +243,8 @@
   }
 
   function onFullscreen() {
-    // 跳转到全屏页面,带上当前视频信息
-    const hash = location.hash || '';
-    const bvidMatch = hash.match(/[?&]bvid=([^&]+)/);
-    const bvid = bvidMatch ? bvidMatch[1] : '';
-    if (bvid) {
-      navigate('/fullscreen?bvid=' + bvid);
+    if (currentBvid) {
+      navigate('/fullscreen?bvid=' + currentBvid);
     }
   }
 
