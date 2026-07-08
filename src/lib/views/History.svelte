@@ -1,14 +1,13 @@
 <script>
-  import { onMount, onDestroy } from 'svelte';
-  import { history as histStore, refreshHistory } from '../stores/history.js';
-  import { setIndex } from '../stores/queue.js';
-  import { navigate } from '../router/index.js';
-  import { onKey, offKey, moveFocus } from '../keyboard/index.js';
-  import { setSoftkeys, showToast } from '../stores/ui.js';
-  import Loading from '../components/Loading.svelte';
-  import EmptyState from '../components/EmptyState.svelte';
-  import { isLogin } from '../stores/user.js';
-  import { formatCount, relativeTime } from '../utils/format.js';
+  import { onMount, onDestroy } from "svelte";
+  import { history as histStore, refreshHistory } from "../stores/history.js";
+  import { navigate } from "../router/index.js";
+  import { onKey, offKey, moveFocus } from "../keyboard/index.js";
+  import { setSoftkeys } from "../stores/ui.js";
+  import Loading from "../components/Loading.svelte";
+  import EmptyState from "../components/EmptyState.svelte";
+  import FeedList from "../components/FeedList.svelte";
+  import { isLogin } from "../stores/user.js";
 
   let loading = true;
 
@@ -18,27 +17,30 @@
     loading = false;
   }
 
-  function playItem(item) {
-    setIndex(0);
-    // 把这一项作为单元素 queue, 跳到 player
-    import('../stores/queue.js').then(({ queue }) => {
-      queue.set({ items: [{ ...item }], index: 0, source: 'history', label: '历史记录' });
-      navigate('/player?bvid=' + item.bvid);
-    });
+  function playVideo(v) {
+    const t = v.progress ? Math.floor(v.progress / 1000) : 0;
+    navigate("/player?bvid=" + v.bvid + (t ? "&t=" + t : ""));
   }
 
   onMount(() => {
-    setSoftkeys('刷新', '返回');
+    setSoftkeys("刷新", "", "播放");
     load();
-    onKey('history', {
+    onKey("history", {
       ArrowDown: () => moveFocus(+1),
       ArrowUp: () => moveFocus(-1),
-      '0': () => load()
+      SoftLeft: () => load(),
+      Enter: () => {
+        const focused = document.querySelector(".feed-card:focus");
+        if (focused) {
+          const evt = new MouseEvent("click", { bubbles: true });
+          focused.dispatchEvent(evt);
+        }
+      }
     });
   });
 
   onDestroy(() => {
-    offKey('history');
+    offKey("history");
   });
 </script>
 
@@ -51,68 +53,7 @@
     {:else if $histStore.items.length === 0}
       <EmptyState message="暂无历史记录" />
     {:else}
-      <div class="hist-list scroll-y">
-        {#each $histStore.items as v, i (v.bvid || i)}
-          <div
-            class="hist-item"
-            data-navable
-            tabindex="0"
-            on:click={() => playItem(v)}
-            on:keydown={(e) => { if (e.key === 'Enter') playItem(v); }}
-          >
-            <div class="title">{v.title || ''}</div>
-            <div class="meta">
-              {#if v.owner}<span class="up">{v.owner.name}</span>{/if}
-              {#if v.viewAt}<span class="time">· {relativeTime(v.viewAt / 1000)}</span>{/if}
-            </div>
-          </div>
-        {/each}
-      </div>
+      <FeedList items={$histStore.items} on:play={(e) => playVideo(e.detail)} />
     {/if}
   </div>
 </div>
-
-<style>
-  .hist-list {
-    height: 100%;
-  }
-  .hist-item {
-    min-height: 36px;
-    padding: 4px 8px;
-    border-bottom: 1px solid var(--md-sys-color-outline-variant);
-    background: var(--md-sys-color-surface);
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    transition: background 0.15s ease;
-    cursor: pointer;
-  }
-  .hist-item:focus,
-  .hist-item:hover {
-    background: var(--md-sys-color-surface-container-high);
-  }
-  .title {
-    font-size: var(--md-sys-typescale-body-large-size);
-    color: var(--md-sys-color-on-surface);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    font-weight: var(--md-sys-typescale-body-large-weight);
-  }
-  .meta {
-    font-size: var(--md-sys-typescale-body-small-size);
-    color: var(--md-sys-color-on-surface-variant);
-    margin-top: 1px;
-    display: flex;
-    /* gap: 4px; Firefox 48 不支持 flex gap */
-  }
-  .meta .up {
-    margin-right: 4px;
-  }
-  .up {
-    color: var(--md-sys-color-primary);
-  }
-  .time {
-    color: var(--md-sys-color-on-surface-variant);
-  }
-</style>

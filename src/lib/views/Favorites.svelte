@@ -1,60 +1,63 @@
 <script>
-  import { onMount, onDestroy } from 'svelte';
-  import { getFavFolders } from '../api/user.js';
-  import { get } from 'svelte/store';
-  import { user } from '../stores/user.js';
-  import { navigate } from '../router/index.js';
-  import { onKey, offKey, moveFocus } from '../keyboard/index.js';
-  import { setSoftkeys, showToast } from '../stores/ui.js';
-  import Loading from '../components/Loading.svelte';
-  import EmptyState from '../components/EmptyState.svelte';
+  import { onMount, onDestroy } from "svelte";
+  import { getFavFolders } from "../api/user.js";
+  import { get } from "svelte/store";
+  import { user } from "../stores/user.js";
+  import { navigate } from "../router/index.js";
+  import { onKey, offKey, moveFocus } from "../keyboard/index.js";
+  import { setSoftkeys, showToast } from "../stores/ui.js";
+  import Loading from "../components/Loading.svelte";
+  import EmptyState from "../components/EmptyState.svelte";
 
   let folders = [];
   let loading = true;
-  let error = '';
+  let error = "";
 
   async function load() {
     loading = true;
-    error = '';
+    error = "";
     try {
       const u = get(user);
       let mid = u.mid;
       if (!mid) {
         // 未登录: 提示去登录
-        error = '请先登录';
+        error = "请先登录";
         loading = false;
         return;
       }
       const d = await getFavFolders(mid, { pn: 1, ps: 30 });
-      folders = (d && d.list) ? d.list : [];
+      folders = d && d.list ? d.list : [];
     } catch (e) {
-      error = e.message || '加载失败';
+      error = e.message || "加载失败";
     } finally {
       loading = false;
     }
   }
 
   function openFolder(f) {
-    navigate('/folder?fid=' + f.fid + '&title=' + encodeURIComponent(f.title));
+    navigate("/folder?fid=" + f.id + "&title=" + encodeURIComponent(f.title));
   }
 
-  function gotoLogin() {
-    navigate('/login');
-  }
 
   onMount(() => {
-    setSoftkeys('选项', '返回');
+    setSoftkeys("刷新", "", "打开");
     load();
-    onKey('favorites', {
+    onKey("favorites", {
       ArrowDown: () => moveFocus(+1),
       ArrowUp: () => moveFocus(-1),
-      '0': () => load(),
-      '5': () => gotoLogin()
+      SoftLeft: () => load(),
+      Enter: () => {
+        const focused = document.querySelector(".folder-item:focus");
+        if (focused) {
+          const evt = new MouseEvent("click", { bubbles: true });
+          focused.dispatchEvent(evt);
+        }
+      }
     });
   });
 
   onDestroy(() => {
-    offKey('favorites');
+    offKey("favorites");
   });
 </script>
 
@@ -74,7 +77,9 @@
             data-navable
             tabindex="0"
             on:click={() => openFolder(f)}
-            on:keydown={(e) => { if (e.key === 'Enter') openFolder(f); }}
+            on:keydown={(e) => {
+              if (e.key === "Enter") openFolder(f);
+            }}
           >
             <div class="title">{f.title}</div>
             <div class="meta">{f.media_count || 0} 个视频</div>

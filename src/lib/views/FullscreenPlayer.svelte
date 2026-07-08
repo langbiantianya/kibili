@@ -25,13 +25,25 @@
   let duration = 0;
   let buffered = 0;
 
+  // 从普通播放器传入的初始播放位置（秒）
+  let startAt = 0;
+
   function getBvidFromUrl() {
     const hash = location.hash || '';
     const match = hash.match(/[?&]bvid=([^&]+)/);
     return match ? match[1] : '';
   }
 
+  function getStartTimeFromUrl() {
+    const hash = location.hash || '';
+    const match = hash.match(/[?&]t=(\d+)/);
+    return match ? parseInt(match[1], 10) : 0;
+  }
+
   async function loadVideo() {
+    // 读取初始播放位置
+    startAt = getStartTimeFromUrl();
+
     const bvid = getBvidFromUrl();
 
     if (!bvid) {
@@ -48,6 +60,7 @@
       const info = await getVideoInfo(bvid);
       title = info.title;
 
+      // 全屏播放器使用 qn=16 (360P 流畅), 保证画质
       try {
         const dash = await getDashUrls(bvid, info.cid, 16);
         if (dash) {
@@ -73,9 +86,16 @@
   function onLoaded() {
     if (video) {
       duration = video.duration || 0;
+      // 如果有初始播放位置，跳转到对应时间
+      if (startAt > 0 && startAt < duration) {
+        video.currentTime = startAt;
+      }
       video.play().catch(() => {});
     }
     if (dashAudio) {
+      if (startAt > 0 && video && video.duration && startAt < video.duration) {
+        dashAudio.currentTime = startAt;
+      }
       dashAudio.play().catch(() => {});
     }
   }

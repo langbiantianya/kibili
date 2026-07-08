@@ -3,7 +3,6 @@
   export let empty = '暂无内容';
   import FeedCard from './FeedCard.svelte';
   import EmptyState from './EmptyState.svelte';
-  import Loading from './Loading.svelte';
   import { createEventDispatcher } from 'svelte';
   import { onMount } from 'svelte';
   import { focusFirst } from '../keyboard/roving.js';

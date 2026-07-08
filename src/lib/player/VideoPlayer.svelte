@@ -3,7 +3,7 @@
   import { releaseWakeLock } from './wake.js';
   import { settings } from '../stores/settings.js';
   import { moveFocus } from '../keyboard/index.js';
-  import { addReply } from '../api/interact.js';
+  import { addReply, reportProgress } from '../api/interact.js';
   import { showToast } from '../stores/ui.js';
   import CommentSection from '../components/CommentSection.svelte';
 
@@ -48,6 +48,11 @@
   let duration = 0;
   let error = '';
   let buffered = 0; // 缓冲进度
+
+  // 观看进度上报定时器
+  /** @type {number|null} */
+  let reportTimer = null;
+  let lastReportedTime = 0;
 
   // 长按检测
   const LONG_PRESS_MS = 400; // 长按阈值
@@ -115,11 +120,39 @@
     }
   }
 
+  // 上报观看进度
+  function doReportProgress() {
+    if (!meta || !meta.aid || !meta.cid) return;
+    const m = mode === 'audio' ? audio : video;
+    if (!m) return;
+    const progress = Math.floor(m.currentTime);
+    // 避免重复上报同一进度
+    if (progress === lastReportedTime) return;
+    lastReportedTime = progress;
+    reportProgress(meta.aid, meta.cid, progress).catch(() => {});
+  }
+
+  // 启动进度上报定时器
+  function startReportTimer() {
+    if (reportTimer) clearInterval(reportTimer);
+    reportTimer = setInterval(doReportProgress, 15000);
+  }
+
+  // 停止进度上报定时器
+  function stopReportTimer() {
+    if (reportTimer) {
+      clearInterval(reportTimer);
+      reportTimer = null;
+    }
+  }
+
   function onPlay() {
     if (mode === 'video' && dashAudio && audioSrc) {
       dashAudio.play().catch(() => {});
     }
     dispatch('playstate', { playing: true });
+    // 开始播放时启动上报
+    startReportTimer();
   }
 
   function onPause() {
@@ -127,6 +160,9 @@
       dashAudio.pause();
     }
     dispatch('playstate', { playing: false });
+    // 暂停时停止上报，并立即上报一次当前进度
+    stopReportTimer();
+    doReportProgress();
   }
 
   function onMediaError(e) {
@@ -138,12 +174,16 @@
   }
 
   function onAudioEnded() {
+    // 播放结束时上报最终进度
+    doReportProgress();
     dispatch('ended');
   }
   function onVideoEnded() {
     if (dashAudio) {
       dashAudio.pause();
     }
+    // 播放结束时上报最终进度
+    doReportProgress();
     dispatch('ended');
   }
 
@@ -165,7 +205,9 @@
 
   function toggleFullscreen() {
     // 触发全屏事件,由父组件 Player.svelte 处理跳转
-    dispatch('fullscreen');
+    // 带上当前播放进度,以便全屏模式接续播放
+    const m = mode === 'audio' ? audio : video;
+    dispatch('fullscreen', { currentTime: m ? m.currentTime : 0 });
   }
 
   function seek(delta) {
@@ -537,6 +579,9 @@
   });
 
   onDestroy(() => {
+    // 组件销毁时停止上报并上报最终进度
+    stopReportTimer();
+    doReportProgress();
     releaseWakeLock();
     if (dashAudio) {
       dashAudio.pause();

@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { getVideoInfo, getPlayUrl, getDashUrls } from '../api/video.js';
-  import { getReplies, getStatus, likeVideo, coinVideo, favVideo, unfavVideo, tripleAction } from '../api/interact.js';
+  import { getReplies, getStatus, likeVideo, coinVideo, favVideo, unfavVideo, tripleAction, reportProgress } from '../api/interact.js';
   import { isLogin } from '../stores/user.js';
   import { offKey } from '../keyboard/index.js';
   import { navigate } from '../router/index.js';
@@ -41,6 +41,13 @@
     return match ? match[1] : '';
   }
 
+  // 从 URL query 参数获取起始播放时间
+  function getStartTimeFromUrl() {
+    const hash = location.hash || '';
+    const match = hash.match(/[?&]t=(\d+)/);
+    return match ? parseInt(match[1], 10) : 0;
+  }
+
   async function loadVideo() {
     // 从 URL query 参数获取 bvid
     const bvid = getBvidFromUrl();
@@ -56,7 +63,8 @@
     error = '';
     // 重置听视频状态
     playerMode = 'video';
-    resumeAt = 0;
+    // 从 URL 读取起始播放位置
+    resumeAt = getStartTimeFromUrl();
 
     try {
       // 1. 视频信息
@@ -75,15 +83,16 @@
       };
 
       // 2. 拉 DASH 拿独立音视频流 (供听视频模式用)
+      // 普通播放器使用 qn=6 (240P 极速), 节省流量
       try {
-        const dash = await getDashUrls(bvid, info.cid, 16);
+        const dash = await getDashUrls(bvid, info.cid, 6);
         if (dash) {
           videoSrc = dash.videoUrl;
           audioSrc = dash.audioUrl;
         }
       } catch (e) {
         // DASH 拉取失败, 退回到 MP4 单流 (听视频功能不可用, 但视频能播)
-        videoSrc = await getPlayUrl(bvid, info.cid, 16);
+        videoSrc = await getPlayUrl(bvid, info.cid, 6);
         audioSrc = '';
       }
       if (!videoSrc) {
@@ -229,6 +238,12 @@
   }
 
   let isPlaying = false; // 当前播放状态
+  let currentTime = 0;   // 当前播放进度（秒）
+
+  // 观看进度上报定时器
+  /** @type {number|null} */
+  let reportTimer = null;
+  let lastReportedTime = 0;
 
   let activeTabKey = 'detail'; // 当前激活的 tab
 
@@ -237,14 +252,46 @@
     updateSoftkeys();
   }
 
+  // 上报观看进度
+  function doReportProgress() {
+    if (!currentAid || !currentCid) return;
+    const progress = Math.floor(currentTime);
+    // 避免重复上报同一进度
+    if (progress === lastReportedTime) return;
+    lastReportedTime = progress;
+    reportProgress(currentAid, currentCid, progress).catch(() => {});
+  }
+
+  // 启动进度上报定时器
+  function startReportTimer() {
+    if (reportTimer) clearInterval(reportTimer);
+    reportTimer = setInterval(doReportProgress, 15000);
+  }
+
+  // 停止进度上报定时器
+  function stopReportTimer() {
+    if (reportTimer) {
+      clearInterval(reportTimer);
+      reportTimer = null;
+    }
+  }
+
   function onPlayState(e) {
     isPlaying = e.detail.playing;
     updateSoftkeys();
+    // 播放状态变化时处理上报
+    if (isPlaying) {
+      startReportTimer();
+    } else {
+      stopReportTimer();
+      doReportProgress();
+    }
   }
 
-  function onFullscreen() {
+  function onFullscreen(e) {
     if (currentBvid) {
-      navigate('/fullscreen?bvid=' + currentBvid);
+      const t = e.detail && e.detail.currentTime ? Math.floor(e.detail.currentTime) : 0;
+      navigate('/fullscreen?bvid=' + currentBvid + '&t=' + t);
     }
   }
 
@@ -260,6 +307,9 @@
 
   onDestroy(() => {
     offKey('player');
+    // 组件销毁时停止上报并上报最终进度
+    stopReportTimer();
+    doReportProgress();
   });
 </script>
 
