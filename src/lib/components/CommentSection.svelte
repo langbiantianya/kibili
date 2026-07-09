@@ -4,6 +4,7 @@
   import { formatCount, relativeTime } from '../utils/format.js';
   import { biliImg } from '../utils/platform.js';
   import CommentReply from './CommentReply.svelte';
+  import LoadingMore from './LoadingMore.svelte';
 
   // ========== Props ==========
   /** @type {any[]} */
@@ -209,10 +210,7 @@
         {/each}
       {/each}
       {#if commentsLoading}
-        <div class="loading-more">
-          <div class="spinner-small"></div>
-          <span>加载中...</span>
-        </div>
+        <LoadingMore />
       {:else if !commentHasMore && comments.length > 0}
         <div class="no-more">没有更多评论了</div>
       {/if}
@@ -418,46 +416,10 @@
     color: var(--md-sys-color-on-surface-variant);
   }
 
-  .loading-more {
-    display: -webkit-box;
-    display: -ms-flexbox;
-    display: flex;
-    -webkit-box-align: center;
-    -ms-flex-align: center;
-    align-items: center;
-    -webkit-box-pack: center;
-    -ms-flex-pack: center;
-    justify-content: center;
-    /* gap: 8px; Firefox 48 不支持 flex gap */
-    padding: 12px;
-    font-size: var(--md-sys-typescale-body-small-size);
-    color: var(--md-sys-color-on-surface-variant);
-  }
-  .loading-more > * + * {
-    margin-left: 8px;
-  }
-
   .no-more {
     text-align: center;
     padding: 12px;
     font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
-  }
-
-  .spinner-small {
-    width: 16px;
-    height: 16px;
-    border: 2px solid var(--md-sys-color-outline-variant);
-    border-top-color: var(--md-sys-color-primary);
-    border-radius: 50%;
-    -webkit-animation: spin 0.8s linear infinite;
-    animation: spin 0.8s linear infinite;
-  }
-
-  @keyframes spin {
-    to { -webkit-transform: rotate(360deg); transform: rotate(360deg); }
-  }
-  @-webkit-keyframes spin {
-    to { -webkit-transform: rotate(360deg); transform: rotate(360deg); }
   }
 </style>

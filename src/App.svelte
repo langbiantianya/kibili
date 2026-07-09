@@ -16,6 +16,8 @@
   import FullscreenPlayer from "./lib/views/FullscreenPlayer.svelte";
   import Login from "./lib/views/Login.svelte";
   import DynamicDetail from "./lib/views/DynamicDetail.svelte";
+  import Search from "./lib/views/Search.svelte";
+  import SearchResults from "./lib/views/SearchResults.svelte";
 
   const routes = {
     "/home": MainLayout,
@@ -28,6 +30,8 @@
     "/fullscreen": FullscreenPlayer,
     "/login": Login,
     "/dynamic-detail": DynamicDetail,
+    "/search": Search,
+    "/search-results": SearchResults,
     "*": MainLayout, // fallback
   };
 

@@ -204,3 +204,11 @@ export async function searchVideo(keyword, { order = 'totalrank', page = 1, dura
     needCookie: true
   });
 }
+
+// 获取热搜列表 (web端)
+// 端点: GET https://s.search.bilibili.com/main/hotword
+export async function getHotSearch() {
+  return get('/main/hotword', {
+    useSearch: true
+  });
+}

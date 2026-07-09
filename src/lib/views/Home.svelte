@@ -3,6 +3,7 @@
   import { isLogin } from "../stores/user.js";
   import FeedList from "../components/FeedList.svelte";
   import Loading from "../components/Loading.svelte";
+  import LoadingMore from "../components/LoadingMore.svelte";
   import EmptyState from "../components/EmptyState.svelte";
   import { loadFeed, loadMoreFeed, setIndex } from "../stores/queue.js";
   import { navigate } from "../router/index.js";
@@ -98,7 +99,7 @@
       },
       SoftRight: () => {
         if ($isLogin) {
-          console.log("搜索");
+          navigate("/search");
         }
       },
     });
@@ -119,10 +120,7 @@
       <EmptyState message="加载失败" hint={error + " · 按 左软键 重试"} />
     {:else}
       {#if loadingMore}
-        <div class="loading-top">
-          <div class="spinner-small"></div>
-          <span>加载中...</span>
-        </div>
+        <LoadingMore />
       {/if}
       <FeedList {items} on:play={(e) => playVideo(e.detail)} />
     {/if}
@@ -130,18 +128,4 @@
 </div>
 
 <style>
-  .loading-top {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    /* gap: 8px; Firefox 48 不支持 flex gap */
-    padding: 8px;
-    font-size: var(--md-sys-typescale-body-small-size);
-    color: var(--md-sys-color-on-surface-variant);
-    background: var(--md-sys-color-surface-container);
-    border-bottom: 1px solid var(--md-sys-color-outline-variant);
-  }
-  .loading-top > * + * {
-    margin-left: 8px;
-  }
 </style>

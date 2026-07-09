@@ -9,6 +9,7 @@
   import TabBar from '../components/TabBar.svelte';
   import FeedList from '../components/FeedList.svelte';
   import Loading from '../components/Loading.svelte';
+  import LoadingMore from '../components/LoadingMore.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import { stripHtml, relativeTime, formatCount } from '../utils/format.js';
   import { biliImg } from '../utils/platform.js';
@@ -290,10 +291,7 @@
         <EmptyState message={videoError} />
       {:else}
         {#if videoLoadingMore}
-          <div class="loading-top">
-            <div class="spinner-small"></div>
-            <span>加载中...</span>
-          </div>
+          <LoadingMore />
         {/if}
         <FeedList items={videos} on:play={(e) => playVideo(e.detail)} />
       {/if}
@@ -306,10 +304,7 @@
         <EmptyState message="暂无动态" />
       {:else}
         {#if dynLoadingMore}
-          <div class="loading-top">
-            <div class="spinner-small"></div>
-            <span>加载中...</span>
-          </div>
+          <LoadingMore />
         {/if}
         <div class="dyn-list scroll-y">
           {#each dynamics as d (d.id_str)}
@@ -473,32 +468,5 @@
   }
   .dyn-stat .stat-item.liked {
     color: var(--md-sys-color-primary);
-  }
-
-  /* ============ Loading Top ============ */
-  .loading-top {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    /* gap: 8px; Firefox 48 不支持 flex gap */
-    padding: 8px;
-    font-size: var(--md-sys-typescale-body-small-size);
-    color: var(--md-sys-color-on-surface-variant);
-    background: var(--md-sys-color-surface-container);
-    border-bottom: 1px solid var(--md-sys-color-outline-variant);
-  }
-  .loading-top > * + * {
-    margin-left: 8px;
-  }
-  .spinner-small {
-    width: 16px;
-    height: 16px;
-    border: 2px solid var(--md-sys-color-outline-variant);
-    border-top-color: var(--md-sys-color-primary);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin {
-    to { transform: rotate(360deg); }
   }
 </style>
