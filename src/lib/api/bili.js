@@ -15,7 +15,7 @@ import { signWbi, hasWbiKeys } from './wbi.js';
 
 // ============ 配置 ============
 
-const UA = 'Mozilla/5.0 (Mobile; KaiOS; rv:48.0) Gecko/48.0 Firefox/48.0 KaiOS/2.4';
+// const UA = 'Mozilla/5.0 (Mobile; KaiOS; rv:48.0) Gecko/48.0 Firefox/48.0 KaiOS/2.4';
 const REFERER = 'https://www.bilibili.com/';
 
 // API 基础地址 (对应 bili-apis 文档中的 web 端点)
@@ -177,7 +177,7 @@ export function request(path, opts = {}) {
     // 注意: dev server 代理转发时不会改 Referer, B 站后端会拒 Referer != bilibili.com 的请求
     // 解决方案: 在 dev-server.js 代理里用 onProxyReq 钩子改写 Referer
     if (!isDev) {
-      xhr.setRequestHeader('User-Agent', UA);
+      // xhr.setRequestHeader('User-Agent', UA);
       xhr.setRequestHeader('Referer', REFERER);
     }
     xhr.setRequestHeader('Accept', 'application/json, text/plain, */*');

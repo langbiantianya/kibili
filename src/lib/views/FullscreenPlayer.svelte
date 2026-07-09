@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { getVideoInfo, getPlayUrl, getDashUrls } from '../api/video.js';
   import { setSoftkeys } from '../stores/ui.js';
+  import { settings } from '../stores/settings.js';
 
   let videoSrc = '';
   let audioSrc = '';
@@ -60,15 +61,16 @@
       const info = await getVideoInfo(bvid);
       title = info.title;
 
-      // 全屏播放器使用 qn=16 (360P 流畅), 保证画质
+      // 全屏播放器读取设置中的 quality，默认 360P
+      const qn = $settings.quality || 16;
       try {
-        const dash = await getDashUrls(bvid, info.cid, 16);
+        const dash = await getDashUrls(bvid, info.cid, qn);
         if (dash) {
           videoSrc = dash.videoUrl;
           audioSrc = dash.audioUrl;
         }
       } catch (e) {
-        videoSrc = await getPlayUrl(bvid, info.cid, 16);
+        videoSrc = await getPlayUrl(bvid, info.cid, qn);
         audioSrc = '';
       }
 

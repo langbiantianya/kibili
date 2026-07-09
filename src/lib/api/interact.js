@@ -9,10 +9,9 @@ import { user } from '../stores/user.js';
 
 function requireLogin() {
   const u = getStore(user);
-  if (!u.sessdata && !u.accessToken) {
+  if (!u.sessdata) {
     throw Object.assign(new Error('NOT_LOGIN'), { code: -101 });
   }
-  // 优先用 web csrf
   if (!u.bili_jct) {
     throw Object.assign(new Error('NO_CSRF'), { code: -101 });
   }

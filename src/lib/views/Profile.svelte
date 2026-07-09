@@ -12,8 +12,8 @@
 
   onMount(() => {
     // 根据登录状态设置软键
-    const leftLabel = $isLogin ? '操作' : '操作';
-    const rightLabel = $isLogin ? '登出' : '登录';
+    const leftLabel = $isLogin ? "操作" : "操作";
+    const rightLabel = $isLogin ? "登出" : "登录";
     setSoftkeys(leftLabel, rightLabel);
     // 已登录则刷新用户信息
     if ($isLogin) {
@@ -37,7 +37,11 @@
       label: "我的收藏",
       action: () => navigate("/favorites"),
     },
-    ...($isLogin ? [{ key: "logout", label: "登出", action: () => onLogoutClick() }] : []),
+    { key: "settings", label: "设置", action: () => navigate("/settings") },
+    { key: "about", label: "关于", action: () => navigate("/about") },
+    ...($isLogin
+      ? [{ key: "logout", label: "登出", action: () => onLogoutClick() }]
+      : []),
   ];
 
   function onLogoutClick() {
@@ -94,8 +98,6 @@
         </div>
       {/each}
     </div>
-
-    <div class="version">v1.0.0 · KaiOS 2.4</div>
   </div>
 </div>
 

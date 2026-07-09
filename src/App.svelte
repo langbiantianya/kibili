@@ -18,6 +18,8 @@
   import DynamicDetail from "./lib/views/DynamicDetail.svelte";
   import Search from "./lib/views/Search.svelte";
   import SearchResults from "./lib/views/SearchResults.svelte";
+  import Settings from "./lib/views/Settings.svelte";
+  import About from "./lib/views/About.svelte";
 
   const routes = {
     "/home": MainLayout,
@@ -32,6 +34,8 @@
     "/dynamic-detail": DynamicDetail,
     "/search": Search,
     "/search-results": SearchResults,
+    "/settings": Settings,
+    "/about": About,
     "*": MainLayout, // fallback
   };
 

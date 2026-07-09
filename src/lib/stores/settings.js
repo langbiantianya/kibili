@@ -3,7 +3,7 @@ import { persist } from './persist.js';
 
 const initial = persist.load('settings:v1', {
   quality: 16,            // 320p-ish cap
-  volume: 0.8,
+  volume: 1,
   muted: false,
   listenOnlyDefault: false
 });
