@@ -15,8 +15,8 @@ import { signWbi, hasWbiKeys } from './wbi.js';
 
 // ============ 配置 ============
 
-// const UA = 'Mozilla/5.0 (Mobile; KaiOS; rv:48.0) Gecko/48.0 Firefox/48.0 KaiOS/2.4';
-const REFERER = 'https://www.bilibili.com/';
+const UA = 'Mozilla/5.0 (Android 16; Mobile; rv:146.0) Gecko/146.0 Firefox/146.0';
+const REFERER = 'https://m.bilibili.com/';
 
 // API 基础地址 (对应 bili-apis 文档中的 web 端点)
 const BASE = 'https://api.bilibili.com';
@@ -127,6 +127,7 @@ export function request(path, opts = {}) {
     useApp = false,
     useSearch = false,
     wbi = false,             // 是否附加 wbi 签名 (wts + w_rid)
+    rawData = false,         // 返回完整响应 data 而非 data.data
     signal = null,
     timeout = 15000
   } = opts;
@@ -177,10 +178,14 @@ export function request(path, opts = {}) {
     // 注意: dev server 代理转发时不会改 Referer, B 站后端会拒 Referer != bilibili.com 的请求
     // 解决方案: 在 dev-server.js 代理里用 onProxyReq 钩子改写 Referer
     if (!isDev) {
-      // xhr.setRequestHeader('User-Agent', UA);
+      xhr.setRequestHeader('User-Agent', UA);
       xhr.setRequestHeader('Referer', REFERER);
     }
     xhr.setRequestHeader('Accept', 'application/json, text/plain, */*');
+    xhr.setRequestHeader('Accept-Language', 'zh-CN,zh;q=0.9,en;q=0.8');
+    // Client Hints: 让请求更像现代移动浏览器，降低 WAF 风控概率
+    xhr.setRequestHeader('Sec-CH-UA-Mobile', '?1');
+    xhr.setRequestHeader('Sec-CH-UA-Platform', '"Android"');
 
     if (body) {
       xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
@@ -243,7 +248,7 @@ export function request(path, opts = {}) {
         console.error('[BILI_API] api error', { code: data.code, message: data.message, url, data });
         return reject(err);
       }
-      resolve(data.data);
+      resolve(rawData ? data : data.data);
     };
 
     xhr.onerror = () => {

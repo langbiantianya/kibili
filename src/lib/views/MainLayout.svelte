@@ -25,18 +25,19 @@
 <div class="main-layout">
   <TopNav />
   <div class="main-content">
-    <!-- 同时挂载三个页面，通过 CSS 控制显示/隐藏。
-         切换页面时组件不被销毁，数据保持；
-         刷新时重新挂载，数据重新加载。 -->
-    <div class="page-wrap" class:active={currentPage === Home}>
-      <Home />
-    </div>
-    <div class="page-wrap" class:active={currentPage === Following}>
-      <Following />
-    </div>
-    <div class="page-wrap" class:active={currentPage === Profile}>
-      <Profile />
-    </div>
+    {#if currentPage === Home}
+      <div class="page-wrap active">
+        <Home />
+      </div>
+    {:else if currentPage === Following}
+      <div class="page-wrap active">
+        <Following />
+      </div>
+    {:else if currentPage === Profile}
+      <div class="page-wrap active">
+        <Profile />
+      </div>
+    {/if}
   </div>
 </div>
 
@@ -56,14 +57,11 @@
     min-height: 0;
   }
   .page-wrap {
-    display: none;
+    display: flex;
     flex: 1;
     flex-direction: column;
     overflow: hidden;
     min-height: 0;
-  }
-  .page-wrap.active {
-    display: flex;
   }
   /* 确保内部 .screen 也能正确撑开 */
   .page-wrap :global(.screen) {

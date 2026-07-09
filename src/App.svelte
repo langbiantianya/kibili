@@ -3,6 +3,7 @@
   import { onMount } from "svelte";
   import { isLogin, hydrateFromNav } from "./lib/stores/user.js";
   import { refreshWbiKeys } from "./lib/api/wbi.js";
+  import { request } from "./lib/api/bili.js";
   import { back } from "./lib/router/index.js";
   import SoftkeyBar from "./lib/components/SoftkeyBar.svelte";
   import Toast from "./lib/components/Toast.svelte";
@@ -78,6 +79,9 @@
   onMount(() => {
     // 启动时预加载 WBI keys (即使未登录也需要, B站多数接口强制 WBI 签名)
     refreshWbiKeys();
+
+    // 启动时访问 bilibili.com 首页以设置 cookies (buvid 等)
+    request("https://www.bilibili.com/", { rawData: true }).catch(() => {});
 
     // 启动时尝试 hydrate 用户信息
     if ($isLogin) {

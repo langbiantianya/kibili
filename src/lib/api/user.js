@@ -196,7 +196,7 @@ export async function searchAll(keyword, { page = 1 } = {}) {
 // duration: 0=全部 / 1=<10min / 2=10-30min / 3=30-60min / 4=>60min
 // tids: 分区 tid 列表 (0=全部分区)
 export async function searchVideo(keyword, { order = 'totalrank', page = 1, duration = 0, tids = 0 } = {}) {
-  const query = { keyword, order, page, duration };
+  const query = { keyword, search_type: 'video', order, page, duration, tids: 0 };
   if (tids) query.tids = tids;
   return get('/x/web-interface/wbi/search/type', {
     query,
@@ -207,8 +207,10 @@ export async function searchVideo(keyword, { order = 'totalrank', page = 1, dura
 
 // 获取热搜列表 (web端)
 // 端点: GET https://s.search.bilibili.com/main/hotword
+// 注意: 该接口返回 data 直接是数组, 没有 data.data 嵌套
 export async function getHotSearch() {
   return get('/main/hotword', {
-    useSearch: true
+    useSearch: true,
+    rawData: true
   });
 }

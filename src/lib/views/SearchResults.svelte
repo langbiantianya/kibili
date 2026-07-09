@@ -113,10 +113,11 @@
       hasSearched = true;
     }
 
-    setSoftkeys("", "打开", "");
+    setSoftkeys("刷新", "", "打开");
     onKey("search-results", {
       ArrowDown: () => onMoveFocus(+1),
       ArrowUp: () => onMoveFocus(-1),
+      SoftLeft: () => doSearch(1)
     });
   });
 
@@ -142,10 +143,7 @@
     {:else if hasSearched && searchResults.length === 0}
       <EmptyState message="暂无搜索结果" hint="换个关键词试试吧" />
     {:else}
-      <FeedList
-        items={searchResults}
-        on:play={(e) => playVideo(e.detail)}
-      />
+      <FeedList items={searchResults} on:play={(e) => playVideo(e.detail)} />
       {#if loadingMore}
         <LoadingMore message="加载更多..." />
       {/if}

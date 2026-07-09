@@ -21,7 +21,9 @@
     error = "";
     try {
       const d = await getHotSearch();
+      console.log(d);
       hotList = (d && d.list) ? d.list : [];
+      console.log(hotList);
     } catch (e) {
       error = e.message || "加载失败";
     } finally {
@@ -46,15 +48,23 @@
     navigate("/search-results?keyword=" + encodeURIComponent(term));
   }
 
+  /** @param {KeyboardEvent} e */
   function onInputKey(e) {
-    if (e.key === "Enter") {
+    if (e.key === "ArrowDown" || e.key === "Down") {
+      e.preventDefault();
+      const firstItem = /** @type {HTMLElement} */ (document.querySelector(".hot-item"));
+      if (firstItem) firstItem.focus();
+      return;
+    }
+    // 左软键搜索
+    if (e.key === "SoftLeft") {
       e.preventDefault();
       doSearch();
     }
   }
 
   onMount(() => {
-    setSoftkeys("搜索", "", "");
+    setSoftkeys("搜索", "OK", "");
     loadHot();
     onKey("search", {
       ArrowDown: () => {
