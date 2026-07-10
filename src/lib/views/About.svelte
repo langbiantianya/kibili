@@ -14,6 +14,17 @@
     { icon: "🐛", label: "问题反馈", url: issuesUrl },
   ];
 
+  const deps = [
+    { name: "Svelte", url: "https://github.com/sveltejs/svelte", desc: "UI 框架" },
+    { name: "svelte-spa-router", url: "https://github.com/ItalyPaleAle/svelte-spa-router", desc: "路由" },
+    { name: "qrcode-generator", url: "https://github.com/kazuhikoarase/qrcode-generator", desc: "二维码生成" },
+    { name: "core-js", url: "https://github.com/zloirock/core-js", desc: "Polyfill" },
+    { name: "Rollup", url: "https://github.com/rollup/rollup", desc: "打包工具" },
+    { name: "Babel", url: "https://github.com/babel/babel", desc: "JS 编译" },
+    { name: "PostCSS", url: "https://github.com/postcss/postcss", desc: "CSS 处理" },
+    { name: "bili-apis", url: "https://github.com/realysy/bili-apis", desc: "B站 API 封装" },
+  ];
+
   function openUrl(/** @type {string} */ url) {
     window.open(url, "_blank");
   }
@@ -38,7 +49,7 @@
 <div class="screen">
   <div class="main scroll-y">
     <!-- 头部信息 -->
-    <div class="hero">
+    <div class="hero" data-navable tabindex="-1">
       <div class="logo-wrap">
         <div class="logo">📺</div>
       </div>
@@ -47,7 +58,7 @@
     </div>
 
     <!-- 简介 -->
-    <div class="card-filled info-card">
+    <div class="card-filled info-card" data-navable tabindex="-1">
       <p>为 KaiOS 设备开发的第三方哔哩哔哩客户端</p>
       <p>仅供学习交流，不涉及商业用途</p>
     </div>
@@ -65,6 +76,25 @@
         >
           <span class="link-icon">{l.icon}</span>
           <span class="link-label">{l.label}</span>
+          <span class="link-arrow">›</span>
+        </div>
+      {/each}
+    </div>
+
+    <!-- 开源项目致谢 -->
+    <div class="section-title">致谢</div>
+    <div class="dep-list">
+      {#each deps as d}
+        <div
+          class="dep-item"
+          data-navable
+          tabindex="0"
+          role="button"
+          on:click={() => openUrl(d.url)}
+          on:keydown={(e) => { if (e.key === 'Enter') openUrl(d.url); }}
+        >
+          <span class="dep-name">{d.name}</span>
+          <span class="dep-desc">{d.desc}</span>
           <span class="link-arrow">›</span>
         </div>
       {/each}
@@ -163,5 +193,56 @@
     font-size: var(--md-sys-typescale-body-large-size);
     flex-shrink: 0;
     margin-left: 4px;
+  }
+
+  /* ---- 开源项目致谢 ---- */
+  .section-title {
+    font-size: var(--md-sys-typescale-title-medium-size);
+    font-weight: var(--md-sys-typescale-title-medium-weight);
+    color: var(--md-sys-color-on-surface);
+    padding: 12px 12px 4px;
+    margin-top: 4px;
+  }
+  .dep-list {
+    background: var(--md-sys-color-surface);
+    margin: 0 12px 12px;
+    border-radius: var(--md-sys-shape-corner-medium);
+    overflow: hidden;
+  }
+  .dep-item {
+    display: flex;
+    align-items: center;
+    min-height: 40px;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+    background: var(--md-sys-color-surface);
+    transition: background 0.15s ease;
+    cursor: pointer;
+  }
+  .dep-item:last-child {
+    border-bottom: none;
+  }
+  .dep-item:focus,
+  .dep-item:hover {
+    background: var(--md-sys-color-surface-container-high);
+  }
+  .dep-name {
+    font-size: var(--md-sys-typescale-body-large-size);
+    color: var(--md-sys-color-on-surface);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 0;
+    max-width: 90px;
+  }
+  .dep-desc {
+    flex: 1;
+    font-size: var(--md-sys-typescale-body-small-size);
+    color: var(--md-sys-color-on-surface-variant);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-left: 8px;
+    text-align: right;
   }
 </style>
