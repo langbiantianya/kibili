@@ -2,7 +2,7 @@
 
 基于 Svelte 3 + Rollup 构建的 KaiOS 第三方哔哩哔哩（B站）客户端，使用 AI 辅助开发。
 
-> **下载最新安装包** 👉 [Releases](https://github.com/langbiantianya/kibili/releases)
+**下载最新安装包** 👉 [Releases](https://github.com/langbiantianya/kibili/releases)
 
 ## 功能
 
