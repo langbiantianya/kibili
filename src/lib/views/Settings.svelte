@@ -27,7 +27,7 @@
   }
 
   onMount(() => {
-    setSoftkeys("", "", "");
+    setSoftkeys("", "返回");
     onKey("settings", {
       ArrowDown: () => moveFocus(+1),
       ArrowUp: () => moveFocus(-1)

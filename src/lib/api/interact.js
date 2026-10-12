@@ -157,7 +157,9 @@ export async function hasFav(bvid) {
   try {
     const d = await get('/x/v2/fav/video/favoured', {
       query: { bvid },
-      needCookie: true
+      needCookie: true,
+      // 该端点要求 wbi 签名, 否则返回 -400 请求错误
+      wbi: true
     });
     return (d && d.favoured) ? 1 : 0;
   } catch (e) {

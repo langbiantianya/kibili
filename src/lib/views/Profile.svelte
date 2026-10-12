@@ -11,10 +11,6 @@
   import { setSoftkeys, showToast } from "../stores/ui.js";
 
   onMount(() => {
-    // 根据登录状态设置软键
-    const leftLabel = $isLogin ? "操作" : "操作";
-    const rightLabel = $isLogin ? "登出" : "登录";
-    setSoftkeys(leftLabel, rightLabel);
     // 已登录则刷新用户信息
     if ($isLogin) {
       hydrateFromNav();
@@ -22,12 +18,17 @@
     onKey("profile", {
       ArrowDown: () => moveFocus(+1),
       ArrowUp: () => moveFocus(-1),
-      Enter: () => activateFocused(),
+      SoftLeft: () => activateFocused(),
+      SoftRight: () => onLogoutClick()
     });
   });
 
+  // 软键随登录状态变化 (登录/登出后立即更新, 不用重进页面)
+  $: setSoftkeys("打开", $isLogin ? "登出" : "登录");
+
   onDestroy(() => {
     offKey("profile");
+    clearTimeout(logoutTimer);
   });
 
   $: visibleMenuItems = [
@@ -44,11 +45,36 @@
       : []),
   ];
 
+  // 登出: 需要连续按两次 (第一次提示, 3 秒内再按一次才执行)。
+  // 不用 confirm(): KaiOS 的系统确认框是嵌套事件循环, 一次误按/随后任意按键就可能直接确认登出。
+  let logoutArmed = false;
+  /** @type {any} */
+  let logoutTimer = null;
+
   function onLogoutClick() {
-    if (confirm("确定要退出登录吗?")) {
-      userLogout();
-      showToast("已退出");
+    if (!$isLogin) {
+      navigate("/login");
+      return;
     }
+    if (!logoutArmed) {
+      logoutArmed = true;
+      showToast("再按一次登出", 3000);
+      clearTimeout(logoutTimer);
+      logoutTimer = setTimeout(() => { logoutArmed = false; }, 3000);
+      return;
+    }
+    clearTimeout(logoutTimer);
+    logoutArmed = false;
+    userLogout();
+    showToast("已退出");
+  }
+
+  function onUserCardClick() {
+    if ($isLogin) {
+      showToast("用户主页开发中");
+      return;
+    }
+    navigate("/login");
   }
 </script>
 
@@ -59,16 +85,16 @@
       data-navable
       tabindex="0"
       role="button"
-      on:click={() => navigate("/login")}
+      on:click={() => onUserCardClick()}
       on:keydown={(e) => {
-        if (e.key === "Enter") navigate("/login");
+        if (e.key === "Enter") { e.stopPropagation(); onUserCardClick(); }
       }}
     >
       <div class="avatar">
         {#if $isLogin && $user.face}
           <img src={$user.face} alt="" />
         {:else}
-          <div class="avatar-placeholder">👤</div>
+          <div class="avatar-placeholder">●</div>
         {/if}
       </div>
       <div class="user-info">
@@ -90,7 +116,7 @@
           tabindex="0"
           on:click={() => m.action()}
           on:keydown={(e) => {
-            if (e.key === "Enter") m.action();
+            if (e.key === "Enter") { e.stopPropagation(); m.action(); }
           }}
         >
           <span class="label">{m.label}</span>

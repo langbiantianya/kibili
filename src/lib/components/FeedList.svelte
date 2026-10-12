@@ -1,8 +1,10 @@
 <script>
   export let items = [];
   export let empty = '暂无内容';
+  export let loadingMore = false;
   import FeedCard from './FeedCard.svelte';
   import EmptyState from './EmptyState.svelte';
+  import LoadingMore from './LoadingMore.svelte';
   import { createEventDispatcher } from 'svelte';
   import { onMount } from 'svelte';
   import { focusFirst } from '../keyboard/roving.js';
@@ -21,6 +23,8 @@
     {#each items as v, i (v.bvid || i)}
       <FeedCard video={v} index={i} on:play={(e) => dispatch('play', e.detail)} />
     {/each}
+    <!-- 加载更多放在列表末尾 (放在列表前会把正在看的内容整体下推) -->
+    {#if loadingMore}<LoadingMore />{/if}
   {/if}
 </div>
 

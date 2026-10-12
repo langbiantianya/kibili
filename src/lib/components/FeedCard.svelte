@@ -42,7 +42,11 @@
   tabindex="0"
   on:click={() => dispatch('play', video)}
   on:keydown={(e) => {
-    if (e.key === 'Enter') dispatch('play', video);
+    if (e.key === 'Enter') {
+      // 阻止冒泡: 否则 window 上的全局按键总线会再次激活同一张卡片 (重复导航)
+      e.stopPropagation();
+      dispatch('play', video);
+    }
     // 阻止卡片上的方向键触发浏览器默认行为
     if (['ArrowLeft', 'ArrowRight'].includes(e.key)) {
       e.preventDefault();
@@ -63,7 +67,7 @@
       <span class="stat-item"><span>▶</span><span>{playDisplay}</span></span>
       <span class="stat-item"><span>❤</span><span>{formatCount(likeCount)}</span></span>
       {#if forwardCount}<span class="stat-item"><span>↗</span><span>{formatCount(forwardCount)}</span></span>{/if}
-      {#if commentCount}<span class="stat-item"><span>💬</span><span>{formatCount(commentCount)}</span></span>{/if}
+      {#if commentCount}<span class="stat-item"><span>❝</span><span>{formatCount(commentCount)}</span></span>{/if}
     </div>
   </div>
 </div>
@@ -130,6 +134,8 @@
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+    /* Gecko 48 不支持 -webkit-line-clamp, max-height 兜底 (2 行) */
+    max-height: 2.6em;
     font-weight: var(--md-sys-typescale-body-large-weight);
   }
   .meta {
@@ -138,9 +144,14 @@
     display: flex;
     /* gap: 4px; Firefox 48 不支持 flex gap */
     align-items: center;
+    min-width: 0;
   }
   .meta .up {
     margin-right: 4px;
+    /* 长 UP 名不得撑破 240px 行宽 */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .up {
     color: var(--md-sys-color-primary);

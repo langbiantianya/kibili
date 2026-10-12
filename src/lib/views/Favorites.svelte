@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import { getFavFolders } from "../api/user.js";
   import { get } from "svelte/store";
-  import { user } from "../stores/user.js";
+  import { user, isLogin } from "../stores/user.js";
   import { navigate } from "../router/index.js";
   import { onKey, offKey, moveFocus } from "../keyboard/index.js";
   import { setSoftkeys, showToast } from "../stores/ui.js";
@@ -40,18 +40,14 @@
 
 
   onMount(() => {
-    setSoftkeys("刷新", "", "打开");
+    setSoftkeys($isLogin ? "刷新" : "登录", "返回", "打开");
     load();
     onKey("favorites", {
       ArrowDown: () => moveFocus(+1),
       ArrowUp: () => moveFocus(-1),
-      SoftLeft: () => load(),
-      Enter: () => {
-        const focused = document.querySelector(".folder-item:focus");
-        if (focused) {
-          const evt = new MouseEvent("click", { bubbles: true });
-          focused.dispatchEvent(evt);
-        }
+      SoftLeft: () => {
+        if ($isLogin) load();
+        else navigate("/login");
       }
     });
   });
@@ -66,9 +62,9 @@
     {#if loading}
       <Loading message="加载收藏夹..." />
     {:else if error}
-      <EmptyState message={error} hint="按 5 键登录" />
+      <EmptyState message={error} hint={$isLogin ? "按 左软键 重试" : "按 左软键 登录"} />
     {:else if folders.length === 0}
-      <EmptyState message="暂无收藏夹" hint="登录后查看" />
+      <EmptyState message="暂无收藏夹" hint={$isLogin ? "" : "登录后查看"} />
     {:else}
       <div class="folder-list scroll-y">
         {#each folders as f, i (f.id)}

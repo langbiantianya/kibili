@@ -16,6 +16,7 @@
   let dashAudio = null;
 
   let currentBvid = '';        // 当前播放视频的 bvid
+  let playError = '';          // 播放失败提示 (视频解码/URL 失效时不再只显示黑屏)
 
   let normalPlaybackRate = 1.0; // 保存正常播放速度
   let speedUpTimer = null;      // 长按右键倍速定时器
@@ -65,13 +66,21 @@
       const qn = $settings.quality || 16;
       try {
         const dash = await getDashUrls(bvid, info.cid, qn);
-        if (dash) {
+        if (dash && dash.videoUrl) {
           videoSrc = dash.videoUrl;
           audioSrc = dash.audioUrl;
         }
       } catch (e) {
-        videoSrc = await getPlayUrl(bvid, info.cid, qn);
-        audioSrc = '';
+        // DASH 拉取失败
+      }
+      // DASH 拿不到可用地址时退回 MP4 单流, 避免只有黑屏
+      if (!videoSrc) {
+        try {
+          videoSrc = await getPlayUrl(bvid, info.cid, qn);
+          audioSrc = '';
+        } catch (e) {
+          videoSrc = '';
+        }
       }
 
       if (!videoSrc) {
@@ -112,6 +121,11 @@
     if (dashAudio) {
       dashAudio.pause();
     }
+  }
+
+  function onVideoError() {
+    const code = video && video.error ? video.error.code : 0;
+    playError = '播放失败' + (code ? ' (code ' + code + ')' : '') + ' · 按右软键返回';
   }
 
   function onEnded() {
@@ -247,7 +261,8 @@
   }
 
   onMount(() => {
-    setSoftkeys('', '暂停', '');
+    // 左软键 = 播放/暂停 (与 FullscreenPlayer 的 SoftLeft 处理一致), 右软键 = 返回
+    setSoftkeys('播放/暂停', '返回', '');
     loadVideo();
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
@@ -281,9 +296,13 @@
       on:play={onPlay}
       on:pause={onPause}
       on:ended={onEnded}
+      on:error={onVideoError}
     ></video>
     {#if audioSrc}
       <audio bind:this={dashAudio} src={audioSrc} preload="metadata" style="display: none;"></audio>
+    {/if}
+    {#if playError}
+      <div class="error play-error">{playError}</div>
     {/if}
   {/if}
   <!-- 进度条 -->
@@ -327,6 +346,17 @@
     text-align: center;
     padding-top: 100px;
     font-size: 14px;
+  }
+
+  /* 播放失败提示: 盖在黑屏视频之上, 不至于只有一个黑屏 */
+  .play-error {
+    position: fixed;
+    top: 120px;
+    left: 0;
+    width: 100%;
+    padding: 8px 12px;
+    z-index: 102;
+    box-sizing: border-box;
   }
 
   /* ========== 播放进度条 ========== */

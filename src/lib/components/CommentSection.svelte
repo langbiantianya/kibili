@@ -1,8 +1,10 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, tick } from 'svelte';
+  import { get } from 'svelte/store';
   import { getSubReplies } from '../api/interact.js';
   import { formatCount, relativeTime } from '../utils/format.js';
   import { biliImg } from '../utils/platform.js';
+  import { ui, setSoftkeys } from '../stores/ui.js';
   import CommentReply from './CommentReply.svelte';
   import LoadingMore from './LoadingMore.svelte';
 
@@ -32,6 +34,15 @@
   // CommentReply 组件实例引用
   /** @type {any} */
   let commentReplyRef;
+
+  // 打开回复框前的软键标签 (关闭时还原)
+  let prevSoftkeys = null;
+
+  function restoreSoftkeys() {
+    if (!prevSoftkeys) return;
+    setSoftkeys(prevSoftkeys.left, prevSoftkeys.right, prevSoftkeys.center);
+    prevSoftkeys = null;
+  }
 
   const dispatch = createEventDispatcher();
 
@@ -96,10 +107,19 @@
   // 打开回复模态框（供外部调用）
   /** @param {any} [c] */
   /** @param {any} [sub] */
-  export function openReply(c, sub) {
+  export async function openReply(c, sub) {
     setReplyTarget(c, sub);
     replyText = '';
     showReplyModal = true;
+    // 回复框独占按键: 软键切换为 取消 / 发送 (CommentReply 内部处理这两个键)
+    if (!prevSoftkeys) {
+      const sk = get(ui).softkeys;
+      prevSoftkeys = { left: sk.left, right: sk.right, center: sk.center };
+    }
+    setSoftkeys('取消', '发送');
+    // CommentReply 的界面由它自己的 open() 控制 (且 {#if showReplyModal} 需要先完成挂载)
+    await tick();
+    if (commentReplyRef) commentReplyRef.open();
   }
 
   // 关闭回复模态框
@@ -107,6 +127,7 @@
     showReplyModal = false;
     replyText = '';
     replyTarget = null;
+    restoreSoftkeys();
   }
 
   // 发送评论
@@ -140,6 +161,7 @@
     replyText = '';
     replyTarget = null;
     showReplyModal = false;
+    restoreSoftkeys();
   }
 
   // 处理发送失败（由父组件调用）
@@ -158,7 +180,7 @@
 <div class="comment-section">
   {#if comments.length === 0 && !commentsLoading}
     <div class="empty-state">
-      <span class="empty-text">{emptyMessage}</span>
+      <span class="empty-text">{commentsError || emptyMessage}</span>
     </div>
   {:else}
     <div class="comment-list scroll-y">
@@ -176,7 +198,7 @@
             <div class="comment-stat">
               <span>❤ {formatCount(c.like)}</span>
               {#if c.rcount > 0}
-                <span class="sub-toggle">💬 {formatCount(c.rcount)}{sub && sub.expanded ? ' ▼' : ' ▶'}</span>
+                <span class="sub-toggle">❝ {formatCount(c.rcount)}{sub && sub.expanded ? ' ▼' : ' ▶'}</span>
               {/if}
             </div>
             <!-- 子评论打平显示 -->
@@ -211,7 +233,13 @@
       {/each}
       {#if commentsLoading}
         <LoadingMore />
-      {:else if !commentHasMore && comments.length > 0}
+      {:else if commentHasMore}
+        <div class="load-more" data-navable tabindex="0"
+             on:click={() => loadMore()}
+             on:keydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); loadMore(); } }}>
+          加载更多评论
+        </div>
+      {:else if comments.length > 0}
         <div class="no-more">没有更多评论了</div>
       {/if}
     </div>
@@ -229,6 +257,7 @@
           showReplyModal = false;
           replyText = '';
           replyTarget = null;
+          restoreSoftkeys();
         }}
       />
     {/if}
@@ -421,5 +450,19 @@
     padding: 12px;
     font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
+  }
+
+  .load-more {
+    text-align: center;
+    padding: 10px;
+    margin: 6px 0 10px;
+    font-size: var(--md-sys-typescale-body-small-size);
+    color: var(--md-sys-color-primary);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: var(--md-sys-shape-corner-small);
+  }
+  .load-more:focus {
+    background: var(--md-sys-color-surface-container-high);
+    outline: 1px solid var(--md-sys-color-primary);
   }
 </style>

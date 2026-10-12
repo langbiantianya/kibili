@@ -20,8 +20,11 @@ export function formatCount(n) {
   n = Number(n);
   if (n == null || isNaN(n)) return '0';
   if (n < 10000) return String(Math.floor(n));
-  if (n < 100000000) return (n / 10000).toFixed(1) + '万';
-  return (n / 100000000).toFixed(1) + '亿';
+  // 先处理亿级, 避免 99995000..99999999 四舍五入后显示成 "10000.0万"
+  if (n >= 100000000) return (n / 100000000).toFixed(1) + '亿';
+  const wan = (n / 10000).toFixed(1);
+  if (parseFloat(wan) >= 10000) return '1.0亿';
+  return wan + '万';
 }
 
 export function relativeTime(ts) {

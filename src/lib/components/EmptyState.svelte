@@ -4,7 +4,7 @@
 </script>
 
 <div class="empty">
-  <div class="icon">📭</div>
+  <div class="icon">∅</div>
   <p class="title">{message}</p>
   {#if hint}<p class="hint">{hint}</p>{/if}
 </div>

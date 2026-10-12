@@ -283,17 +283,14 @@
 
   <div class="main">
     {#if !$isLogin}
-      <EmptyState message="登录后查看关注" hint="按 5 键登录" />
+      <EmptyState message="登录后查看关注" hint="按 左软键 登录" />
     {:else if activeTab === 0}
       {#if videoLoading && videos.length === 0}
         <Loading message="加载中..." />
       {:else if videoError}
         <EmptyState message={videoError} />
       {:else}
-        {#if videoLoadingMore}
-          <LoadingMore />
-        {/if}
-        <FeedList items={videos} on:play={(e) => playVideo(e.detail)} />
+        <FeedList items={videos} loadingMore={videoLoadingMore} on:play={(e) => playVideo(e.detail)} />
       {/if}
     {:else}
       {#if dynLoading && dynamics.length === 0}
@@ -303,9 +300,6 @@
       {:else if dynamics.length === 0}
         <EmptyState message="暂无动态" />
       {:else}
-        {#if dynLoadingMore}
-          <LoadingMore />
-        {/if}
         <div class="dyn-list scroll-y">
           {#each dynamics as d (d.id_str)}
             {#each [dynVideo(d)] as v}
@@ -326,7 +320,7 @@
                       <div class="astat">▶ {formatCount((v.stat && (v.stat.play || v.stat.view)) || 0)}</div>
                     {:else if v.type === 'article'}
                       <!-- 专栏 -->
-                      <div class="atitle">📄 {v.title}</div>
+                      <div class="atitle">▤ {v.title}</div>
                       <div class="astat">{v.label || ''}</div>
                     {:else if v.type === 'draw'}
                       <!-- 图片 -->
@@ -340,7 +334,7 @@
                       <div class="atitle">{v.title || v.desc}</div>
                     {:else if v.type === 'live'}
                       <!-- 直播 -->
-                      <div class="atitle">🔴 {v.title}</div>
+                      <div class="atitle">● {v.title}</div>
                     {/if}
                   </div>
                 {/if}
@@ -350,13 +344,14 @@
                     <div class="dyn-stat">
                       <span class="stat-item" class:liked={stat.like && stat.like.status}>❤ {formatCount(stat.like && stat.like.count)}</span>
                       <span class="stat-item">↗ {formatCount(stat.forward && stat.forward.count)}</span>
-                      <span class="stat-item">💬 {formatCount(stat.comment && stat.comment.count)}</span>
+                      <span class="stat-item">❝ {formatCount(stat.comment && stat.comment.count)}</span>
                     </div>
                   {/each}
                 {/if}
               </div>
             {/each}
           {/each}
+          {#if dynLoadingMore}<LoadingMore />{/if}
         </div>
       {/if}
     {/if}

@@ -1,5 +1,6 @@
 <script>
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
+  import { markHandledKey } from '../keyboard/modalkeys.js';
 
   export let placeholder = '写评论...';
   export let disabled = false;
@@ -16,6 +17,8 @@
   export function open() {
     isOpen = true;
     document.body.classList.add('reply-modal-open');
+    // 用 window 捕获阶段监听: 回复框打开时独占按键 (不依赖 textarea 是否拿到焦点)
+    window.addEventListener('keydown', onKeydown, true);
     // 延迟聚焦，确保 DOM 已更新
     setTimeout(() => {
       if (textarea) textarea.focus();
@@ -25,6 +28,7 @@
   /** 关闭并清理 */
   export function close() {
     isOpen = false;
+    window.removeEventListener('keydown', onKeydown, true);
     document.body.classList.remove('reply-modal-open');
     dispatch('close');
   }
@@ -39,8 +43,11 @@
 
   /** 处理所有按键事件，阻止冒泡 */
   function onKeydown(e) {
-    // 阻止所有按键事件向外传递
-    e.stopPropagation();
+    // 阻止所有按键事件向外传递; 必须用 stopImmediatePropagation:
+    // 播放器等组件的按键监听也挂在 window 上, stopPropagation 不会拦住同一节点上的其它监听
+    e.stopImmediatePropagation();
+    // 通知全局守卫: 本次按键已由回复框处理, 随后的 keyup 也要吞掉
+    markHandledKey();
 
     // Backspace：如果输入框为空，关闭组件
     if (e.key === 'Backspace' || e.key === 'Back') {
@@ -49,6 +56,13 @@
         close();
         return;
       }
+    }
+
+    // SoftLeft（左软键）：取消并关闭回复框
+    if (e.key === 'SoftLeft') {
+      e.preventDefault();
+      close();
+      return;
     }
 
     // SoftRight（右软键）/ Enter：发送评论（Shift+Enter 换行保留 textarea 默认行为）
@@ -104,6 +118,7 @@
   });
 
   onDestroy(() => {
+    window.removeEventListener('keydown', onKeydown, true);
     document.body.classList.remove('reply-modal-open');
   });
 </script>
@@ -146,7 +161,6 @@
             value = e.target.value;
             dispatch('input', value);
           }}
-          on:keydown={onKeydown}
           on:keyup={(/** @type {any} */ e) => e.stopPropagation()}
           on:keypress={(/** @type {any} */ e) => e.stopPropagation()}
         />
@@ -154,8 +168,8 @@
 
       <!-- 底部提示 -->
       <div class="reply-footer">
+        <span class="reply-hint">左软键取消，右软键发送</span>
         <span class="reply-hint">按 Enter 发送，Shift+Enter 换行</span>
-        <span class="reply-hint">右软键发送，空内容按 Backspace 返回</span>
       </div>
     </div>
   </div>

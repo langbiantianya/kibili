@@ -1,6 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { webQrGenerate, webQrPoll, extractCookiesFromUrl } from '../api/auth.js';
+  import { webQrGenerate, webQrPoll, extractCookies } from '../api/auth.js';
   import { webLogin } from '../stores/user.js';
   import { getNav } from '../api/user.js';
   import { navigate } from '../router/index.js';
@@ -66,8 +66,18 @@
       if (statusCode === 0) {
         // 登录成功
         stopPoll();
-        const cookies = extractCookiesFromUrl(data.url || '');
-        if (!cookies || !cookies.sessdata) {
+        // 新版接口: url 里只有 ticket, SESSDATA/bili_jct/DedeUserID 在 Set-Cookie 响应头里
+        const cookies = extractCookies(resp);
+        if (!cookies.sessdata) {
+          // 记下原始响应, 便于定位 B 站返回形态变化
+          try {
+            localStorage.setItem('login:debug', JSON.stringify({
+              at: Date.now(),
+              url: String((data && data.url) || ''),
+              keys: Object.keys(data || {}),
+              setCookieLen: String((data && data.__setCookie) || '').length
+            }));
+          } catch (e) { /* ignore */ }
           errMsg = '登录成功但未取到 cookie';
           stage = 'error';
           return;
@@ -115,7 +125,8 @@
     setSoftkeys('刷新', '返回');
     onKey('login', {
       '5': () => startLogin(),
-      '0': () => startLogin()
+      '0': () => startLogin(),
+      SoftLeft: () => startLogin()
     });
     startLogin();
   });

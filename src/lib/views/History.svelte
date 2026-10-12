@@ -23,7 +23,7 @@
   }
 
   onMount(() => {
-    setSoftkeys("刷新", "", "播放");
+    setSoftkeys("刷新", "返回", "播放");
     load();
     onKey("history", {
       ArrowDown: () => moveFocus(+1),
@@ -48,10 +48,11 @@
   <div class="main">
     {#if loading}
       <Loading message="加载历史记录..." />
-    {:else if !$isLogin}
-      <EmptyState message="登录后查看历史记录" hint="仅显示本地缓存" />
     {:else if $histStore.items.length === 0}
-      <EmptyState message="暂无历史记录" />
+      <EmptyState
+        message={$isLogin ? "暂无历史记录" : "登录后查看历史记录"}
+        hint={$isLogin ? "" : "仅显示本地缓存"}
+      />
     {:else}
       <FeedList items={$histStore.items} on:play={(e) => playVideo(e.detail)} />
     {/if}

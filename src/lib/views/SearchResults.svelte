@@ -113,7 +113,7 @@
       hasSearched = true;
     }
 
-    setSoftkeys("刷新", "", "打开");
+    setSoftkeys("刷新", "返回", "打开");
     onKey("search-results", {
       ArrowDown: () => onMoveFocus(+1),
       ArrowUp: () => onMoveFocus(-1),
@@ -130,7 +130,7 @@
   <div class="main">
     <!-- 搜索标题栏 -->
     <div class="search-header">
-      <div class="search-keyword">🔍 {keyword || "搜索结果"}</div>
+      <div class="search-keyword">{keyword || "搜索结果"}</div>
       {#if searchResults.length > 0}
         <div class="result-count">共 {searchResults.length} 条</div>
       {/if}
@@ -139,7 +139,7 @@
     {#if loading && searchResults.length === 0}
       <Loading message="搜索中..." />
     {:else if error && searchResults.length === 0}
-      <EmptyState message={error} hint="按 左软键 返回" />
+      <EmptyState message={error} hint="按 左软键 重试" />
     {:else if hasSearched && searchResults.length === 0}
       <EmptyState message="暂无搜索结果" hint="换个关键词试试吧" />
     {:else}
@@ -152,6 +152,18 @@
 </div>
 
 <style>
+  .main {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  /* FeedList 的 .feed-list 是 height:100%, 与其兄弟 .search-header 一起会把
+     列表底部挤出可视区; 这里用 flex 分配剩余高度 */
+  .main :global(.feed-list) {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+  }
   .search-header {
     padding: 8px;
     background: var(--md-sys-color-surface);

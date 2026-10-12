@@ -13,6 +13,7 @@ export async function getNav() {
   return get('/x/web-interface/nav', { needCookie: true });
 }
 
+
 // 当前登录用户的统计 (关注数/粉丝数/动态数)
 // 端点: GET /x/web-interface/nav/stat
 export async function getNavStat() {

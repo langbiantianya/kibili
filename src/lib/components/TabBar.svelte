@@ -16,7 +16,15 @@
     <button
       class="tab"
       class:active={i === active}
+      data-navable
+      tabindex="0"
       on:click={() => select(i)}
+      on:keydown={(e) => {
+        if (e.key === 'Enter') {
+          e.stopPropagation();
+          select(i);
+        }
+      }}
     >{t.label}</button>
   {/each}
 </div>

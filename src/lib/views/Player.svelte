@@ -25,6 +25,10 @@
   let counts = { like: 0, coin: 0, fav: 0 };
   let loadingFlag = { like: false, coin: false, fav: false };
   let replies = [];
+  let replyPage = 1;
+  let replyHasMore = true;
+  let replyLoadingMore = false;
+  let replyError = '';
   let replySort = 2;
   let replyLoading = false;
 
@@ -86,14 +90,21 @@
       // 普通播放器使用 qn=6 (240P 极速), 节省流量
       try {
         const dash = await getDashUrls(bvid, info.cid, 6);
-        if (dash) {
+        if (dash && dash.videoUrl) {
           videoSrc = dash.videoUrl;
           audioSrc = dash.audioUrl;
         }
       } catch (e) {
-        // DASH 拉取失败, 退回到 MP4 单流 (听视频功能不可用, 但视频能播)
-        videoSrc = await getPlayUrl(bvid, info.cid, 6);
-        audioSrc = '';
+        // DASH 拉取失败
+      }
+      // DASH 拿不到可用地址时退回 MP4 单流 (听视频功能不可用, 但视频能播)
+      if (!videoSrc) {
+        try {
+          videoSrc = await getPlayUrl(bvid, info.cid, 6);
+          audioSrc = '';
+        } catch (e) {
+          videoSrc = '';
+        }
       }
       if (!videoSrc) {
         error = '无法获取播放地址';
@@ -141,13 +152,36 @@
   async function loadReplies() {
     if (!meta || !meta.aid) return;
     replyLoading = true;
+    replyError = '';
+    replyPage = 1;
     try {
       const d = await getReplies(meta.aid, { pn: 1, ps: 20, sort: replySort });
       replies = (d && d.replies) ? d.replies : [];
+      replyHasMore = replies.length >= 20;
     } catch (e) {
-      // 忽略,保留之前的数据
+      // 保留之前的数据, 但把错误显示出来 (而不是伪装成"没有更多评论")
+      replyError = e.message || '评论加载失败';
     } finally {
       replyLoading = false;
+    }
+  }
+
+  // 加载更多评论 (评论列表末尾的"加载更多评论")
+  async function loadMoreReplies() {
+    if (!meta || !meta.aid) return;
+    if (replyLoadingMore || !replyHasMore) return;
+    replyLoadingMore = true;
+    try {
+      const next = replyPage + 1;
+      const d = await getReplies(meta.aid, { pn: next, ps: 20, sort: replySort });
+      const more = (d && d.replies) ? d.replies : [];
+      replies = replies.concat(more);
+      replyPage = next;
+      replyHasMore = more.length >= 20;
+    } catch (e) {
+      replyError = e.message || '评论加载失败';
+    } finally {
+      replyLoadingMore = false;
     }
   }
 
@@ -297,7 +331,10 @@
 
   function updateSoftkeys() {
     const centerLabel = isPlaying ? '暂停' : '播放';
-    setSoftkeys('全屏', '回复', centerLabel);
+    // 本机没有独立返回键, 右软键固定为"返回";
+    // 左软键: 评论 tab = 回复, 详情 tab = 全屏
+    const leftLabel = activeTabKey === 'comments' ? '回复' : '全屏';
+    setSoftkeys(leftLabel, '返回', centerLabel);
   }
 
   onMount(() => {
@@ -335,12 +372,15 @@
         {counts}
         {replies}
         {replyLoading}
+        {replyHasMore}
+        {replyError}
         on:ended={onEnded}
         on:listenon={onListenOn}
         on:listenoff={onListenOff}
         on:tabchange={onTabChange}
         on:playstate={onPlayState}
         on:fullscreen={onFullscreen}
+        on:loadmore={loadMoreReplies}
       />
     {:else}
       <EmptyState message="暂无数据" />

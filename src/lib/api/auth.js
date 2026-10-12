@@ -51,6 +51,16 @@ function pollRaw(qrcode_key) {
         try { data = JSON.parse(data); } catch (e) {}
       }
       if (data && typeof data === 'object') {
+        // poll 成功时 SESSDATA/bili_jct/DedeUserID 由 Set-Cookie 下发 (新版接口 url 里只有 ticket),
+        // mozSystem XHR 可以读到该响应头; 内外两层都挂上, 调用方通常只用 data.data
+        let sc = '';
+        try { sc = xhr.getResponseHeader('Set-Cookie') || ''; } catch (e) { sc = ''; }
+        data.__setCookie = sc;
+        data.__pollUrl = url;
+        if (data.data && typeof data.data === 'object') {
+          data.data.__setCookie = sc;
+          data.data.__pollUrl = url;
+        }
         resolve(data);
       } else {
         reject(new Error('invalid poll response'));
@@ -65,19 +75,78 @@ function pollRaw(qrcode_key) {
 // 3. 从登录成功的 data.url 提取 cookie
 // data.url 格式: https://passport.biligame.com/crossDomain?DedeUserID=***&DedeUserID__ckMd5=***
 //              &Expires=***&SESSDATA=***&bili_jct=***&gourl=...
-export function extractCookiesFromUrl(url) {
+
+/** @param {string} s */
+function safeDecode(s) {
+  try { return decodeURIComponent(s); } catch (e) { return s; }
+}
+
+// 按名字取参数: 先走 URL.searchParams, 失败或缺失时用正则兜底 (兼容大小写/未规范编码的 url)
+/** @param {string} url @param {string} name */
+function pickParam(url, name) {
+  if (!url) return '';
   try {
-    const u = new URL(url);
-    const params = u.searchParams;
-    return {
-      sessdata: params.get('SESSDATA') || '',
-      bili_jct: params.get('bili_jct') || '',
-      dedeUserID: params.get('DedeUserID') || '',
-      dedeUserIDMd5: params.get('DedeUserID__ckMd5') || '',
-      refreshToken: params.get('refresh_token') || '',
-      expiresAt: params.get('Expires') ? parseInt(params.get('Expires')) : 0
-    };
-  } catch (e) {
-    return null;
+    const params = new URL(url).searchParams;
+    const direct = params.get(name);
+    if (direct) return direct;
+    // 大小写不敏感兜底
+    const lower = name.toLowerCase();
+    for (const [k, v] of params.entries()) {
+      if (k.toLowerCase() === lower && v) return v;
+    }
+  } catch (e) { /* url 非标准时走正则 */ }
+  const m = new RegExp('[?&#]' + name + '=([^&#]*)', 'i').exec(url);
+  return m ? safeDecode(m[1]) : '';
+}
+
+/** @param {string} url */
+export function extractCookiesFromUrl(url) {
+  const dedeUserId = pickParam(url, 'DedeUserID');
+  return {
+    sessdata: pickParam(url, 'SESSDATA'),
+    bili_jct: pickParam(url, 'bili_jct'),
+    dedeUserID: dedeUserId,
+    dedeUserIDMd5: pickParam(url, 'DedeUserID__ckMd5'),
+    refreshToken: pickParam(url, 'refresh_token'),
+    expiresAt: Number(pickParam(url, 'Expires')) || 0
+  };
+}
+
+// 从响应头 Set-Cookie 里提取 (poll 成功时 4 个 cookie 由 Gecko 合并成一个头, \n 分隔;
+// SESSDATA 等值在头里是 URL 编码的, 需要解码后再发给服务端)
+/** @param {string} header */
+function extractCookiesFromHeader(header) {
+  const out = { sessdata: '', bili_jct: '', dedeUserID: '', dedeUserIDMd5: '', refreshToken: '', expiresAt: 0 };
+  if (!header) return out;
+  const parts = String(header).split(/[\r\n]+|,(?=[^;=\s]+=)/);
+  for (const p of parts) {
+    const kv = p.split(';')[0];
+    const eq = kv.indexOf('=');
+    if (eq < 0) continue;
+    const k = kv.slice(0, eq).trim();
+    const raw = kv.slice(eq + 1).trim();
+    if (/^expires$/i.test(k)) { out.expiresAt = Number(raw) || 0; continue; }
+    const v = safeDecode(raw);
+    if (/^SESSDATA$/i.test(k)) out.sessdata = v;
+    else if (/^bili_jct$/i.test(k)) out.bili_jct = v;
+    else if (/^DedeUserID$/i.test(k)) out.dedeUserID = v;
+    else if (/^DedeUserID__ckMd5$/i.test(k)) out.dedeUserIDMd5 = v;
+    else if (/^refresh_token$/i.test(k)) out.refreshToken = v;
   }
+  return out;
+}
+
+// 综合提取: url 参数 → Set-Cookie 响应头
+// 兼容调用方传外层响应 ({data:{...}, __setCookie}) 或内层 data ({url, __setCookie})
+/** @param {any} data */
+export function extractCookies(data) {
+  if (!data) return extractCookiesFromUrl('');
+  const inner = data.data && typeof data.data === 'object' ? data.data : null;
+  const url = data.url || data.url_cross_domain || (inner && (inner.url || inner.url_cross_domain)) || '';
+  const fromUrl = extractCookiesFromUrl(url);
+  if (fromUrl.sessdata) return fromUrl;
+  const header = data.__setCookie || (inner && inner.__setCookie) || '';
+  const fromHeader = extractCookiesFromHeader(header);
+  if (fromHeader.sessdata) return fromHeader;
+  return fromUrl;   // 仍可能为空, 由调用方决定下一步
 }

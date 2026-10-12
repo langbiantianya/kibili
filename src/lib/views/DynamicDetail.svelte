@@ -9,6 +9,7 @@
   import { getReplies, addReply } from '../api/interact.js';
   import { formatCount, stripHtml } from '../utils/format.js';
   import { biliImg } from '../utils/platform.js';
+  import { navigate } from '../router/index.js';
 
   // 从 URL hash 参数获取动态 ID
   // 格式: #/dynamic-detail?id=xxx
@@ -42,7 +43,6 @@
   let commentSectionRef;
 
   // 评论回复
-  let replyTarget = null; // 回复目标，null 为回复视频
 
   // 解析动态详情数据
   function parseDetail(data) {
@@ -116,9 +116,7 @@
     detailError = '';
     try {
       const data = await getDynamicDetail(id);
-      console.log('[DynamicDetail] getDynamicDetail response:', data);
       detail = parseDetail(data);
-      console.log('[DynamicDetail] parsed detail:', detail);
     } catch (e) {
       console.error('[DynamicDetail] getDynamicDetail error:', e);
       detailError = e.message || '加载失败';
@@ -147,9 +145,7 @@
       // 通过 bvid 获取评论, oid 需要是 aid (数字)
       // 但 getReplies 接口接受 bvid 作为 oid, 所以直接用 bvid
       const oid = detail.archive.bvid;
-      console.log('[DynamicDetail] getReplies oid:', oid);
       const data = await getReplies(oid, { pn: commentPage, ps: 20, sort: 2 });
-      console.log('[DynamicDetail] getReplies response:', data);
       const newComments = (data && data.replies) ? data.replies : [];
       if (isLoadMore) {
         comments = comments.concat(newComments);
@@ -170,6 +166,12 @@
     activeTab = i;
     if (i === 1 && comments.length === 0 && !commentsLoading) {
       loadComments();
+    }
+  }
+
+  function openArchiveVideo() {
+    if (detail && detail.archive && detail.archive.bvid) {
+      navigate('/player?bvid=' + detail.archive.bvid);
     }
   }
 
@@ -205,25 +207,9 @@
     }
   }
 
-  // 设置回复目标（点击评论卡片时）
-  // c: 根评论; sub: 子评论（可选）
-  /** @param {any} c */
-  /** @param {any} [sub] */
-  function setReplyTarget(c, sub) {
-    if (sub) {
-      // 回复子评论：root 是根评论 rpid，parent 是子评论 rpid
-      replyTarget = { rpid: sub.rpid, uname: sub.member.uname, rootRpid: c.rpid };
-    } else if (c) {
-      // 回复根评论
-      replyTarget = { rpid: c.rpid, uname: c.member.uname };
-    } else {
-      replyTarget = null;
-    }
-  }
-
   onMount(() => {
     // 初始软键设置
-    setSoftkeys('刷新', '');
+    setSoftkeys('评论', '返回');
     loadDetail();
     onKey('dynamic-detail', {
       ArrowDown: () => {
@@ -242,39 +228,12 @@
       },
       ArrowLeft: () => { if (activeTab > 0) changeTab(activeTab - 1); },
       ArrowRight: () => { if (activeTab < tabs.length - 1) changeTab(activeTab + 1); },
-      SoftLeft: () => loadDetail(),
-      SoftRight: () => {
+      SoftLeft: () => {
+        // 详情 tab: 切到评论; 评论 tab: 回复
         if (activeTab === 0) {
-          // 详情 tab：直接评论帖子
-          replyTarget = null;
-          if (commentSectionRef) {
-            commentSectionRef.openReply();
-          }
-        } else if (activeTab === 1) {
-          // 评论 tab：回复当前聚焦的评论
-          const focused = document.querySelector('.comment-item:focus, .sub-item:focus');
-          if (focused) {
-            const rpid = Number(focused.dataset.rpid);
-            // 先查找根评论
-            const rootComment = comments.find(c => c.rpid === rpid);
-            if (rootComment) {
-              setReplyTarget(rootComment);
-              if (commentSectionRef) {
-                commentSectionRef.openReply(rootComment);
-              }
-            } else {
-              // 查找子评论
-              for (const c of comments) {
-                // 子评论查找需要在 CommentSection 内部处理
-                // 这里简化处理，直接回复视频本身
-              }
-            }
-          } else {
-            // 未选中评论，回复帖子本身
-            if (commentSectionRef) {
-              commentSectionRef.openReply();
-            }
-          }
+          changeTab(1);
+        } else {
+          replyToFocusedComment();
         }
       },
       '0': () => changeTab(activeTab === 0 ? 1 : 0),
@@ -285,11 +244,25 @@
     offKey('dynamic-detail');
   });
 
-  // 当切换 tab 时更新软键
+  // 回复当前聚焦的评论 (未聚焦时回复动态本身)
+  function replyToFocusedComment() {
+    const focused = document.querySelector('.comment-item:focus, .sub-item:focus');
+    if (focused && commentSectionRef) {
+      const rpid = Number(focused.dataset.rpid);
+      const rootComment = comments.find(c => c.rpid === rpid);
+      if (rootComment) {
+        commentSectionRef.openReply(rootComment);
+        return;
+      }
+    }
+    if (commentSectionRef) commentSectionRef.openReply();
+  }
+
+  // 当切换 tab 时更新软键: 左=评论/回复, 右=返回 (本机右软键即返回键)
   $: if (activeTab === 0) {
-    setSoftkeys('刷新', '评论');
+    setSoftkeys('评论', '返回');
   } else {
-    setSoftkeys('刷新', '回复');
+    setSoftkeys('回复', '返回');
   }
 
   // 处理评论发送事件
@@ -334,7 +307,7 @@
             {/if}
             <div class="author-info">
               <div class="author-name">{detail.author.name}</div>
-              <div class="author-action">{detail.author.pub_action} · {detail.author.pub_time}</div>
+              <div class="author-action">{detail.author.pub_action ? detail.author.pub_action + ' · ' : ''}{detail.author.pub_time}</div>
             </div>
           </div>
 
@@ -346,7 +319,9 @@
           <!-- 附件（视频/图片） -->
           {#if detail.archive}
             {#if detail.archive.type === 'video'}
-              <div class="archive-card">
+              <div class="archive-card" data-navable tabindex="0"
+                   on:click={() => openArchiveVideo()}
+                   on:keydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); openArchiveVideo(); } }}>
                 <img class="archive-cover" src={biliImg(detail.archive.cover, 120, 80)} alt="" />
                 <div class="archive-info">
                   <div class="archive-title">{detail.archive.title}</div>
@@ -366,8 +341,8 @@
           <div class="stat-row">
             <span class="stat-item">❤ {formatCount(detail.stat.like)}</span>
             <span class="stat-item">↗ {formatCount(detail.stat.forward)}</span>
-            <span class="stat-item">💬 {formatCount(detail.stat.comment)}</span>
-            <span class="stat-item">👁 {formatCount(detail.stat.view)}</span>
+            <span class="stat-item">❝ {formatCount(detail.stat.comment)}</span>
+            <span class="stat-item">▶ {formatCount(detail.stat.view)}</span>
           </div>
         </div>
       {:else}
@@ -383,6 +358,7 @@
         commentHasMore={commentHasMore}
         oid={detail && detail.archive ? detail.archive.bvid : ''}
         on:send={onCommentSend}
+        on:loadMore={() => loadComments(true)}
       />
     {/if}
   </div>
@@ -509,6 +485,8 @@
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+    /* Gecko 48 不支持 -webkit-line-clamp, max-height 兜底 (2 行) */
+    max-height: 2.6em;
   }
   .archive-dur {
     font-size: var(--md-sys-typescale-body-small-size);

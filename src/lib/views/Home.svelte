@@ -3,9 +3,8 @@
   import { isLogin } from "../stores/user.js";
   import FeedList from "../components/FeedList.svelte";
   import Loading from "../components/Loading.svelte";
-  import LoadingMore from "../components/LoadingMore.svelte";
   import EmptyState from "../components/EmptyState.svelte";
-  import { loadFeed, loadMoreFeed, setIndex } from "../stores/queue.js";
+  import { loadFeed, loadMoreFeed, setIndex, queue } from "../stores/queue.js";
   import { navigate } from "../router/index.js";
   import { onKey, offKey, moveFocus } from "../keyboard/index.js";
   import { setSoftkeys, showToast } from "../stores/ui.js";
@@ -16,10 +15,23 @@
   let error = "";
   let hasMore = true;
 
-  async function load() {
+  function syncFromQueue() {
+    const unsubscribe = queue.subscribe((q) => (items = q.items));
+    unsubscribe();
+  }
+
+  async function load(force = false) {
     if (!$isLogin) {
       error = "请先登录";
       loading = false;
+      return;
+    }
+    // queue 里已有推荐流: 从播放器/子页面返回时直接复用, 不再重新拉取
+    // (否则每次返回都先闪一屏"加载中..."并丢回列表顶部)
+    syncFromQueue();
+    if (!force && items.length) {
+      loading = false;
+      error = "";
       return;
     }
     loading = true;
@@ -27,9 +39,7 @@
     try {
       await loadFeed();
       // loadFeed 写入 queue; 这里也从队列读取
-      const { queue } = await import("../stores/queue.js");
-      const unsubscribe = queue.subscribe((q) => (items = q.items));
-      unsubscribe();
+      syncFromQueue();
       hasMore = true;
     } catch (e) {
       error = e.message || "加载失败";
@@ -44,9 +54,7 @@
     try {
       const gotMore = await loadMoreFeed();
       if (!gotMore) hasMore = false;
-      const { queue } = await import("../stores/queue.js");
-      const unsubscribe = queue.subscribe((q) => (items = q.items));
-      unsubscribe();
+      syncFromQueue();
     } catch (e) {
       // 加载更多失败, 静默处理
     } finally {
@@ -66,7 +74,7 @@
       navigate("/login");
       return;
     }
-    load();
+    load(true);
   }
 
   // 滚动到末尾时加载更多
@@ -119,10 +127,7 @@
     {:else if error}
       <EmptyState message="加载失败" hint={error + " · 按 左软键 重试"} />
     {:else}
-      {#if loadingMore}
-        <LoadingMore />
-      {/if}
-      <FeedList {items} on:play={(e) => playVideo(e.detail)} />
+      <FeedList {items} loadingMore={loadingMore} on:play={(e) => playVideo(e.detail)} />
     {/if}
   </div>
 </div>

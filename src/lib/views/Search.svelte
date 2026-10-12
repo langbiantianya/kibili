@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from "svelte";
   import { getHotSearch } from "../api/user.js";
-  import { navigate } from "../router/index.js";
+  import { navigate, back } from "../router/index.js";
   import { onKey, offKey, moveFocus } from "../keyboard/index.js";
   import { setSoftkeys, showToast } from "../stores/ui.js";
   import Loading from "../components/Loading.svelte";
@@ -21,9 +21,7 @@
     error = "";
     try {
       const d = await getHotSearch();
-      console.log(d);
       hotList = (d && d.list) ? d.list : [];
-      console.log(hotList);
     } catch (e) {
       error = e.message || "加载失败";
     } finally {
@@ -56,6 +54,12 @@
       if (firstItem) firstItem.focus();
       return;
     }
+    // 右软键: 输入框聚焦时全局按键总线会跳过, 这里自己处理返回
+    if (e.key === "SoftRight") {
+      e.preventDefault();
+      back();
+      return;
+    }
     // 左软键搜索
     if (e.key === "SoftLeft") {
       e.preventDefault();
@@ -64,7 +68,7 @@
   }
 
   onMount(() => {
-    setSoftkeys("搜索", "OK", "");
+    setSoftkeys("搜索", "返回", "");
     loadHot();
     onKey("search", {
       ArrowDown: () => {
@@ -118,7 +122,7 @@
       <EmptyState message={error || "暂无热搜"} />
     {:else}
       <div class="hot-section">
-        <div class="hot-title">🔥 热搜榜单</div>
+        <div class="hot-title">★ 热搜榜单</div>
         <div class="hot-list scroll-y">
           {#each hotList as item, i (item.hot_id)}
             <div
@@ -131,7 +135,7 @@
               <span class="hot-rank" class:top3={i < 3}>{i + 1}</span>
               <span class="hot-keyword">{item.show_name || item.keyword}</span>
               {#if item.icon}
-                <span class="hot-icon">🔥</span>
+                <span class="hot-icon">★</span>
               {/if}
             </div>
           {/each}
@@ -168,10 +172,20 @@
     color: var(--md-sys-color-on-surface-variant);
   }
 
+  .main {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
   .hot-section {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    /* 与其兄弟 .search-bar 一起放在 .main 内, 用 flex 分配剩余高度,
+       否则 height:100% + 兄弟元素会把列表底部挤出可视区 (无法滚动到的内容) */
+    flex: 1;
+    min-height: 0;
+    height: auto;
   }
   .hot-title {
     padding: 6px 8px;

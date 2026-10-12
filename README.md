@@ -110,6 +110,23 @@ npm run build
 - **Flexbox gap** — 通过 `postcss-gap-properties` 降级；flexbox gap 在 Firefox 48 上无完美 polyfill，小间距（4-8px）视觉差异可接受
 - **ES5 输出** — Babel `preset-env` + Terser 确保 `ecma:5` 输出，无箭头函数、模板字符串等现代语法
 - **单文件 bundle** — IIFE 格式，`inlineDynamicImports: true`，KaiOS 不支持 ES module loader
+- **图标字形** — KaiOS 系统字体不含 emoji（`💬`/`⭐`/`🪙`/`👁`… 会渲染为空白或豆腐块），界面图标统一使用字体内置符号（`❤ ▶ ❝ ★ ◎ ▤ ● ∅` 等），新增图标前需在真机确认字形存在
+- **文字截断** — Gecko 48 不支持 `-webkit-line-clamp`，标题类样式需额外给出 `max-height` 兜底
+- **登录接口形态** — web 扫码登录的 `qrcode/poll` 成功响应改为只在 `Set-Cookie` 响应头里下发 `SESSDATA`/`bili_jct`/`DedeUserID`（响应里的 `url` 只剩 `ticket`）。KaiOS 的 `mozSystem` XHR **可以**读到该响应头（实测），但**不会**使用 cookie jar 发请求，因此必须从响应头取值：`extractCookies()` 同时兼容"URL 参数"与"响应头"两种形态，并对响应头里的值做 URL 解码（SESSDATA 含逗号，须原样回传）
+
+## 键位与软键约定
+
+KaiOS 把硬件返回键（`KEY_BACK`）上报为 DOM 事件 `key: "SoftRight"`，因此右软键同时承担"页面动作"和"返回"：
+
+| 位置 | 约定 |
+| --- | --- |
+| 左软键 | 页面主操作（首页=刷新、播放器详情=全屏、播放器评论=回复、动态详情=评论/回复） |
+| 中间 | 中键（OK）当前会做什么的提示（打开/播放/暂停），本身不接收按键 |
+| 右软键 | 子页面固定为返回：`/history`、`/settings`、`/about`、`/search`、`/search-results`、`/favorites`、`/folder`、`/login`、`/player`、`/fullscreen`、`/dynamic-detail`；三个主 Tab（首页/关注/我的）保持各自动作（搜索/切Tab/登出） |
+
+- 方向键：上下移动焦点（列表内自动滚动居中），左右在详情/评论等子 Tab 间切换
+- 中键：打开/播放/暂停；评论列表中展开子评论
+- 回复框等模态组件打开时独占按键（左软键=取消，右软键=发送，Enter=发送）
 
 ## 致谢
 

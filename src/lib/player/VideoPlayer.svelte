@@ -3,8 +3,9 @@
   import { releaseWakeLock } from './wake.js';
   import { settings } from '../stores/settings.js';
   import { moveFocus } from '../keyboard/index.js';
-  import { addReply, reportProgress } from '../api/interact.js';
+  import { addReply, reportProgress, getSubReplies } from '../api/interact.js';
   import { showToast } from '../stores/ui.js';
+  import { formatCount } from '../utils/format.js';
   import CommentSection from '../components/CommentSection.svelte';
 
   // 双模式播放器:
@@ -27,9 +28,14 @@
   /** @type {any[]} */
   export let replies = [];
   export let replyLoading = false;
+  export let replyHasMore = true;
+  export let replyError = '';
 
   // 子评论展开状态: rpid -> { expanded: bool, loading: bool, replies: [] }
   let subRepliesMap = {};
+
+  // 回复目标: { rpid, uname, rootRpid? } | null
+  let replyTarget = null;
 
   // CommentSection 组件实例引用
   /** @type {any} */
@@ -95,11 +101,29 @@
       dashAudio.currentTime = m.currentTime;
       dashAudio.play().catch(() => {});
     }
-    // 听视频模式下, 从父组件传入的 resumeAt 开始
-    if (mode === 'audio' && resumeAt > 0 && m.duration) {
-      try { m.currentTime = Math.min(resumeAt, m.duration - 1); } catch (e) {}
-    }
+    // 从历史/收藏恢复播放进度 (video / audio 两种模式都要应用)
+    applyResume();
     m.play().catch(() => {});
+  }
+
+  // loadedmetadata 时缓冲通常还没到目标位置, 直接 seek 会被夹到已缓冲边缘;
+  // 因此在 canplay (数据足够) 时再兜一次
+  let resumeApplied = false;
+  function applyResume() {
+    const m = media;
+    if (!m || !(resumeAt > 0) || resumeApplied) return;
+    let seekableEnd = m.duration || 0;
+    try {
+      if (m.seekable && m.seekable.length) seekableEnd = m.seekable.end(m.seekable.length - 1);
+    } catch (e) { /* ignore */ }
+    if (!seekableEnd) return;
+    try {
+      m.currentTime = Math.max(0, Math.min(resumeAt, seekableEnd - 1));
+      resumeApplied = true;
+      if (mode === 'video' && dashAudio) {
+        try { dashAudio.currentTime = m.currentTime; } catch (e) {}
+      }
+    } catch (e) { /* ignore */ }
   }
 
   function onTimeUpdate() {
@@ -314,6 +338,34 @@
     }
   }
 
+  // 回复当前聚焦的评论 (未聚焦时回复视频本身)
+  function replyToFocusedComment() {
+    const focused = document.querySelector('.comment-item:focus, .sub-item:focus');
+    if (focused) {
+      const rpid = Number(focused.dataset.rpid);
+      const rootComment = replies.find(c => c.rpid === rpid);
+      if (rootComment) {
+        setReplyTarget(rootComment);
+        if (commentSectionRef) commentSectionRef.openReply(rootComment);
+        return;
+      }
+      // 查找子评论
+      for (const c of replies) {
+        const sub = subRepliesMap[c.rpid];
+        if (sub && sub.replies) {
+          const subComment = sub.replies.find(r => r.rpid === rpid);
+          if (subComment) {
+            setReplyTarget(c, subComment);
+            if (commentSectionRef) commentSectionRef.openReply(c, subComment);
+            return;
+          }
+        }
+      }
+    }
+    // 未选中评论, 回复视频本身
+    if (commentSectionRef) commentSectionRef.openReply();
+  }
+
   // 发送评论
   async function sendReply(text) {
     if (!text.trim()) return;
@@ -394,14 +446,6 @@
     return m + ':' + (s < 10 ? '0' : '') + s;
   }
 
-  // 格式化数字
-  /** @param {number} n */
-  function formatCount(n) {
-    if (!n) return '0';
-    if (n >= 10000) return (n / 10000).toFixed(1) + '万';
-    return String(n);
-  }
-
   // 格式化时间
   /** @param {number} ts */
   function relativeTime(ts) {
@@ -456,12 +500,11 @@
 
     const onKeyUp = (e) => {
       const key = e.key;
-      // Enter 和 SoftLeft / SoftRight 不需要长按检测，直接处理
-      if (key === 'Enter' || key === 'SoftLeft' || key === 'SoftRight') {
-        // 这些按键在 keydown 中没有进入 startLongPress，所以 keyTimers[key] 为 undefined
-        // 直接处理即可
-      } else if (!keyTimers[key] && !longPressed[key]) {
-        return; // 不是我们的按键
+      // Enter / 软键是瞬时动作 (keydown 里没有注册长按定时器), 直接进入下面处理;
+      // 其余按键只有按下时注册过长按才需要在 keyup 收尾
+      if (key !== 'Enter' && key !== 'SoftLeft' && key !== 'SoftRight' &&
+          !keyTimers[key] && !longPressed[key]) {
+        return;
       }
 
       switch (key) {
@@ -510,7 +553,6 @@
             const focused = document.querySelector('.comment-item:focus, .sub-item:focus');
             if (focused) {
               const rpid = Number(focused.dataset.rpid);
-              // 查找对应的根评论
               const rootComment = replies.find(c => c.rpid === rpid);
               if (rootComment && rootComment.rcount > 0) {
                 loadSubReplies(rootComment);
@@ -524,45 +566,15 @@
           break;
         case 'SoftLeft':
           e.preventDefault();
-          toggleFullscreen();
+          // 评论 tab: 回复评论; 详情 tab: 全屏
+          if (activeTab === 1) {
+            replyToFocusedComment();
+          } else {
+            toggleFullscreen();
+          }
           break;
         case 'SoftRight':
-          e.preventDefault();
-          // 在评论区时，设置回复目标并聚焦输入框
-          if (activeTab === 1) {
-            const focused = document.querySelector('.comment-item:focus, .sub-item:focus');
-            if (focused) {
-              const rpid = Number(focused.dataset.rpid);
-              // 查找对应的根评论
-              const rootComment = replies.find(c => c.rpid === rpid);
-              if (rootComment) {
-                setReplyTarget(rootComment);
-                if (commentSectionRef) {
-                  commentSectionRef.openReply(rootComment);
-                }
-              } else {
-                // 查找子评论
-                for (const c of replies) {
-                  const sub = subRepliesMap[c.rpid];
-                  if (sub && sub.replies) {
-                    const subComment = sub.replies.find(r => r.rpid === rpid);
-                    if (subComment) {
-                      setReplyTarget(c, subComment);
-                      if (commentSectionRef) {
-                        commentSectionRef.openReply(c, subComment);
-                      }
-                      break;
-                    }
-                  }
-                }
-              }
-            } else {
-              // 未选中评论，回复视频本身
-              if (commentSectionRef) {
-                commentSectionRef.openReply();
-              }
-            }
-          }
+          // 不处理: 交给全局 app-back 兜底 (右软键 = 返回, 退出播放器)
           break;
       }
     };
@@ -696,8 +708,8 @@
             <h1 class="video-title">{meta.title || title}</h1>
             <div class="video-meta-row">
               <span class="meta-item">▶ {formatCount(meta.stat ? meta.stat.view : 0)}</span>
-              <span class="meta-item">💬 {formatCount(meta.stat ? meta.stat.danmaku : 0)}</span>
-              <span class="meta-item">📅 {relativeTime(meta.pubdate)}</span>
+              <span class="meta-item">❝ {formatCount(meta.stat ? meta.stat.danmaku : 0)}</span>
+              <span class="meta-item">{relativeTime(meta.pubdate)}</span>
             </div>
           </div>
 
@@ -730,11 +742,11 @@
                 <span class="interact-count">{formatCount(counts.like)}</span>
               </div>
               <div class="interact-item" class:active={status.coin}>
-                <span class="interact-icon">🪙</span>
+                <span class="interact-icon">◎</span>
                 <span class="interact-count">{formatCount(counts.coin)}</span>
               </div>
               <div class="interact-item" class:active={status.fav}>
-                <span class="interact-icon">⭐</span>
+                <span class="interact-icon">★</span>
                 <span class="interact-count">{formatCount(counts.fav)}</span>
               </div>
             </div>
@@ -762,10 +774,11 @@
           bind:this={commentSectionRef}
           comments={replies}
           commentsLoading={replyLoading}
-          commentsError=""
-          commentHasMore={false}
+          commentsError={replyError}
+          commentHasMore={replyHasMore}
           oid={meta ? (meta.aid || meta.bvid) : ''}
           on:send={(/** @type {any} */ e) => sendReply(e.detail.text)}
+          on:loadMore={() => dispatch('loadmore')}
         />
       </div>
     {/if}

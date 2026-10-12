@@ -9,9 +9,9 @@
   const issuesUrl = "https://github.com/langbiantianya/kibili/issues";
 
   const links = [
-    { icon: "📦", label: "项目仓库", url: githubUrl },
-    { icon: "👤", label: "开发者", url: bilibiliSpaceUrl },
-    { icon: "🐛", label: "问题反馈", url: issuesUrl },
+    { icon: "▤", label: "项目仓库", url: githubUrl },
+    { icon: "●", label: "开发者", url: bilibiliSpaceUrl },
+    { icon: "✎", label: "问题反馈", url: issuesUrl },
   ];
 
   const deps = [
@@ -30,14 +30,10 @@
   }
 
   onMount(() => {
-    setSoftkeys("", "", "");
+    setSoftkeys("", "返回");
     onKey("about", {
       ArrowDown: () => moveFocus(+1),
-      ArrowUp: () => moveFocus(-1),
-      Enter: () => {
-        const el = document.querySelector('[data-navable]:focus');
-        if (el) (/** @type {HTMLElement} */(el)).click();
-      },
+      ArrowUp: () => moveFocus(-1)
     });
   });
 
@@ -49,16 +45,16 @@
 <div class="screen">
   <div class="main scroll-y">
     <!-- 头部信息 -->
-    <div class="hero" data-navable tabindex="-1">
+    <div class="hero">
       <div class="logo-wrap">
-        <div class="logo">📺</div>
+        <div class="logo">▶</div>
       </div>
       <div class="app-name">哔哩哔哩</div>
       <div class="version">版本 {version}</div>
     </div>
 
     <!-- 简介 -->
-    <div class="card-filled info-card" data-navable tabindex="-1">
+    <div class="card-filled info-card">
       <p>为 KaiOS 设备开发的第三方哔哩哔哩客户端</p>
       <p>仅供学习交流，不涉及商业用途</p>
     </div>
@@ -72,7 +68,7 @@
           tabindex="0"
           role="button"
           on:click={() => openUrl(l.url)}
-          on:keydown={(e) => { if (e.key === 'Enter') openUrl(l.url); }}
+          on:keydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); openUrl(l.url); } }}
         >
           <span class="link-icon">{l.icon}</span>
           <span class="link-label">{l.label}</span>
@@ -91,7 +87,7 @@
           tabindex="0"
           role="button"
           on:click={() => openUrl(d.url)}
-          on:keydown={(e) => { if (e.key === 'Enter') openUrl(d.url); }}
+          on:keydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); openUrl(d.url); } }}
         >
           <span class="dep-name">{d.name}</span>
           <span class="dep-desc">{d.desc}</span>

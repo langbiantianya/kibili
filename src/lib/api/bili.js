@@ -41,7 +41,8 @@ export const isDev = process.env.NODE_ENV !== 'production';
 
 let _buvid = null;
 
-function getBuvid() {
+// wbi.js 需要 buvid 生成签名用的 Cookie 串, 因此必须导出
+export function getBuvid() {
   if (_buvid) return _buvid;
   // 简单生成 buvid3 (32位hex) + buvid4 (UUID+时间戳) + b_nut (时间戳)
   const ts = Date.now();
