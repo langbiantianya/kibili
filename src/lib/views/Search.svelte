@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from "svelte";
   import { getHotSearch } from "../api/user.js";
-  import { navigate, back } from "../router/index.js";
+  import { navigate } from "../router/index.js";
   import { onKey, offKey, moveFocus } from "../keyboard/index.js";
   import { setSoftkeys, showToast } from "../stores/ui.js";
   import Loading from "../components/Loading.svelte";
@@ -52,12 +52,6 @@
       e.preventDefault();
       const firstItem = /** @type {HTMLElement} */ (document.querySelector(".hot-item"));
       if (firstItem) firstItem.focus();
-      return;
-    }
-    // 右软键: 输入框聚焦时全局按键总线会跳过, 这里自己处理返回
-    if (e.key === "SoftRight") {
-      e.preventDefault();
-      back();
       return;
     }
     // 左软键搜索

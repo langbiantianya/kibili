@@ -26,7 +26,9 @@ function install() {
   installed = true;
   window.addEventListener('keydown', e => {
     // T9 / 文本输入框激活时, 让出数字键 / * / #
-    if (isInputFocused(e)) return;
+    // 右软键例外: 它是全局语义(返回), 页面软键栏在输入态下同样显示"返回",
+    // 页面不应为了输入框聚焦而各写一套返回处理 (见 views/Search.svelte)。
+    if (isInputFocused(e) && e.key !== 'SoftRight') return;
 
     // 自顶向下匹配栈
     for (let i = stack.length - 1; i >= 0; i--) {

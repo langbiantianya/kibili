@@ -17,6 +17,8 @@ function currentPath() {
 
 function topLevelBack(e) {
   if (TOP_LEVEL_ROUTES.indexOf(currentPath()) >= 0) return;
+  // 长按连发时只退一层, 否则一次长按会连续 pop 掉多级路由
+  if (e.repeat) return;
   // 软键不同于退格键: 输入框聚焦时也应能返回
   e.preventDefault();
   back();
