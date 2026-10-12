@@ -1,0 +1,63 @@
+name: Release
+
+# 打 tag 时构建静态产物并推送到 GitHub Release.
+# 兼容仓库既有的裸版本号 tag (如 0.01a) 与 v 前缀 tag (如 v1.0.0).
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+      - '[0-9]*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Package build output
+        id: package
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          archive="kibili-${version}.zip"
+          zip -r -9 "$archive" build
+          echo "archive=${archive}" >> "$GITHUB_OUTPUT"
+          ls -lh "$archive"
+
+      - name: Publish to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          ARCHIVE: ${{ steps.package.outputs.archive }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ARCHIVE" --clobber
+          else
+            # --generate-notes 由 GitHub compare API 找上一个 tag,
+            # 不依赖本地 git 历史 (checkout 默认 depth=1, 没有父 tag).
+            gh release create "$TAG" "$ARCHIVE" \
+              --title "$TAG" \
+              --generate-notes
+          fi
