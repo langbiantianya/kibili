@@ -42,7 +42,10 @@
 ├── scripts/
 │   ├── dev-server.js        # 开发服务器 (Express + 代理)
 │   ├── install-device.js    # 打包并安装到真机 (adb + 设备调试协议)
-│   └── device-console.js    # 抓应用内 console 输出 / 执行 JS
+│   ├── device-test.js       # 真机自动测试 (冒烟检查 + 截图)
+│   ├── device-console.js    # 抓应用内 console 输出 / 执行 JS
+│   └── lib/
+│       └── ui-probe.js      # 注入页面运行的 UI 探针 (被 device-test.js 使用)
 ├── src/
 │   ├── main.js              # 入口
 │   ├── App.svelte           # 根组件 + 路由
@@ -227,6 +230,79 @@ node scripts/device-console.js --once --eval 'JSON.stringify({
             sendevent /dev/input/event1 1 108 0; sendevent /dev/input/event1 0 0 0"
   ```
 - 截图：`screencap` 在 KaiOS 上不可用（没有 SurfaceFlinger），走调试协议的 `deviceActor.screenshotToDataURL`（返回 240×320 PNG dataURL），`install-device.js` 里那段协议客户端可以直接复用。
+
+### 真机自动测试（adb + 调试协议）
+
+改完东西不用人肉点一遍：把当前构建装到真机，然后跑冒烟检查。
+
+```bash
+npm run build
+node scripts/install-device.js     # 装上要测的版本
+node scripts/device-test.js         # 跑检查, 退出码 0 = 全过, 1 = 有失败项
+```
+
+常用参数：
+
+```bash
+node scripts/device-test.js --shot ./shots            # 每个页面存一张真机截图 (240x320 PNG)
+node scripts/device-test.js --only home,player       # 只跑指定页面
+node scripts/device-test.js --only back-key          # 只验证右软键返回
+```
+
+实跑输出（11 个页面 + 一次真实按键）：
+
+```text
+设备: app://bilibili.com/manifest.webapp  视口 240x320
+✓ home            softkeys={"left":"刷新","center":"打开","right":"搜索"} navables=8
+✓ following       softkeys={"left":"刷新","center":"","right":"切Tab"} navables=22
+✓ profile         softkeys={"left":"打开","center":"","right":"登出"} navables=6
+✓ history         softkeys={"left":"刷新","center":"播放","right":"返回"} navables=30
+✓ favorites       softkeys={"left":"刷新","center":"打开","right":"返回"} navables=9
+✓ settings        softkeys={"left":"","center":"","right":"返回"} navables=1
+✓ about           softkeys={"left":"","center":"","right":"返回"} navables=11
+✓ search          softkeys={"left":"搜索","center":"","right":"返回"} navables=10
+✓ search-results  softkeys={"left":"刷新","center":"打开","right":"返回"} navables=20
+✓ player          softkeys={"left":"全屏","center":"暂停","right":"返回"} navables=0
+✓ back-key        右软键 #/settings → #/search
+
+结果: 11/11 项通过
+```
+
+检查项（全部在真机上判定）：
+
+| 检查 | 判定方式 | 能抓住的典型问题 |
+| --- | --- | --- |
+| 页面可达 | 导航后等待，探针能取到快照 + 软键栏 | 路由写错、渲染崩溃、白屏 |
+| 软键文案 | 与 `PAGES` 表里的期望值逐项比对 | 软键没接处理器、标签与行为不符 |
+| 子页面返回键 | 注入右软键（`sendevent 158`），断言路由变化 | 子页面出不去、返回层级错乱 |
+| 字形是否存在 | canvas 位图与空白/豆腐块位图比对 | emoji 图标在 KaiOS 上渲染成空白 |
+| 图片是否加载 | `complete && naturalWidth === 0` | 坏图、协议相对 URL、缺封面 |
+| 列表是否被裁 | 可滚动容器盒模型 vs 最近裁剪祖先 | 底部内容永远滚不到 |
+| 是否超出视口 | 元素右边界 vs 240px | 长文本把布局撑破 |
+| 焦点是否可见 | 活动元素矩形是否落在视口内 | 焦点跑到屏幕外 |
+| JS 异常 | 订阅 console actor 的 `pageError` 事件 | 未捕获异常 |
+
+实现原理（四个原语，都通过设备调试协议 + adb）：
+
+| 原语 | 通道 |
+| --- | --- |
+| 读页面状态 | `consoleActor.evaluateJS` 注入 `scripts/lib/ui-probe.js`，返回 JSON 快照 |
+| 真机按键 | `adb shell sendevent /dev/input/event1 …` 注入真实按键 |
+| 截图 | `deviceActor.screenshotToDataURL` |
+| 页面异常 | `consoleActor.startListeners(['PageError'])` |
+
+扩展方式：
+
+- 加检查项：改 `scripts/lib/ui-probe.js`（在 `issues` 里 `push({t, …})` 即可，`device-test.js` 会按 `t` 分类报错）。
+- 加页面/改期望：`scripts/device-test.js` 的 `PAGES` 表（路径 + 等待时间 + 期望软键）。
+- 加一次性验证：`node scripts/device-console.js --eval '<js>'` 在真机上执行并打印返回值。
+
+注意事项：
+
+- 设备调试 socket 同时只接受一个客户端，别和 WebIDE / `device-console.js` 同时跑。
+- 页面数据来自 B 站接口，网络抖动会产生误报，建议先确认页面数据正常再判失败。
+- 登录态相关的页面（首页/收藏/历史/关注）需要手机上是已登录状态。
+- `--shot` 输出的截图就是手机当时真实画面，可直接贴进 issue。
 
 ## 兼容性说明
 

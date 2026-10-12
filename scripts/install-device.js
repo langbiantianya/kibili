@@ -67,8 +67,20 @@ function pack() {
 }
 
 function push(id) {
-  adb(['shell', 'mkdir', '-p', `/data/local/tmp/b2g/${id}`]);
-  adb(['push', zipPath, `/data/local/tmp/b2g/${id}/application.zip`]);
+  const dir = `/data/local/tmp/b2g/${id}`;
+  const zip = `${dir}/application.zip`;
+  // adbd 偶发会拒掉一次 mkdir/push (tmpfs 或连接刚建立时), 重试几次
+  let lastErr = '';
+  for (let i = 0; i < 3; i++) {
+    try {
+      adb(['shell', 'mkdir', '-p', dir]);
+      adb(['push', zipPath, zip]);
+      return;
+    } catch (e) {
+      lastErr = e && e.message ? e.message : String(e);
+    }
+  }
+  fail('推送安装包失败: ' + lastErr);
 }
 
 // ---- 设备调试协议: 定长包 "N:{json}" ----

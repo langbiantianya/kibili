@@ -54,7 +54,8 @@
   }}
 >
   <div class="cover">
-    <img src={cover} alt="" loading="lazy" />
+    <!-- 部分接口 (如历史记录) 不返回封面, 没有 pic 时不要渲染空 img (会变成坏图) -->
+    {#if cover}<img src={cover} alt="" loading="lazy" />{/if}
     {#if dur}<span class="dur">{dur}</span>{/if}
   </div>
   <div class="info">

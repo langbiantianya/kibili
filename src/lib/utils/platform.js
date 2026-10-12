@@ -91,9 +91,14 @@ export function getCurrentPosition(options) {
 // e.g. https://i0.hdslb.com/bfs/archive/abc.jpg -> .../abc.jpg@160w_100h.webp
 export function biliImg(url, w, h, fmt) {
   if (!url) return '';
+  // 接口可能返回协议相对地址 (//i0.hdslb.com/...), 在 app:// origin 下会被解析成
+  // app://i0.hdslb.com/... 导致图片加载失败, 这里补全协议
+  let u = String(url);
+  if (u.indexOf('//') === 0) u = 'https:' + u;
+  else if (u.indexOf('http://') === 0) u = 'https://' + u.slice(7);
   const f = fmt || 'jpg';
   const dim = (w ? w + 'w' : '') + (h ? '_' + h + 'h' : '');
-  return url + (dim ? '@' + dim + '.' + f : '');
+  return u + (dim ? '@' + dim + '.' + f : '');
 }
 
 /**
