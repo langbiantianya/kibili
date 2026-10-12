@@ -22,3 +22,6 @@ build
 *.njsproj
 *.sln
 *.sw?
+
+# 真机安装脚本产出的安装包
+application.zip

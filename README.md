@@ -40,7 +40,9 @@
 ```text
 ├── public/                  # 静态资源 (图标, manifest.webapp)
 ├── scripts/
-│   └── dev-server.js        # 开发服务器 (Express + 代理)
+│   ├── dev-server.js        # 开发服务器 (Express + 代理)
+│   ├── install-device.js    # 打包并安装到真机 (adb + 设备调试协议)
+│   └── device-console.js    # 抓应用内 console 输出 / 执行 JS
 ├── src/
 │   ├── main.js              # 入口
 │   ├── App.svelte           # 根组件 + 路由
@@ -101,6 +103,130 @@ npm run build
 | `index.html` | 入口页面 |
 | `manifest.webapp` | KaiOS 应用清单 |
 | `icons/` | 应用图标 |
+
+### 安装到真机（adb + 设备调试协议）
+
+KaiOS 没有 `adb install`：应用必须以 packaged app 的形式装进 `/data/local/webapps`，
+WebIDE / OmniSD / make-kaios-install 走的都是同一条路：
+
+```text
+build/ 打包成 application.zip (manifest.webapp 在压缩包根目录)
+   ↓ adb push
+/data/local/tmp/b2g/<appId>/application.zip
+   ↓ 转发调试端口 + webapps actor 的 install 请求
+设备安装应用
+```
+
+一条命令搞定（打包 → 推送 → 安装 → 启动，并打印安装结果）：
+
+```bash
+npm run build
+node scripts/install-device.js
+```
+
+前置条件：
+
+| 条件 | 说明 |
+| --- | --- |
+| 调试模式 | 手机拨号 `*#*#33284#*#*`（状态栏出现 bug 图标），或 设置 → 设备 → 开发者 → 调试器 → 选择 ADB 和 DevTools。**重启手机后会被清除，需要重新打开** |
+| USB 授权 | `adb devices` 能看到设备（`device` 状态而不是 `unauthorized`） |
+| 依赖 | `adb` 在 PATH 里；打包还需要 `zip`（Windows 用 PowerShell 的 `Compress-Archive`，脚本已自动选择） |
+
+脚本内部做的事（排障时可按此手工执行）：
+
+```bash
+# 1. 打包（appId 取自 manifest 的 origin：app://bilibili.com → bilibili.com）
+cd build && zip -Xr ../application.zip $(ls) && cd ..
+
+# 2. 推送安装包（/data/local/tmp 是 tmpfs，重启会清空）
+adb shell mkdir -p /data/local/tmp/b2g/bilibili.com
+adb push application.zip /data/local/tmp/b2g/bilibili.com/application.zip
+
+# 3. 转发设备调试端口（同一端口要先 --remove，否则旧监听会让连接被拒）
+adb forward --remove tcp:6000
+adb forward tcp:6000 localfilesystem:/data/local/debugger-socket
+#    然后向 root actor 发 listTabs 拿到 webappsActor，向它发:
+#    { type: "close",   manifestURL: "app://bilibili.com/manifest.webapp" }   # 旧实例要先关, 否则手机上仍是旧代码
+#    { type: "install", appId: "bilibili.com", appType: 2 }                    # appType 2 = packaged
+#    { type: "launch",  manifestURL: "app://bilibili.com/manifest.webapp" }
+```
+
+要点：
+
+- **appId 就是 `manifest.webapp` 里 `origin` 的主机名**，它同时决定安装目录名和 `app://` 地址；改 origin 就等于换了个新应用（登录态不会跟着走）。
+- **设备调试 socket 同一时间只接受一个客户端**，别和 WebIDE 或另一个脚本同时连（后连的会被拒绝）。
+- **重装后一定要 close → install → launch** 一次，只 install 的话手机上跑的还是旧代码。
+- 安装脚本会打印权限等级（`systemXHR` 需要 `privileged` 及以上）、`installed` 状态和是否已在运行。
+- 应用数据（localStorage 里的登录态等）在重装后保留；`/data/local/tmp` 里的安装包重启后需要重新推送。
+
+### 查看真机日志
+
+KaiOS 没有 `am` / `input` / `screencap`，可用的通道是下面这些。
+
+**1）系统与平台日志（logcat）**
+
+```bash
+adb logcat -c                                  # 清空缓冲
+adb logcat | grep -E 'BrowserElement|FocusManager'   # 按键与焦点（调试 UI 最常用）
+adb logcat -s Gecko:V GeckoConsole:V            # 按 tag 过滤
+adb shell b2g-ps                                # 应用进程列表 (b2g 是 KaiOS 的浏览器进程, 不是 Android)
+```
+
+实测有用的几类行（示例为本机真实抓取）：
+
+```text
+# 按键是否真的送达应用、落在哪个元素上 (KaiOS 会打印 DOM key 名与焦点元素)
+Gecko   : [BrowserElement] event type: keydown, key: SoftLeft, target: [object HTMLDivElement], class: feed-card svelte-…
+Gecko   : [BrowserElement] event type: keydown, key: ArrowDown, target: [object HTMLIFrameElement], src: app://bilibili.com/index.html, id: browser9
+FocusManager: -> focus is now on, tag: DIV, id: , class: feed-card svelte-…
+# 输入法 (若 T9/内置键盘异常会看到这条, 说明 inputcontextfocus 无人处理)
+Gecko   : MozKeyboard.js: A frame with input-manage permission did not handle the inputcontextfocus event dispatched.
+# systemXHR 权限是否被使用
+       : XMLHttpRequest nsXMLHttpRequest::getPermission:0,type:0
+# 调试连接相关
+GeckoDump: XXX FIXME : Got a mozContentEvent: transport-closed
+```
+
+注意：`SoftLeft` / `SoftRight` / `Enter` / `ArrowUp` 等是 **DOM key 名**，不是 Linux 键码。
+
+**2）应用内日志（`console.*` 与未捕获异常）**
+
+**应用内的 `console.log/warn/error` 和未捕获异常不会进 logcat**（本机实测 0 条），
+要拿到它们得连设备调试协议的 console actor（WebIDE 的控制台走的是同一条路）：
+
+```bash
+node scripts/device-console.js                          # 跟踪 (Ctrl-C 退出)
+node scripts/device-console.js --once                   # 打印已缓存的消息后退出
+node scripts/device-console.js --eval 'location.hash'   # 在应用里执行一段 JS, 并打印返回值
+```
+
+输出形如：
+
+```text
+已连接 app://bilibili.com/manifest.webapp 的 console actor (appId 哔哩哔哩)，下面是应用内输出:
+[log] hello-from-eval #/profile 哔哩哔哩
+[eval] 返回: {"route":"#/profile","navables":6,"softkeys":"打开|登出"}
+```
+
+`--eval` 也能当“真机自检”用，比如查软键文案、焦点元素、标题是否被截断、图标是否渲染：
+
+```bash
+node scripts/device-console.js --once --eval 'JSON.stringify({
+  route: location.hash,
+  softkeys: document.querySelector(".softkey-bar").innerText.replace(/\s*\n\s*/g,"|"),
+  title: document.querySelector(".title") && getComputedStyle(document.querySelector(".title")).maxHeight
+})'
+```
+
+**3）按键注入与截图（自动化 UI 用）**
+
+- 按键：设备没有 `input` 命令，用 `sendevent` 直接写 `/dev/input/event1`（matrix_keypad）。
+  本机实测映射：`139`→`SoftLeft`、`158`→`SoftRight`、`352`→`Enter`、`103/108/105/106`→方向键、`14`→`Backspace`。
+  ```bash
+  adb shell "sendevent /dev/input/event1 1 108 1; sendevent /dev/input/event1 0 0 0; \
+            sendevent /dev/input/event1 1 108 0; sendevent /dev/input/event1 0 0 0"
+  ```
+- 截图：`screencap` 在 KaiOS 上不可用（没有 SurfaceFlinger），走调试协议的 `deviceActor.screenshotToDataURL`（返回 240×320 PNG dataURL），`install-device.js` 里那段协议客户端可以直接复用。
 
 ## 兼容性说明
 
