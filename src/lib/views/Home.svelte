@@ -1,12 +1,12 @@
 <script>
-  import { onMount, onDestroy } from "svelte";
+  import { onMount } from "svelte";
   import { isLogin } from "../stores/user.js";
   import FeedList from "../components/FeedList.svelte";
   import Loading from "../components/Loading.svelte";
   import EmptyState from "../components/EmptyState.svelte";
   import { loadFeed, loadMoreFeed, setIndex, queue } from "../stores/queue.js";
   import { navigate } from "../router/index.js";
-  import { onKey, offKey, moveFocus } from "../keyboard/index.js";
+  import { onKey, roam } from "../keyboard/index.js";
   import { setSoftkeys, showToast } from "../stores/ui.js";
 
   let items = [];
@@ -77,26 +77,17 @@
     load(true);
   }
 
-  // 滚动到末尾时加载更多
-  function onMoveFocus(delta) {
-    const moved = moveFocus(delta);
-    if (!moved && delta > 0) {
-      // 向下滚动到末尾, 加载下一页
-      loadMore();
-    }
-    return moved;
-  }
+  // 软键标签随登录状态变化 (登录/登出后立即更新, 不用重进页面)
+  // 左软键: 未登录=登录, 已登录=刷新; 右软键: 已登录=搜索; 中键: 已登录=打开
+  $: setSoftkeys($isLogin ? "刷新" : "登录", $isLogin ? "搜索" : "", $isLogin ? "打开" : "");
 
   onMount(() => {
-    // 左软键: 未登录=登录, 已登录=刷新; 右软键: 已登录=搜索
-    const leftLabel = $isLogin ? "刷新" : "登录";
-    const rightLabel = $isLogin ? "搜索" : "";
-    const centerLabel = $isLogin ? "打开" : "";
-    setSoftkeys(leftLabel, rightLabel, centerLabel);
     load();
-    onKey("home", {
-      ArrowDown: () => onMoveFocus(+1),
-      ArrowUp: () => onMoveFocus(-1),
+    // onKey() 返回注销函数, 直接作为 onMount 的返回值 → 组件销毁时自动注销
+    return onKey("home", {
+      // 向下漫游到列表末尾时加载下一页 (roam 的 onEdge 在"没能移动"时触发)
+      Down: () => roam(+1, () => loadMore()),
+      Up: () => roam(-1),
       SoftLeft: () => {
         if ($isLogin) {
           refresh();
@@ -112,14 +103,11 @@
       },
     });
   });
-
-  onDestroy(() => {
-    offKey("home");
-  });
 </script>
 
 <div class="screen">
-  <div class="main">
+  <!-- 方向键漫游区域: 焦点留在这个页面里 (FeedList 内部还有一层更近的 data-nav-root) -->
+  <div class="main" data-nav-root>
     {#if !$isLogin}
       <EmptyState message="登录后查看推荐" hint="按 左软键 登录" />
     {:else if loading && items.length === 0}

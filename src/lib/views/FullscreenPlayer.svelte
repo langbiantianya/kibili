@@ -3,6 +3,7 @@
   import { getVideoInfo, getPlayUrl, getDashUrls } from '../api/video.js';
   import { setSoftkeys } from '../stores/ui.js';
   import { settings } from '../stores/settings.js';
+  import { onKey } from '../keyboard/index.js';
 
   let videoSrc = '';
   let audioSrc = '';
@@ -19,7 +20,6 @@
   let playError = '';          // 播放失败提示 (视频解码/URL 失效时不再只显示黑屏)
 
   let normalPlaybackRate = 1.0; // 保存正常播放速度
-  let speedUpTimer = null;      // 长按右键倍速定时器
   let isSpeedUp = false;        // 是否正在倍速播放
 
   // 进度条相关
@@ -204,51 +204,6 @@
     }
   }
 
-  function handleKeyDown(e) {
-    switch (e.key) {
-      case 'Enter':
-      case 'SoftLeft':
-        e.preventDefault();
-        togglePlay();
-        break;
-      case 'ArrowUp':
-        e.preventDefault();
-        seek(-10);
-        break;
-      case 'ArrowDown':
-        e.preventDefault();
-        seek(10);
-        // 长按 ArrowDown 开始倍速
-        if (!speedUpTimer) {
-          speedUpTimer = setTimeout(() => {
-            startSpeedUp();
-          }, 400);
-        }
-        break;
-      case 'ArrowLeft':
-        e.preventDefault();
-        bumpVolume(-1);
-        break;
-      case 'ArrowRight':
-        e.preventDefault();
-        bumpVolume(1);
-        break;
-    }
-  }
-
-  function handleKeyUp(e) {
-    switch (e.key) {
-      case 'ArrowDown':
-        // 松开 ArrowDown，停止倍速
-        if (speedUpTimer) {
-          clearTimeout(speedUpTimer);
-          speedUpTimer = null;
-        }
-        stopSpeedUp();
-        break;
-    }
-  }
-
   // 将字符串拆分成单个字符数组
   function chars(s) {
     return s.split('');
@@ -260,16 +215,36 @@
     return m + ':' + (s < 10 ? '0' : '') + s;
   }
 
+  // ── 按键处理 ─────────────────────────────────────────────────────────
+  // 走按键总线的作用域, 不再自己挂 window 监听 (与 VideoPlayer 保持一致)。
+  // 方向键用 { press, long, release } 形式:
+  //   press   = 短按松手时触发
+  //   long    = 按住 400ms 后触发
+  //   release = 无论长短按, 松手时都会触发 (倍速靠它恢复)
+
   onMount(() => {
-    // 左软键 = 播放/暂停 (与 FullscreenPlayer 的 SoftLeft 处理一致), 右软键 = 返回
+    // 左软键 = 播放/暂停, 右软键 = 返回 (返回交给全局 app-back 兜底)
     setSoftkeys('播放/暂停', '返回', '');
     loadVideo();
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
+    return onKey('fullscreen-player', {
+      // 中键用 { press } 形式: 松手时触发一次, 按住不放不会连发
+      Enter: { press: () => togglePlay() },
+      SoftLeft: () => togglePlay(),
+      Up: () => seek(-10),
+      Down: {
+        // 短按 = 前进 10 秒; 长按 = 倍速播放 (长按时不再走短按的 seek)
+        press: () => seek(10),
+        long: () => startSpeedUp(),
+        release: () => stopSpeedUp(),
+        repeat: false,
+        threshold: 400
+      },
+      Left: () => bumpVolume(-1),
+      Right: () => bumpVolume(+1),
+      // 真机硬件音量键 (Nokia 6300 4G / 8000 4G 等)
+      VolumeUp: () => bumpVolume(+1),
+      VolumeDown: () => bumpVolume(-1)
+    }, { priority: 10 });
   });
 
   onDestroy(() => {

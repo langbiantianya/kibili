@@ -1,8 +1,8 @@
 <script>
-  import { onMount, onDestroy } from "svelte";
+  import { onMount } from "svelte";
   import { searchVideo } from "../api/user.js";
   import { navigate, getRouteParams } from "../router/index.js";
-  import { onKey, offKey, moveFocus } from "../keyboard/index.js";
+  import { onKey, roam } from "../keyboard/index.js";
   import { setSoftkeys, showToast } from "../stores/ui.js";
   import Loading from "../components/Loading.svelte";
   import LoadingMore from "../components/LoadingMore.svelte";
@@ -94,16 +94,6 @@
     navigate("/player?bvid=" + v.bvid);
   }
 
-  // 滚动到末尾时加载更多
-  function onMoveFocus(delta) {
-    const moved = moveFocus(delta);
-    if (!moved && delta > 0) {
-      // 向下滚动到末尾，加载下一页
-      loadMore();
-    }
-    return moved;
-  }
-
   onMount(() => {
     keyword = getKeywordFromUrl();
     if (keyword) {
@@ -114,20 +104,19 @@
     }
 
     setSoftkeys("刷新", "返回", "打开");
-    onKey("search-results", {
-      ArrowDown: () => onMoveFocus(+1),
-      ArrowUp: () => onMoveFocus(-1),
+    // onKey() 返回注销函数, 直接作为 onMount 的返回值 → 组件销毁时自动注销
+    return onKey("search-results", {
+      // 向下漫游到列表末尾时加载下一页 (roam 的 onEdge 在"没能移动"时触发)
+      Down: () => roam(+1, () => loadMore()),
+      Up: () => roam(-1),
       SoftLeft: () => doSearch(1)
     });
-  });
-
-  onDestroy(() => {
-    offKey("search-results");
   });
 </script>
 
 <div class="screen">
-  <div class="main">
+  <!-- 方向键漫游区域: 焦点留在这个页面里 (FeedList 内部还有一层更近的 data-nav-root) -->
+  <div class="main" data-nav-root>
     <!-- 搜索标题栏 -->
     <div class="search-header">
       <div class="search-keyword">{keyword || "搜索结果"}</div>

@@ -1,10 +1,10 @@
 <script>
-  import { onMount, onDestroy } from "svelte";
+  import { onMount } from "svelte";
   import { getFavFolders } from "../api/user.js";
   import { get } from "svelte/store";
   import { user, isLogin } from "../stores/user.js";
   import { navigate } from "../router/index.js";
-  import { onKey, offKey, moveFocus } from "../keyboard/index.js";
+  import { onKey, moveFocus } from "../keyboard/index.js";
   import { setSoftkeys, showToast } from "../stores/ui.js";
   import Loading from "../components/Loading.svelte";
   import EmptyState from "../components/EmptyState.svelte";
@@ -42,18 +42,16 @@
   onMount(() => {
     setSoftkeys($isLogin ? "刷新" : "登录", "返回", "打开");
     load();
-    onKey("favorites", {
-      ArrowDown: () => moveFocus(+1),
-      ArrowUp: () => moveFocus(-1),
+    // onKey() 返回自己的注销函数, 直接交给 onMount 的返回值 → 组件销毁时
+    // 只移除"本实例"注册的作用域 (同名实例之间不会互相踩)。
+    return onKey("favorites", {
+      Down: () => moveFocus(+1),
+      Up: () => moveFocus(-1),
       SoftLeft: () => {
         if ($isLogin) load();
         else navigate("/login");
       }
     });
-  });
-
-  onDestroy(() => {
-    offKey("favorites");
   });
 </script>
 
@@ -66,16 +64,14 @@
     {:else if folders.length === 0}
       <EmptyState message="暂无收藏夹" hint={$isLogin ? "" : "登录后查看"} />
     {:else}
-      <div class="folder-list scroll-y">
+      <!-- data-nav-root: 方向键只在本列表内漫游, 不跑到别的区域 -->
+      <div class="folder-list scroll-y" data-nav-root>
         {#each folders as f, i (f.id)}
           <div
             class="folder-item"
             data-navable
             tabindex="0"
             on:click={() => openFolder(f)}
-            on:keydown={(e) => {
-              if (e.key === "Enter") openFolder(f);
-            }}
           >
             <div class="title">{f.title}</div>
             <div class="meta">{f.media_count || 0} 个视频</div>

@@ -4,6 +4,7 @@
   export let index = 0;
   import { formatDuration, formatCount } from '../utils/format.js';
   import { biliImg } from '../utils/platform.js';
+  import { matchKey } from '../keyboard/keys.js';
   import { createEventDispatcher } from 'svelte';
   const dispatch = createEventDispatcher();
 
@@ -42,13 +43,10 @@
   tabindex="0"
   on:click={() => dispatch('play', video)}
   on:keydown={(e) => {
-    if (e.key === 'Enter') {
-      // 阻止冒泡: 否则 window 上的全局按键总线会再次激活同一张卡片 (重复导航)
-      e.stopPropagation();
-      dispatch('play', video);
-    }
-    // 阻止卡片上的方向键触发浏览器默认行为
-    if (['ArrowLeft', 'ArrowRight'].includes(e.key)) {
+    // 中键 (Enter) 激活交给按键总线统一处理 (activateFocused → el.click()),
+    // 这里不再自己处理, 否则会重复触发 on:click。
+    // 只保留方向键的默认行为拦截 (卡片所在容器 overflow-x:hidden, 但保险起见)
+    if (matchKey(e, 'Left') || matchKey(e, 'Right')) {
       e.preventDefault();
     }
   }}

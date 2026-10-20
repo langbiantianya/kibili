@@ -15,8 +15,16 @@
   function getPage(path) {
     // Remove query string if any
     const cleanPath = path.split('?')[0];
+    // 未知路径返回 null (而不是回退到 Home):
+    // MainLayout 同时是 App.svelte 的 "*" 兜底路由, 从主 Tab 跳到 /history 等二级页时,
+    // 路由还没卸载 MainLayout 而 $routerLocation 已更新, 若回退到 Home 就会在过渡帧里
+    // 多挂载一个 Home。
+    //
+    // (以前这里多挂载的 Home 会残留按键处理器, 导致右软键在二级页仍触发搜索;
+    //  现在按键作用域按实例注册/注销, 多挂载一个也不会互相干扰 ——
+    //  每个实例在 onDestroy 时只移除自己注册的那个作用域。)
     // @ts-ignore
-    return pages[cleanPath] || Home;
+    return pages[cleanPath] || null;
   }
 
   $: currentPage = getPage($routerLocation);

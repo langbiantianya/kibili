@@ -5,6 +5,7 @@
   import { formatCount, relativeTime } from '../utils/format.js';
   import { biliImg } from '../utils/platform.js';
   import { ui, setSoftkeys } from '../stores/ui.js';
+  import { matchKey } from '../keyboard/keys.js';
   import CommentReply from './CommentReply.svelte';
   import LoadingMore from './LoadingMore.svelte';
 
@@ -183,12 +184,20 @@
       <span class="empty-text">{commentsError || emptyMessage}</span>
     </div>
   {:else}
-    <div class="comment-list scroll-y">
+    <div class="comment-list scroll-y" data-nav-root>
       {#each comments as c (c.rpid)}
         {#each [subRepliesMap[c.rpid]] as sub}
           <div class="comment-item" data-navable tabindex="0" data-rpid={c.rpid}
                on:click={() => setReplyTarget(c)}
-               on:keydown={(e) => { if (e.key === 'Enter' && c.rcount > 0) loadSubReplies(c); }}>
+               on:keydown={(e) => {
+                 // 中键展开子评论; 这里自己处理了就 stopPropagation,
+                 // 否则按键总线的默认行为 (激活当前焦点) 会再点一次卡片
+                 if (matchKey(e, 'Enter') && c.rcount > 0) {
+                   e.stopPropagation();
+                   e.preventDefault();
+                   loadSubReplies(c);
+                 }
+               }}>
             <div class="comment-head">
               <img class="comment-face" src={biliImg(c.member.face, 32, 32)} alt="" />
               <span class="comment-name">{c.member.uname}</span>
@@ -236,7 +245,7 @@
       {:else if commentHasMore}
         <div class="load-more" data-navable tabindex="0"
              on:click={() => loadMore()}
-             on:keydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); loadMore(); } }}>
+             on:keydown={(e) => { if (matchKey(e, 'Enter')) { e.stopPropagation(); e.preventDefault(); loadMore(); } }}>
           加载更多评论
         </div>
       {:else if comments.length > 0}

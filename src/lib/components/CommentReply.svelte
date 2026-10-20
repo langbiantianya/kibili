@@ -1,6 +1,6 @@
 <script>
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
-  import { markHandledKey } from '../keyboard/modalkeys.js';
+  import { openModalScope } from '../keyboard/modalkeys.js';
 
   export let placeholder = '写评论...';
   export let disabled = false;
@@ -13,23 +13,82 @@
   let wrapper;
   let isOpen = false;
 
+  /** 模态按键作用域的关闭函数 */
+  let closeScope = null;
+
+  /** 打开前有焦点的元素 (关闭后还回去) */
+  let prevFocus = null;
+
   /** 打开全屏输入 */
   export function open() {
+    if (isOpen) return;
     isOpen = true;
     document.body.classList.add('reply-modal-open');
-    // 用 window 捕获阶段监听: 回复框打开时独占按键 (不依赖 textarea 是否拿到焦点)
-    window.addEventListener('keydown', onKeydown, true);
+    prevFocus = document.activeElement;
+
+    // 模态独占: 打开期间只有回复框能响应按键。
+    // 与旧实现的关键区别 —— 旧实现用 window 捕获阶段 + stopImmediatePropagation(),
+    // 那会让 keydown 根本到不了 textarea, 退格键删不掉字;
+    // 现在用 exclusive scope, 回复框没声明的按键照常传给输入框。
+    closeScope = openModalScope('reply', {
+      // 退格: 输入框为空时关闭 (非空时返回 false → 不拦截, 让 textarea 正常删字)
+      Back: () => {
+        if (!value || value.trim() === '') {
+          close();
+          return true;
+        }
+        return false;
+      },
+      // 挂断键 / Smart Touch 返回键: 官方语义就是"结束当前操作", 直接关闭回复框
+      EndCall: () => {
+        close();
+        return true;
+      },
+      GoBack: () => {
+        close();
+        return true;
+      },
+      // 左软键: 取消并关闭
+      SoftLeft: () => {
+        close();
+        return true;
+      },
+      // 右软键 / 中键: 发送 (Shift+Enter 保留换行)
+      SoftRight: () => {
+        send();
+        return true;
+      },
+      Enter: (e) => {
+        if (e && e.shiftKey) return false; // Shift+Enter 换行
+        send();
+        return true;
+      }
+    });
+
     // 延迟聚焦，确保 DOM 已更新
     setTimeout(() => {
       if (textarea) textarea.focus();
     }, 50);
   }
 
+  /** 发送评论 */
+  function send() {
+    if (value && value.trim()) {
+      dispatch('send', value.trim());
+    }
+  }
+
   /** 关闭并清理 */
   export function close() {
+    if (!isOpen) return;
     isOpen = false;
-    window.removeEventListener('keydown', onKeydown, true);
+    if (closeScope) {
+      closeScope();
+      closeScope = null;
+    }
     document.body.classList.remove('reply-modal-open');
+    // 把焦点还给打开回复框之前的元素
+    restoreFocus();
     dispatch('close');
   }
 
@@ -39,70 +98,6 @@
 
   export function focus() {
     if (textarea) textarea.focus();
-  }
-
-  /** 处理所有按键事件，阻止冒泡 */
-  function onKeydown(e) {
-    // 阻止所有按键事件向外传递; 必须用 stopImmediatePropagation:
-    // 播放器等组件的按键监听也挂在 window 上, stopPropagation 不会拦住同一节点上的其它监听
-    e.stopImmediatePropagation();
-    // 通知全局守卫: 本次按键已由回复框处理, 随后的 keyup 也要吞掉
-    markHandledKey();
-
-    // Backspace：如果输入框为空，关闭组件
-    if (e.key === 'Backspace' || e.key === 'Back') {
-      if (!value || value.trim() === '') {
-        e.preventDefault();
-        close();
-        return;
-      }
-    }
-
-    // SoftLeft（左软键）：取消并关闭回复框
-    if (e.key === 'SoftLeft') {
-      e.preventDefault();
-      close();
-      return;
-    }
-
-    // SoftRight（右软键）/ Enter：发送评论（Shift+Enter 换行保留 textarea 默认行为）
-    if (e.key === 'SoftRight' || (e.key === 'Enter' && !e.shiftKey)) {
-      e.preventDefault();
-      if (value && value.trim()) {
-        dispatch('send', value.trim());
-      }
-      return;
-    }
-
-    // 拦截方向键，仅在光标位于边界时阻止事件传递（用于 textarea 内导航）
-    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-      const el = /** @type {HTMLTextAreaElement} */ (e.target);
-      const selStart = el.selectionStart || 0;
-      const selEnd = el.selectionEnd || 0;
-      const text = el.value;
-
-      let atBoundary = false;
-
-      if (e.key === 'ArrowUp') {
-        // 光标在第一行
-        const before = text.slice(0, selStart);
-        atBoundary = !before.includes('\n');
-      } else if (e.key === 'ArrowDown') {
-        // 光标在最后一行
-        const after = text.slice(selEnd);
-        atBoundary = !after.includes('\n');
-      } else if (e.key === 'ArrowLeft') {
-        // 光标在文本开头
-        atBoundary = selStart === 0;
-      } else if (e.key === 'ArrowRight') {
-        // 光标在文本末尾
-        atBoundary = selEnd >= text.length;
-      }
-
-      if (atBoundary) {
-        e.preventDefault();
-      }
-    }
   }
 
   /** 点击遮罩层关闭 */
@@ -118,9 +113,22 @@
   });
 
   onDestroy(() => {
-    window.removeEventListener('keydown', onKeydown, true);
+    if (closeScope) {
+      closeScope();
+      closeScope = null;
+    }
     document.body.classList.remove('reply-modal-open');
+    // 发送成功后组件是直接被销毁的 (没走 close()), 这里补一次焦点归还
+    restoreFocus();
   });
+
+  /** 把焦点还给打开回复框之前的元素 */
+  function restoreFocus() {
+    if (prevFocus && prevFocus.focus && document.contains(prevFocus)) {
+      prevFocus.focus();
+    }
+    prevFocus = null;
+  }
 </script>
 
 {#if isOpen}
@@ -161,7 +169,6 @@
             value = e.target.value;
             dispatch('input', value);
           }}
-          on:keyup={(/** @type {any} */ e) => e.stopPropagation()}
           on:keypress={(/** @type {any} */ e) => e.stopPropagation()}
         />
       </div>

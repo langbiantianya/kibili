@@ -1,6 +1,6 @@
 <script>
-  import { onMount, onDestroy } from "svelte";
-  import { onKey, offKey, moveFocus } from "../keyboard/index.js";
+  import { onMount } from "svelte";
+  import { onKey, moveFocus } from "../keyboard/index.js";
   import { setSoftkeys } from "../stores/ui.js";
 
   const version = "0.0.1a";
@@ -31,19 +31,18 @@
 
   onMount(() => {
     setSoftkeys("", "返回");
-    onKey("about", {
-      ArrowDown: () => moveFocus(+1),
-      ArrowUp: () => moveFocus(-1)
+    // onKey() 返回自己的注销函数, 直接交给 onMount 的返回值 → 组件销毁时
+    // 只移除"本实例"注册的作用域 (同名实例之间不会互相踩)。
+    return onKey("about", {
+      Down: () => moveFocus(+1),
+      Up: () => moveFocus(-1)
     });
-  });
-
-  onDestroy(() => {
-    offKey("about");
   });
 </script>
 
 <div class="screen">
-  <div class="main scroll-y">
+  <!-- data-nav-root: 方向键只在本页内容区内漫游 (链接列表 + 致谢列表) -->
+  <div class="main scroll-y" data-nav-root>
     <!-- 头部信息 -->
     <div class="hero">
       <div class="logo-wrap">
@@ -68,7 +67,6 @@
           tabindex="0"
           role="button"
           on:click={() => openUrl(l.url)}
-          on:keydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); openUrl(l.url); } }}
         >
           <span class="link-icon">{l.icon}</span>
           <span class="link-label">{l.label}</span>
@@ -87,7 +85,6 @@
           tabindex="0"
           role="button"
           on:click={() => openUrl(d.url)}
-          on:keydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); openUrl(d.url); } }}
         >
           <span class="dep-name">{d.name}</span>
           <span class="dep-desc">{d.desc}</span>

@@ -1,10 +1,10 @@
 <script>
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount } from 'svelte';
   import { isLogin, user } from '../stores/user.js';
   import { getDynamicNew, getDynamicHistory, getDynamicAll, extractArchive, extractAuthor } from '../api/dynamic.js';
   import { queue } from '../stores/queue.js';
   import { navigate } from '../router/index.js';
-  import { onKey, offKey, moveFocus } from '../keyboard/index.js';
+  import { onKey, roam } from '../keyboard/index.js';
   import { setSoftkeys, showToast } from '../stores/ui.js';
   import TabBar from '../components/TabBar.svelte';
   import FeedList from '../components/FeedList.svelte';
@@ -119,17 +119,6 @@
       dynLoading = false;
       dynLoadingMore = false;
     }
-  }
-
-  // 滚动到末尾时加载更多
-  function onMoveFocus(delta) {
-    const moved = moveFocus(delta);
-    if (!moved && delta > 0) {
-      // 向下滚动到末尾, 加载下一页
-      if (activeTab === 0) loadVideos(true);
-      else loadDynamics(true);
-    }
-    return moved;
   }
 
   // 解析 card JSON 字符串
@@ -248,14 +237,21 @@
     if (i === 1 && dynamics.length === 0 && !dynLoading) loadDynamics();
   }
 
+  // 软键标签随登录状态变化 (登录/登出后立即更新, 不用重进页面)
+  // 左软键: 未登录=登录, 已登录=刷新; 右软键: 切Tab
+  $: setSoftkeys($isLogin ? '刷新' : '登录', '切Tab');
+
   onMount(() => {
-    // 左软键: 未登录=登录, 已登录=刷新; 右软键: 切换 Tab
-    const leftLabel = $isLogin ? '刷新' : '登录';
-    const rightLabel = '切Tab';
-    setSoftkeys(leftLabel, rightLabel);
-    onKey('following', {
-      ArrowDown: () => onMoveFocus(+1),
-      ArrowUp: () => onMoveFocus(-1),
+    // 默认加载第一个 Tab
+    changeTab(0);
+    // onKey() 返回注销函数, 直接作为 onMount 的返回值 → 组件销毁时自动注销
+    return onKey('following', {
+      // 向下漫游到列表末尾时加载下一页 (roam 的 onEdge 在"没能移动"时触发)
+      Down: () => roam(+1, () => {
+        if (activeTab === 0) loadVideos(true);
+        else loadDynamics(true);
+      }),
+      Up: () => roam(-1),
       SoftLeft: () => {
         if ($isLogin) {
           // 已登录: 刷新当前 Tab
@@ -267,14 +263,14 @@
         }
       },
       SoftRight: () => changeTab(activeTab === 0 ? 1 : 0),
-      '0': () => activeTab === 0 ? loadVideos() : loadDynamics(),
+      // 数字键 0: 重新加载当前 Tab
+      // (loadVideos/loadDynamics 是往数组尾部追加的, 必须先清空分页状态再加载,
+      //  否则整个列表会被追加一份重复的)
+      '0': () => {
+        if (activeTab === 0) { videos = []; videoOffset = ''; videoHasMore = true; loadVideos(); }
+        else { dynamics = []; dynOffset = ''; dynHasMore = true; loadDynamics(); }
+      },
     });
-    // 默认加载第一个 Tab
-    changeTab(0);
-  });
-
-  onDestroy(() => {
-    offKey('following');
   });
 </script>
 
@@ -300,12 +296,12 @@
       {:else if dynamics.length === 0}
         <EmptyState message="暂无动态" />
       {:else}
-        <div class="dyn-list scroll-y">
+        <div class="dyn-list scroll-y" data-nav-root>
           {#each dynamics as d (d.id_str)}
             {#each [dynVideo(d)] as v}
+              <!-- 中键由框架默认行为触发 (activateFocused → click), 不再单独监听 keydown -->
               <div class="dyn-item" data-navable tabindex="0"
-                   on:click={() => openDynamicDetail(d)}
-                   on:keydown={(e) => { if (e.key === 'Enter') openDynamicDetail(d); }}>
+                   on:click={() => openDynamicDetail(d)}>
                 <div class="head">
                   <img class="face" src={dynFace(d)} alt="" />
                   <span class="name">{dynAuthor(d)}</span>

@@ -1,8 +1,8 @@
 <script>
-  import { onMount, onDestroy } from "svelte";
+  import { onMount } from "svelte";
   import { loadFolder } from "../stores/queue.js";
   import { navigate, getRouteParams } from "../router/index.js";
-  import { onKey, offKey, moveFocus } from "../keyboard/index.js";
+  import { onKey, moveFocus } from "../keyboard/index.js";
   import { setSoftkeys } from "../stores/ui.js";
   import FeedList from "../components/FeedList.svelte";
   import Loading from "../components/Loading.svelte";
@@ -46,15 +46,13 @@
   onMount(() => {
     setSoftkeys("刷新", "返回", "播放");
     load();
-    onKey("folder", {
-      ArrowDown: () => moveFocus(+1),
-      ArrowUp: () => moveFocus(-1),
+    // onKey() 返回自己的注销函数, 直接交给 onMount 的返回值 → 组件销毁时
+    // 只移除"本实例"注册的作用域 (同名实例之间不会互相踩)。
+    return onKey("folder", {
+      Down: () => moveFocus(+1),
+      Up: () => moveFocus(-1),
       SoftLeft: () => load()
     });
-  });
-
-  onDestroy(() => {
-    offKey("folder");
   });
 </script>
 

@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node scripts/dev-server.js",
     "build": "rimraf dist build && rollup -c",
-    "preview": "node scripts/dev-server.js"
+    "preview": "node scripts/dev-server.js",
+    "test": "node scripts/test-keyboard.js"
   },
   "dependencies": {
     "core-js": "^3.35.0",

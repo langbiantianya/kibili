@@ -1,6 +1,6 @@
 <script>
-  import { onMount, onDestroy } from 'svelte';
-  import { onKey, offKey, moveFocus } from '../keyboard/index.js';
+  import { onMount } from 'svelte';
+  import { onKey, moveFocus } from '../keyboard/index.js';
   import { setSoftkeys } from '../stores/ui.js';
   import Loading from '../components/Loading.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -208,26 +208,27 @@
   }
 
   onMount(() => {
-    // 初始软键设置
-    setSoftkeys('评论', '返回');
     loadDetail();
-    onKey('dynamic-detail', {
-      ArrowDown: () => {
+    // onKey() 返回自己的注销函数, 直接交给 onMount 的返回值 → 组件销毁时
+    // 只移除"本实例"注册的作用域 (同名实例之间不会互相踩)
+    // 按键名用规范名: Up / Down / Left / Right
+    return onKey('dynamic-detail', {
+      Down: () => {
         if (activeTab === 0) scrollDetail(+1);
         else {
           const moved = moveFocus(+1);
           if (!moved) scrollComments(+1);
         }
       },
-      ArrowUp: () => {
+      Up: () => {
         if (activeTab === 0) scrollDetail(-1);
         else {
           const moved = moveFocus(-1);
           if (!moved) scrollComments(-1);
         }
       },
-      ArrowLeft: () => { if (activeTab > 0) changeTab(activeTab - 1); },
-      ArrowRight: () => { if (activeTab < tabs.length - 1) changeTab(activeTab + 1); },
+      Left: () => { if (activeTab > 0) changeTab(activeTab - 1); },
+      Right: () => { if (activeTab < tabs.length - 1) changeTab(activeTab + 1); },
       SoftLeft: () => {
         // 详情 tab: 切到评论; 评论 tab: 回复
         if (activeTab === 0) {
@@ -238,10 +239,6 @@
       },
       '0': () => changeTab(activeTab === 0 ? 1 : 0),
     });
-  });
-
-  onDestroy(() => {
-    offKey('dynamic-detail');
   });
 
   // 回复当前聚焦的评论 (未聚焦时回复动态本身)
@@ -258,7 +255,9 @@
     if (commentSectionRef) commentSectionRef.openReply();
   }
 
-  // 当切换 tab 时更新软键: 左=评论/回复, 右=返回 (本机右软键即返回键)
+  // 软键是唯一来源: 切 tab 时更新 (左=评论/回复, 右=返回, 本机右软键即返回键)
+  // 初始 activeTab = 0, 这段响应式语句在首次渲染时就会跑, 所以 onMount 里
+  // 不再重复设置一遍软键, 避免两处设置互相覆盖。
   $: if (activeTab === 0) {
     setSoftkeys('评论', '返回');
   } else {
@@ -299,7 +298,7 @@
       {:else if detailError}
         <EmptyState message={detailError} />
       {:else if detail}
-        <div class="detail-content scroll-y">
+        <div class="detail-content scroll-y" data-nav-root>
           <!-- 作者信息 -->
           <div class="author-row">
             {#if detail.author.face}
@@ -320,8 +319,7 @@
           {#if detail.archive}
             {#if detail.archive.type === 'video'}
               <div class="archive-card" data-navable tabindex="0"
-                   on:click={() => openArchiveVideo()}
-                   on:keydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); openArchiveVideo(); } }}>
+                   on:click={() => openArchiveVideo()}>
                 <img class="archive-cover" src={biliImg(detail.archive.cover, 120, 80)} alt="" />
                 <div class="archive-info">
                   <div class="archive-title">{detail.archive.title}</div>

@@ -2,7 +2,7 @@
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { releaseWakeLock } from './wake.js';
   import { settings } from '../stores/settings.js';
-  import { moveFocus } from '../keyboard/index.js';
+  import { moveFocus, onKey } from '../keyboard/index.js';
   import { addReply, reportProgress, getSubReplies } from '../api/interact.js';
   import { showToast } from '../stores/ui.js';
   import { formatCount } from '../utils/format.js';
@@ -60,12 +60,9 @@
   let reportTimer = null;
   let lastReportedTime = 0;
 
-  // 长按检测
-  const LONG_PRESS_MS = 400; // 长按阈值
+  // 长按检测 (由按键总线统一实现, 这里只保留阈值参数)
+  const LONG_PRESS_MS = 400;   // 长按阈值
   const REPEAT_INTERVAL = 1000; // 长按重复触发间隔 (1秒)
-  let keyTimers = {}; // 存储按键定时器
-  let longPressed = {}; // 标记是否已触发长按
-  let repeatTimers = {}; // 存储重复触发定时器
 
   // Tab 切换状态
   const tabs = [
@@ -392,52 +389,98 @@
     }
   }
 
-  // 长按检测: 开始
-  /** @param {string} key */
-  function startLongPress(key, /** @type {() => void} */ longAction) {
-    longPressed[key] = false;
-    keyTimers[key] = setTimeout(() => {
-      longPressed[key] = true;
-      // 首次执行长按动作
-      longAction();
-      // 设置重复触发定时器 (每隔1秒)
-      repeatTimers[key] = setInterval(() => {
-        longAction();
-      }, REPEAT_INTERVAL);
-    }, LONG_PRESS_MS);
+  // ── 按键处理 ─────────────────────────────────────────────────────────
+  // 全部交给按键总线 (lib/keyboard/index.js) 的作用域处理, 不再自己挂
+  // window 监听。好处:
+  //   - 和页面级按键走同一套分发, 不会再出现"页面在 keydown 处理、播放器在
+  //     keyup 处理"导致同一次按键被响应两遍
+  //   - 长按状态由总线统一维护, keydown/keyup 的键名归一化后一致,
+  //     不会出现"keyup 没匹配上 keydown 的键名"导致定时器泄漏
+  //
+  // 方向键用 { press, long } 形式: press = 短按 (松手时触发),
+  // long = 长按 (按住 400ms 后触发, 之后每秒重复)。
+
+  // 短按方向键: 详情页滚动 / 评论页在评论之间移动
+  /** @param {number} delta */
+  function shortArrow(delta) {
+    if (activeTab === 0) {
+      scrollContent(delta);
+    } else {
+      const moved = moveFocus(delta);
+      if (!moved) scrollContent(delta);
+    }
   }
 
-  // 长按检测: 结束
-  /** @param {string} key */
-  function endLongPress(key, /** @type {() => void} */ shortAction) {
-    if (keyTimers[key]) {
-      clearTimeout(keyTimers[key]);
-      delete keyTimers[key];
-    }
-    // 清除重复触发定时器
-    if (repeatTimers[key]) {
-      clearInterval(repeatTimers[key]);
-      delete repeatTimers[key];
-    }
-    // 如果没有触发长按，执行短按
-    if (!longPressed[key]) {
-      shortAction();
-    }
-    delete longPressed[key];
-  }
-
-  // 清除所有长按定时器
-  function clearAllTimers() {
-    Object.keys(keyTimers).forEach(k => {
-      if (keyTimers[k]) clearTimeout(keyTimers[k]);
-    });
-    Object.keys(repeatTimers).forEach(k => {
-      if (repeatTimers[k]) clearInterval(repeatTimers[k]);
-    });
-    keyTimers = {};
-    longPressed = {};
-    repeatTimers = {};
-  }
+  onMount(() => {
+    return onKey('video-player', {
+      Up: {
+        press: () => shortArrow(-1),
+        long: () => bumpVolume(1),
+        threshold: LONG_PRESS_MS,
+        repeat: REPEAT_INTERVAL
+      },
+      Down: {
+        press: () => shortArrow(+1),
+        long: () => bumpVolume(-1),
+        threshold: LONG_PRESS_MS,
+        repeat: REPEAT_INTERVAL
+      },
+      Left: {
+        press: () => { if (activeTab > 0) changeTab(activeTab - 1); },
+        long: () => seek(-5),
+        threshold: LONG_PRESS_MS,
+        repeat: REPEAT_INTERVAL
+      },
+      Right: {
+        press: () => { if (activeTab < tabs.length - 1) changeTab(activeTab + 1); },
+        long: () => seek(5),
+        threshold: LONG_PRESS_MS,
+        repeat: REPEAT_INTERVAL
+      },
+      // 中键用 { press } 形式: 松手时触发一次。
+      // 不能用普通函数 —— 按住不放会连发 keydown (e.repeat), 播放/暂停会被反复触发;
+      // 而且 KaiOS 上长按中键会触发 MicrophoneToggle (语音助手), 动作重复一次就够。
+      Enter: {
+        press: () => {
+          // 只有在评论区且聚焦在某条评论上时，才展开子评论，否则播放/暂停
+          if (activeTab === 1) {
+            const focused = document.querySelector('.comment-item:focus, .sub-item:focus');
+            if (focused) {
+              const rpid = Number(focused.dataset.rpid);
+              const rootComment = replies.find(c => c.rpid === rpid);
+              if (rootComment && rootComment.rcount > 0) {
+                loadSubReplies(rootComment);
+              }
+            } else {
+              togglePlay();
+            }
+          } else {
+            togglePlay();
+          }
+        }
+      },
+      // 真机上真的有音量键的机型 (Nokia 6300 4G / 8000 4G / 225 4G 等):
+      // 硬件音量键 → 和长按 ↑↓ 一样调音量 (KaiOS 侧走 navigator.volumeManager)
+      VolumeUp: () => bumpVolume(1),
+      VolumeDown: () => bumpVolume(-1),
+      // 静音键
+      Mute: () => {
+        settings.update(s => ({ ...s, muted: !s.muted }));
+        showVolSlider = true;
+        if (volTimer) clearTimeout(volTimer);
+        volTimer = setTimeout(() => showVolSlider = false, 1500);
+      },
+      SoftLeft: () => {
+        // 评论 tab: 回复评论; 详情 tab: 全屏
+        if (activeTab === 1) {
+          replyToFocusedComment();
+        } else {
+          toggleFullscreen();
+        }
+      }
+      // SoftRight 不声明: 交给全局 app-back 兜底 (右软键 = 返回, 退出播放器)
+    }, { priority: 10 });
+  });
 
   function fmt(t) {
     if (!t || isNaN(t)) return '0:00';
@@ -459,136 +502,6 @@
     const d = new Date(ts * 1000);
     return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
   }
-
-  onMount(() => {
-    // 使用原生 keydown/keyup 实现长按/短按区分
-    const onKeyDown = (e) => {
-      const key = e.key;
-      if (keyTimers[key]) return; // 已经在长按中
-
-      switch (key) {
-        case 'ArrowUp':
-          e.preventDefault();
-          startLongPress(key, () => {
-            // 长按: 持续增加系统音量 (KaiOS 音量级别 +1)
-            bumpVolume(1);
-          });
-          break;
-        case 'ArrowDown':
-          e.preventDefault();
-          startLongPress(key, () => {
-            // 长按: 持续降低系统音量 (KaiOS 音量级别 -1)
-            bumpVolume(-1);
-          });
-          break;
-        case 'ArrowLeft':
-          e.preventDefault();
-          startLongPress(key, () => {
-            // 长按: 持续后退
-            seek(-5);
-          });
-          break;
-        case 'ArrowRight':
-          e.preventDefault();
-          startLongPress(key, () => {
-            // 长按: 持续前进
-            seek(5);
-          });
-          break;
-      }
-    };
-
-    const onKeyUp = (e) => {
-      const key = e.key;
-      // Enter / 软键是瞬时动作 (keydown 里没有注册长按定时器), 直接进入下面处理;
-      // 其余按键只有按下时注册过长按才需要在 keyup 收尾
-      if (key !== 'Enter' && key !== 'SoftLeft' && key !== 'SoftRight' &&
-          !keyTimers[key] && !longPressed[key]) {
-        return;
-      }
-
-      switch (key) {
-        case 'ArrowUp':
-          e.preventDefault();
-          endLongPress(key, () => {
-            // 短按: 详情页向上滚动 / 评论页聚焦上一条
-            if (activeTab === 0) {
-              scrollContent(-1);
-            } else {
-              const moved = moveFocus(-1);
-              if (!moved) scrollContent(-1);
-            }
-          });
-          break;
-        case 'ArrowDown':
-          e.preventDefault();
-          endLongPress(key, () => {
-            // 短按: 详情页向下滚动 / 评论页聚焦下一条
-            if (activeTab === 0) {
-              scrollContent(+1);
-            } else {
-              const moved = moveFocus(+1);
-              if (!moved) scrollContent(+1);
-            }
-          });
-          break;
-        case 'ArrowLeft':
-          e.preventDefault();
-          endLongPress(key, () => {
-            // 短按: 切换到上一个 tab
-            if (activeTab > 0) changeTab(activeTab - 1);
-          });
-          break;
-        case 'ArrowRight':
-          e.preventDefault();
-          endLongPress(key, () => {
-            // 短按: 切换到下一个 tab
-            if (activeTab < tabs.length - 1) changeTab(activeTab + 1);
-          });
-          break;
-        case 'Enter':
-          e.preventDefault();
-          // 只有在评论区且聚焦在某条评论上时，才展开子评论，否则播放/暂停
-          if (activeTab === 1) {
-            const focused = document.querySelector('.comment-item:focus, .sub-item:focus');
-            if (focused) {
-              const rpid = Number(focused.dataset.rpid);
-              const rootComment = replies.find(c => c.rpid === rpid);
-              if (rootComment && rootComment.rcount > 0) {
-                loadSubReplies(rootComment);
-              }
-            } else {
-              togglePlay();
-            }
-          } else {
-            togglePlay();
-          }
-          break;
-        case 'SoftLeft':
-          e.preventDefault();
-          // 评论 tab: 回复评论; 详情 tab: 全屏
-          if (activeTab === 1) {
-            replyToFocusedComment();
-          } else {
-            toggleFullscreen();
-          }
-          break;
-        case 'SoftRight':
-          // 不处理: 交给全局 app-back 兜底 (右软键 = 返回, 退出播放器)
-          break;
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('keyup', onKeyUp);
-
-    // 返回清理函数
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('keyup', onKeyUp);
-      clearAllTimers();
-    };
-  });
 
   onDestroy(() => {
     // 组件销毁时停止上报并上报最终进度
@@ -701,7 +614,7 @@
   <div class="content-area">
     {#if activeTab === 0}
       <!-- 视频详情 Tab -->
-      <div class="detail-scroll">
+      <div class="detail-scroll" data-nav-root>
         {#if meta}
           <!-- 视频标题 -->
           <div class="detail-section">
@@ -769,7 +682,7 @@
       </div>
     {:else}
       <!-- 评论区 Tab -->
-      <div class="comment-scroll">
+      <div class="comment-scroll" data-nav-root>
         <CommentSection
           bind:this={commentSectionRef}
           comments={replies}

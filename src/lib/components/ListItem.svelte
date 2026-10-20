@@ -11,7 +11,6 @@
   data-navable
   tabindex="0"
   on:click={() => dispatch('activate', item)}
-  on:keydown={(e) => { if (e.key === 'Enter') dispatch('activate', item); }}
 >
   <div class="index">{index + 1}</div>
   <div class="content">

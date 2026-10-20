@@ -1,6 +1,6 @@
 <script>
-  import { onMount, onDestroy } from "svelte";
-  import { onKey, offKey, moveFocus } from "../keyboard/index.js";
+  import { onMount } from "svelte";
+  import { onKey, moveFocus } from "../keyboard/index.js";
   import { setSoftkeys, showToast } from "../stores/ui.js";
   import { settings } from "../stores/settings.js";
 
@@ -28,23 +28,23 @@
 
   onMount(() => {
     setSoftkeys("", "返回");
-    onKey("settings", {
-      ArrowDown: () => moveFocus(+1),
-      ArrowUp: () => moveFocus(-1)
+    // onKey() 返回自己的注销函数, 直接交给 onMount 的返回值 → 组件销毁时
+    // 只移除"本实例"注册的作用域 (同名实例之间不会互相踩)。
+    return onKey("settings", {
+      Down: () => moveFocus(+1),
+      Up: () => moveFocus(-1)
     });
-  });
-
-  onDestroy(() => {
-    offKey("settings");
   });
 </script>
 
 <div class="screen">
-  <div class="main scroll-y">
+  <!-- data-nav-root: 方向键只在本页设置区内漫游 (菜单项 + 展开的分辨率选项) -->
+  <div class="main scroll-y" data-nav-root>
     <div class="settings-title">设置</div>
     <div class="menu">
       <!-- 全屏默认分辨率 -->
-      <div class="menu-item" data-navable tabindex="0" on:click={toggleDropdown} on:keydown={(e) => { if (e.key === 'Enter') toggleDropdown(); }}>
+      <!-- 中键 (Enter) 交给按键总线: 框架默认 click 当前焦点元素 → toggleDropdown -->
+      <div class="menu-item" data-navable tabindex="0" on:click={toggleDropdown}>
         <span class="label">全屏默认分辨率</span>
         <span class="value">{qualityOptions.find(q => q.value === selectedQuality)?.label || '360P'}</span>
       </div>
@@ -57,7 +57,6 @@
               data-navable
               tabindex="0"
               on:click={() => selectQuality(option)}
-              on:keydown={(e) => { if (e.key === 'Enter') selectQuality(option); }}
             >
               <span class="dropdown-label">{option.label}</span>
               {#if option.value === selectedQuality}

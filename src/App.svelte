@@ -1,10 +1,9 @@
 <script>
-  import Router from "svelte-spa-router";
+  import Router, { location as routerLocation, replace } from "svelte-spa-router";
   import { onMount } from "svelte";
   import { isLogin, hydrateFromNav } from "./lib/stores/user.js";
   import { refreshWbiKeys } from "./lib/api/wbi.js";
   import { request } from "./lib/api/bili.js";
-  import { back } from "./lib/router/index.js";
   import SoftkeyBar from "./lib/components/SoftkeyBar.svelte";
   import Toast from "./lib/components/Toast.svelte";
 
@@ -40,41 +39,9 @@
     "*": MainLayout, // fallback
   };
 
-  // 全局键位
-  function onGlobalKey(e) {
-    // 返回键返回上一级路由
-    if (e.key === "Backspace" || e.key === "BrowserBack" || e.key === "Back") {
-      // 1. 获取当前页面上获得焦点的元素
-      const activeElement = document.activeElement;
-
-      // 2. 检查该元素是否是输入框
-      const isInput =
-        activeElement &&
-        (activeElement.tagName === "INPUT" ||
-          activeElement.tagName === "TEXTAREA" ||
-          activeElement.isContentEditable); // 兼容富文本编辑框
-
-      if (isInput) {
-        // 如果在输入框内，直接 return，不调用 preventDefault()
-        // 这样系统就会执行默认的“删除文字”功能
-        return;
-      }
-
-      // 3. 在 /home /following /profile 这三个主页面不拦截返回键
-      //    让系统默认行为生效（通常是退出应用）
-      const currentPath = location.hash.replace("#", "").split("?")[0] || "/home";
-      const topLevelRoutes = ["/home", "/following", "/profile"];
-      if (topLevelRoutes.includes(currentPath)) {
-        return;
-      }
-
-      e.preventDefault();
-      back();
-    }
-    // Send/End/Escape 键不拦截
-    if (e.key === "BrowserStop" || e.keyCode === 413 || e.key === "Escape")
-      return;
-  }
+  // 返回键统一由 lib/keyboard/index.js 的全局 app-back 作用域处理
+  // (SoftRight / Back 两个键都归一化后走同一处, 顶层路由不拦截)
+  // 这里不再单独监听 keydown, 避免同一个按键被处理两遍。
 
   onMount(() => {
     // 启动时预加载 WBI keys (即使未登录也需要, B站多数接口强制 WBI 签名)
@@ -88,10 +55,18 @@
       hydrateFromNav();
     }
 
-    window.addEventListener("keydown", onGlobalKey);
+    // 未匹配到路由的路径 (含冷启动的 "#/" 与无 hash 的裸 URL) 重定向到首页。
+    // 兜底路由 "*" 指向 MainLayout, 但 MainLayout 只渲染它自己的三个主 Tab 页面;
+    // 若让它把未知路径渲染成 Home, 从主 Tab 过渡到二级页 (/history 等) 的那一帧会多挂载一个
+    // Home (MainLayout.getPage 返回 null 避免了这一点, 这里只是双保险)。
+    const knownPaths = Object.keys(routes).filter(p => p !== "*");
+    const unsubLocation = routerLocation.subscribe(loc => {
+      const path = loc || "/";
+      if (knownPaths.indexOf(path) < 0) replace("/home");
+    });
 
     return () => {
-      window.removeEventListener("keydown", onGlobalKey);
+      unsubLocation();
     };
   });
 </script>

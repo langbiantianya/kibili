@@ -4,7 +4,7 @@
   import { webLogin } from '../stores/user.js';
   import { getNav } from '../api/user.js';
   import { navigate } from '../router/index.js';
-  import { onKey, offKey } from '../keyboard/index.js';
+  import { onKey } from '../keyboard/index.js';
   import { setSoftkeys, showToast } from '../stores/ui.js';
   import Loading from '../components/Loading.svelte';
   import QRCode from '../components/QRCode.svelte';
@@ -123,16 +123,19 @@
 
   onMount(() => {
     setSoftkeys('刷新', '返回');
-    onKey('login', {
+    // 先注册按键再拉二维码 (数字键 / 左软键: 重新生成二维码, 规范名 '0' / '5' / 'SoftLeft')
+    const off = onKey('login', {
       '5': () => startLogin(),
       '0': () => startLogin(),
       SoftLeft: () => startLogin()
     });
     startLogin();
+    // onKey() 返回自己的注销函数, 作为 onMount 的返回值 → 组件销毁时
+    // 只移除"本实例"注册的作用域 (同名实例之间不会互相踩)
+    return off;
   });
 
   onDestroy(() => {
-    offKey('login');
     stopPoll();
   });
 </script>

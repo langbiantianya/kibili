@@ -6,17 +6,35 @@
   import EmptyState from './EmptyState.svelte';
   import LoadingMore from './LoadingMore.svelte';
   import { createEventDispatcher } from 'svelte';
-  import { onMount } from 'svelte';
+  import { tick } from 'svelte';
   import { focusFirst } from '../keyboard/roving.js';
 
   const dispatch = createEventDispatcher();
 
-  onMount(() => {
-    if (items.length) setTimeout(() => focusFirst(document.querySelector('.feed-list')), 30);
-  });
+  /** 列表容器 (同时是方向键漫游的区域边界) */
+  let listEl = null;
+
+  /** 是否已经自动聚焦过一次 */
+  let autoFocused = false;
+
+  // ── 自动聚焦修复 ─────────────────────────────────────────────────────
+  // 旧实现在 onMount 里调 focusFirst(), 但列表数据是异步拉取的:
+  // onMount 时 items 还是空数组, 条件不成立 → 焦点永远不会落到列表上,
+  // 用户必须先按一次方向键才知道自己在哪。
+  // 现在改成"数据到位后再聚焦", 并且只在当前没有焦点时才抢焦点
+  // (从子页面返回时保持原来的位置)。
+  $: if (listEl && items.length && !autoFocused) {
+    autoFocused = true;
+    tick().then(() => {
+      const active = document.activeElement;
+      // 已经有焦点在列表里 (或焦点在别的可导航元素上) 就不抢
+      if (active && active !== document.body && listEl.contains(active)) return;
+      focusFirst(listEl);
+    });
+  }
 </script>
 
-<div class="feed-list scroll-y">
+<div class="feed-list scroll-y" bind:this={listEl} data-nav-root>
   {#if items.length === 0}
     <EmptyState message={empty} />
   {:else}

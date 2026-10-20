@@ -248,17 +248,22 @@ for (const page of PAGES) {
   }
 }
 
-// 真机按键: 右软键必须能返回
+// 真机按键: 子页面右软键必须回到上一级。
+// 先进入 /profile 再进 /settings, 让历史栈里的上一级确定是 /profile,
+// 这样能抓住"首页残留的搜索处理器把右软键劫持到 /search"这类回归 (旧断言只看
+// before !== after, 被劫持到 /search 也算通过)。
 if (!only.length || only.indexOf('back-key') >= 0) {
+  await goto('#/profile');
+  await delay(2000);
   await goto('#/settings');
   await delay(3000);
   const before = (await probe()).route;
   const key = press(158);
   await delay(2500);
   const after = (await probe()).route;
-  const ok = before !== after && before !== '(none)';
-  results.push({ page: 'back-key', fails: ok ? [] : [`按 ${key} 后路由没变 (${before})`] });
-  console.log((ok ? '✓' : '✗') + ' ' + 'back-key'.padEnd(16) + (ok ? `右软键 ${before} → ${after}` : `按 ${key} 无效, 仍在 ${after}`));
+  const ok = after === '#/profile';
+  results.push({ page: 'back-key', fails: ok ? [] : [`按 ${key} 未返回上一级: 期望 #/profile 实际 ${after}`] });
+  console.log((ok ? '✓' : '✗') + ' ' + 'back-key'.padEnd(16) + (ok ? `右软键 ${before} → ${after}` : `右软键未返回上一级, ${before} → ${after}`));
 }
 
 if (pageErrors.length) {

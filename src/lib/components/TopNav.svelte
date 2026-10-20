@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { location as routerLocation } from 'svelte-spa-router';
-  import { onKey, offKey } from '../keyboard/index.js';
+  import { onKey } from '../keyboard/index.js';
   import { navigate } from '../router/index.js';
 
   // 三 Tab: home / following / profile
@@ -46,14 +46,12 @@
   }
 
   onMount(() => {
-    onKey('top-nav', {
-      ArrowLeft: () => switchTab(-1),
-      ArrowRight: () => switchTab(+1)
+    // onKey() 返回自己的注销函数, 直接交给 onMount 的返回值 → 组件销毁时
+    // 只移除"本实例"注册的作用域 (同名实例之间不会互相踩)
+    return onKey('top-nav', {
+      Left: () => switchTab(-1),
+      Right: () => switchTab(+1)
     });
-
-    return () => {
-      offKey('top-nav');
-    };
   });
 </script>
 

@@ -4,7 +4,6 @@
   import { navigate } from "../router/index.js";
   import {
     onKey,
-    offKey,
     moveFocus,
     activateFocused,
   } from "../keyboard/index.js";
@@ -15,9 +14,10 @@
     if ($isLogin) {
       hydrateFromNav();
     }
-    onKey("profile", {
-      ArrowDown: () => moveFocus(+1),
-      ArrowUp: () => moveFocus(-1),
+    // onKey() 返回注销函数, 直接作为 onMount 的返回值 → 组件销毁时自动注销
+    return onKey("profile", {
+      Down: () => moveFocus(+1),
+      Up: () => moveFocus(-1),
       SoftLeft: () => activateFocused(),
       SoftRight: () => onLogoutClick()
     });
@@ -27,7 +27,6 @@
   $: setSoftkeys("打开", $isLogin ? "登出" : "登录");
 
   onDestroy(() => {
-    offKey("profile");
     clearTimeout(logoutTimer);
   });
 
@@ -79,16 +78,15 @@
 </script>
 
 <div class="screen">
-  <div class="main scroll-y">
+  <!-- 方向键漫游区域: 焦点在用户卡片和菜单项之间移动 -->
+  <div class="main scroll-y" data-nav-root>
+    <!-- 中键由框架默认行为触发 (activateFocused → click), 不再单独监听 keydown -->
     <div
       class="user-card"
       data-navable
       tabindex="0"
       role="button"
       on:click={() => onUserCardClick()}
-      on:keydown={(e) => {
-        if (e.key === "Enter") { e.stopPropagation(); onUserCardClick(); }
-      }}
     >
       <div class="avatar">
         {#if $isLogin && $user.face}
@@ -115,9 +113,6 @@
           data-navable
           tabindex="0"
           on:click={() => m.action()}
-          on:keydown={(e) => {
-            if (e.key === "Enter") { e.stopPropagation(); m.action(); }
-          }}
         >
           <span class="label">{m.label}</span>
           <span class="arrow">›</span>

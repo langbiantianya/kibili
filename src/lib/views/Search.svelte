@@ -1,8 +1,8 @@
 <script>
-  import { onMount, onDestroy } from "svelte";
+  import { onMount } from "svelte";
   import { getHotSearch } from "../api/user.js";
   import { navigate } from "../router/index.js";
-  import { onKey, offKey, moveFocus } from "../keyboard/index.js";
+  import { onKey, moveFocus, activateFocused } from "../keyboard/index.js";
   import { setSoftkeys, showToast } from "../stores/ui.js";
   import Loading from "../components/Loading.svelte";
   import EmptyState from "../components/EmptyState.svelte";
@@ -46,58 +46,44 @@
     navigate("/search-results?keyword=" + encodeURIComponent(term));
   }
 
-  /** @param {KeyboardEvent} e */
-  function onInputKey(e) {
-    if (e.key === "ArrowDown" || e.key === "Down") {
-      e.preventDefault();
-      const firstItem = /** @type {HTMLElement} */ (document.querySelector(".hot-item"));
-      if (firstItem) firstItem.focus();
-      return;
-    }
-    // 左软键搜索
-    if (e.key === "SoftLeft") {
-      e.preventDefault();
-      doSearch();
-    }
-  }
-
   onMount(() => {
     setSoftkeys("搜索", "返回", "");
     loadHot();
-    onKey("search", {
-      ArrowDown: () => {
-        // 如果输入框有焦点，先移到列表
-        if (document.activeElement === inputRef) {
-          const firstItem = document.querySelector(".hot-item");
-          if (firstItem) firstItem.focus();
-          return true;
-        }
-        return moveFocus(+1);
-      },
-      ArrowUp: () => {
-        const moved = moveFocus(-1);
-        // 如果移到最上面，回到输入框
-        if (!moved) {
-          if (inputRef) inputRef.focus();
-        }
-        return moved;
-      },
-      SoftLeft: () => doSearch(),
-    });
     // 页面加载时聚焦输入框
     setTimeout(() => {
       if (inputRef) inputRef.focus();
     }, 100);
-  });
-
-  onDestroy(() => {
-    offKey("search");
+    // onKey() 返回注销函数, 直接作为 onMount 的返回值 → 组件销毁时自动注销
+    return onKey("search", {
+      // 向下: 输入框有焦点时也会走到这里, 因为输入框不在 [data-navable] 列表里,
+      // moveFocus 会把焦点落到第一个热搜项
+      Down: () => moveFocus(+1),
+      // 向上: 输入框里按 ↑ 保持不动 (输入框在热搜列表上方)
+      // 列表顶部再往上就回到输入框
+      Up: () => {
+        if (document.activeElement === inputRef) return false;
+        const moved = moveFocus(-1);
+        if (!moved && inputRef) inputRef.focus();
+        return moved;
+      },
+      SoftLeft: () => doSearch(),
+      // 中键: 输入框里 = 搜索; 列表里 = 激活当前热搜项
+      // (scope 里显式声明了 Enter 之后, 框架默认的"Enter 激活焦点元素"就不会再触发,
+      //  所以列表里要自己调 activateFocused 补上, 等价于点一下当前项)
+      Enter: () => {
+        if (document.activeElement === inputRef) {
+          doSearch();
+          return true;
+        }
+        return activateFocused();
+      },
+    });
   });
 </script>
 
 <div class="screen">
   <div class="main">
-    <!-- 搜索输入框 -->
+    <!-- 搜索输入框 (按键统一由 scope 处理, 不再单独监听 keydown) -->
     <div class="search-bar">
       <input
         bind:this={inputRef}
@@ -105,7 +91,6 @@
         class="search-input"
         placeholder="搜索视频..."
         bind:value={keyword}
-        on:keydown={onInputKey}
       />
     </div>
 
@@ -117,14 +102,14 @@
     {:else}
       <div class="hot-section">
         <div class="hot-title">★ 热搜榜单</div>
-        <div class="hot-list scroll-y">
+        <div class="hot-list scroll-y" data-nav-root>
           {#each hotList as item, i (item.hot_id)}
+            <!-- 中键由 scope 里的 activateFocused 触发 (等价于 click), 不再单独监听 keydown -->
             <div
               class="hot-item"
               data-navable
               tabindex="0"
               on:click={() => selectHot(item)}
-              on:keydown={(e) => { if (e.key === "Enter") selectHot(item); }}
             >
               <span class="hot-rank" class:top3={i < 3}>{i + 1}</span>
               <span class="hot-keyword">{item.show_name || item.keyword}</span>

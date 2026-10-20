@@ -3,7 +3,6 @@
   import { getVideoInfo, getPlayUrl, getDashUrls } from '../api/video.js';
   import { getReplies, getStatus, likeVideo, coinVideo, favVideo, unfavVideo, tripleAction, reportProgress } from '../api/interact.js';
   import { isLogin } from '../stores/user.js';
-  import { offKey } from '../keyboard/index.js';
   import { navigate } from '../router/index.js';
   import { setSoftkeys, showToast } from '../stores/ui.js';
   import { addLocal } from '../stores/history.js';
@@ -343,7 +342,6 @@
   });
 
   onDestroy(() => {
-    offKey('player');
     // 组件销毁时停止上报并上报最终进度
     stopReportTimer();
     doReportProgress();

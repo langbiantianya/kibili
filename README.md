@@ -44,6 +44,7 @@
 │   ├── install-device.js    # 打包并安装到真机 (adb + 设备调试协议)
 │   ├── device-test.js       # 真机自动测试 (冒烟检查 + 截图)
 │   ├── device-console.js    # 抓应用内 console 输出 / 执行 JS
+│   ├── test-keyboard.js     # 按键框架无头自测 (Node, 不需要真机)
 │   └── lib/
 │       └── ui-probe.js      # 注入页面运行的 UI 探针 (被 device-test.js 使用)
 ├── src/
@@ -62,7 +63,7 @@
 │       │   ├── video.js     #   视频详情/播放
 │       │   └── wbi.js       #   WBI 签名算法
 │       ├── components/      # UI 组件
-│       ├── keyboard/        # 键盘导航 (焦点漫游)
+│       ├── keyboard/        # 按键导航框架 (按键总线/作用域/焦点漫游)
 │       ├── player/          # 视频播放器
 │       ├── router/          # 路由工具
 │       ├── stores/          # Svelte stores (状态管理)
@@ -263,7 +264,7 @@ node scripts/device-test.js --only back-key          # 只验证右软键返回
 ✓ search          softkeys={"left":"搜索","center":"","right":"返回"} navables=10
 ✓ search-results  softkeys={"left":"刷新","center":"打开","right":"返回"} navables=20
 ✓ player          softkeys={"left":"全屏","center":"暂停","right":"返回"} navables=0
-✓ back-key        右软键 #/settings → #/search
+✓ back-key        右软键 #/settings → #/profile
 
 结果: 11/11 项通过
 ```
@@ -329,6 +330,126 @@ KaiOS 把硬件返回键（`KEY_BACK`）上报为 DOM 事件 `key: "SoftRight"`�
 - 方向键：上下移动焦点（列表内自动滚动居中），左右在详情/评论等子 Tab 间切换
 - 中键：打开/播放/暂停；评论列表中展开子评论
 - 回复框等模态组件打开时独占按键（左软键=取消，右软键=发送，Enter=发送）
+- 返回键家族：右软键 `SoftRight`、退格键 `Backspace`、挂断键 `EndCall`、Smart Touch 的 `GoBack`/`BrowserBack` 都能当"返回"用（顶层页面不拦截，交给系统退出）
+- 有硬件音量键的机型（`VolumeUp`/`VolumeDown`/`VolumeMute`）在播放器里调音量；系统类按键（电源/相机/拨号/短信/通知/语音助手）一律不拦截，长按才能退出应用
+
+## 按键导航框架
+
+`src/lib/keyboard/` 是全应用**唯一**的按键入口。视图不再各自监听 `window`，而是注册"按键作用域"（scope），由总线统一分发。
+
+| 文件 | 职责 |
+| --- | --- |
+| `keys.js` | 按键归一化：把 KaiOS 各机型不一致的 `e.key` / `keyCode` 统一成规范名 |
+| `scopes.js` | 作用域注册表：优先级、独占、按实例注销 |
+| `roving.js` | 焦点漫游：`[data-navable]` 收集、上下移动、区域边界、滚动居中、激活 |
+| `index.js` | 按键总线：分发顺序、输入框策略、默认行为、长按 |
+| `modalkeys.js` | 模态框独占作用域（回复框等） |
+| `device.js` | 设备能力探测（有没有相机键/音量键/挂断键） |
+
+### 规范键名
+
+同一个物理键在不同机型/固件/输入法状态下上报的 DOM key 并不统一（方向键可能是 `ArrowUp` 也可能是 `Up`，中键可能是 `Enter` 也可能是 `Accept`，甚至 `Unidentified` + keyCode）。**所有按键判断都必须先归一化**，按键表统一用规范名。
+
+键名取自 Gecko 48 的 `dom/events/KeyNameList.h`（KaiOS 2.4 实际能产生的 key），keyCode 取自 `dom/interfaces/events/nsIDOMKeyEvent.idl`：
+
+| 规范名 | DOM key | keyCode | 说明 |
+| --- | --- | --- | --- |
+| `Up` / `Down` / `Left` / `Right` | `ArrowUp` / … | 38 / 40 / 37 / 39 | 方向键（每台机器都有） |
+| `Enter` | `Enter` / `Accept` | 13 | 中键 |
+| `SoftLeft` / `SoftRight` | `SoftLeft` / `SoftRight` | **0** | 左右软键（KaiOS 把硬件 `KEY_BACK` 上报成 `SoftRight`） |
+| `Back` | `Backspace` | 8 | 退格键（官方语义就是"返回上一级"） |
+| `BrowserBack` | `BrowserBack` | 0 | 浏览器返回键 |
+| `GoBack` | `GoBack` | 0 | Smart Touch 返回键（KaiOS 3，如 Nokia 8000 4G） |
+| `EndCall` | `EndCall` | 0 | 挂断键（官方语义"结束当前操作"） |
+| `VolumeUp` / `VolumeDown` | `VolumeUp` / `VolumeDown` | **183 / 182** | 音量键（Gecko 48 的值） |
+| `Mute` | `VolumeMute` | 181 | 静音键 |
+| `Symbol` | `Symbol` | 0 | 符号输入键（`#` `*` `-` `+` `@`） |
+| `Camera` / `Power` / `Call` / `HeadsetHook` / `Notification` / `LaunchWebBrowser` / `LaunchMail` | 同名 | 0 | 系统/其它应用的键，**应用不应吞掉** |
+| `0`–`9`、`*`、`#` | 同名字符 | 48–57 | 数字键与符号键 |
+
+⚠️ **Gecko 48 里软键/相机键/电源键没有对应的 `DOM_VK`** —— 它们的 `keyCode` 是 `0`，只能靠 `e.key` 识别。官方文档也明确要求用 `KeyboardEvent#key`（`code` 会随键盘布局变，不可靠）。
+
+⚠️ **KaiOS 2.4 与 KaiOS 3 的音量 keyCode 正好相反**（2.4: 183=音量+；3.0: 182=音量+）。框架为此做了**运行时自学习**：只要见过一次"已知 key 名 + 某个 keyCode"，就记住这台机器的对应关系，之后 `e.key === 'Unidentified'` 的事件也能正确还原。自学习到的映射优先于静态表。
+
+### 设备按键探测
+
+不是每台机器都有全部硬件键（每台 KaiOS 都有方向键 + 左右软键；相机/音量/挂断键看机型）。KaiOS 提供了特性探测 API：
+
+```js
+import { hasDeviceKey, initDeviceKeys } from '../keyboard/device.js';
+
+await hasDeviceKey('volume');    // 'volume' | 'camera' | 'endcall' | 'qwerty'
+```
+
+- KaiOS 2.5：`navigator.hasFeature('device.capability.volume-key')`
+- KaiOS 3.0：`DeviceCapabilityManager.get('device.key.volume')`
+- KaiOS 2.4：没有这个 API，一律返回 `false`（调用方走降级逻辑）
+
+需要 manifest 里的 `feature-detection` 权限。
+
+### 注册按键作用域
+
+```js
+import { onKey, roam } from '../keyboard/index.js';
+
+onMount(() => {
+  // onKey 返回注销函数, 直接交给 onMount 的返回值 → 组件销毁时自动清理
+  return onKey('my-page', {
+    SoftLeft: () => refresh(),        // keydown 立即触发
+    SoftRight: () => navigate('/home'),
+    Down: () => roam(+1, () => loadMore())  // 到底了回调 loadMore
+  });
+});
+```
+
+- 键名用规范名（`Up`/`Down`/`Enter`/`SoftLeft`/`SoftRight`/`Back`/数字字符）
+- 值可以是函数，或 `{ press, long, release, repeat, threshold }`（长按用）：
+  `press` 松手时触发、`long` 按住 `threshold` 毫秒后触发、`release` 松手时必定触发
+- 函数返回 `false` 表示"我没处理这个键" → 总线不 `preventDefault`，浏览器默认行为照常发生
+- `onKey(name, map, { priority })` 声明优先级，大的优先（默认 0；模态 100、播放器 10、全局返回 -100）
+
+### 框架默认行为
+
+页面没有注册对应按键时，框架自动提供：
+
+- `Up` / `Down` → 在 `[data-navable]` 元素之间移动焦点，滚动到可视区中央
+- `Enter` → 激活当前焦点元素（等价于点击它）
+
+所以绝大多数页面只需要注册软键即可。
+
+### 焦点区域
+
+列表容器加 `data-nav-root` 后，上下键只在该区域内移动，不会跳到别的区域：
+
+```html
+<div class="feed-list scroll-y" data-nav-root>…</div>
+```
+
+### 输入框与模态框
+
+- **输入框聚焦时**：只有文字类按键（数字/字母/空格/退格/标点）让给输入法；方向键、中键、软键仍然交给页面（页面显式注册了才生效）
+- **模态框打开时**：注册一个独占作用域，只有模态能响应按键，且只对它声明的按键 `preventDefault` —— 输入框照常编辑文字、移动光标
+
+```js
+import { openModalScope } from '../keyboard/modalkeys.js';
+
+const closeScope = openModalScope('reply', {
+  SoftLeft: () => close(),
+  SoftRight: () => send(),
+  Enter: () => send(),
+  Back: () => (!value ? close() : false)  // 非空时返回 false → 退格正常删字
+});
+```
+
+### 自测
+
+按键框架的纯逻辑可以在 Node 里跑（不需要真机）：
+
+```bash
+node scripts/test-keyboard.js
+```
+
+覆盖按键归一化、作用域优先级与实例隔离、输入框策略、模态独占、焦点漫游的首/末/边界、长按与 keyup 收尾。
 
 ## 致谢
 
