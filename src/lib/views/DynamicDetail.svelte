@@ -255,13 +255,13 @@
     if (commentSectionRef) commentSectionRef.openReply();
   }
 
-  // 软键是唯一来源: 切 tab 时更新 (左=评论/回复, 右=返回, 本机右软键即返回键)
+  // 软键是唯一来源: 切 tab 时更新 (左=评论/回复; 返回走退格键, 右软键不占)
   // 初始 activeTab = 0, 这段响应式语句在首次渲染时就会跑, 所以 onMount 里
   // 不再重复设置一遍软键, 避免两处设置互相覆盖。
   $: if (activeTab === 0) {
-    setSoftkeys('评论', '返回');
+    setSoftkeys('评论', '');
   } else {
-    setSoftkeys('回复', '返回');
+    setSoftkeys('回复', '');
   }
 
   // 处理评论发送事件

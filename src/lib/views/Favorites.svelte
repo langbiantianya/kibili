@@ -40,7 +40,7 @@
 
 
   onMount(() => {
-    setSoftkeys($isLogin ? "刷新" : "登录", "返回", "打开");
+    setSoftkeys($isLogin ? "刷新" : "登录", "", "打开");
     load();
     // onKey() 返回自己的注销函数, 直接交给 onMount 的返回值 → 组件销毁时
     // 只移除"本实例"注册的作用域 (同名实例之间不会互相踩)。

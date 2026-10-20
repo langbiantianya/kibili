@@ -321,20 +321,32 @@ node scripts/device-test.js --only back-key          # 只验证右软键返回
 
 ## 键位与软键约定
 
-KaiOS 把硬件返回键（`KEY_BACK`）上报为 DOM 事件 `key: "SoftRight"`，因此右软键同时承担"页面动作"和"返回"：
+**返回归返回键，软键归页面。** 软键是"页面动作"键（可被页面自由定义），返回是"导航"键（全局统一），两者不再混用。
+
+| 物理键 | 规范名 | 全局作用 | 页面可覆盖 |
+| --- | --- | --- | --- |
+| 返回键（退格键 / 方向键右边的「←」） | `Back` | **返回上一级**（全局兜底） | 可 |
+| 挂断键 | `EndCall` | 返回上一级 | 可 |
+| Smart Touch 返回键 | `GoBack` / `BrowserBack` | 返回上一级 | 可 |
+| 左软键 | `SoftLeft` | 无 | 页面主操作 |
+| 右软键 | `SoftRight` | **无**（不再兜底返回） | 页面动作 |
+| 中键 | `Enter` | 激活当前焦点元素 | 页面可改 |
+| 方向键 | `Up`/`Down`/`Left`/`Right` | 焦点漫游 | 页面可改 |
 
 | 位置 | 约定 |
 | --- | --- |
 | 左软键 | 页面主操作（首页=刷新、播放器详情=全屏、播放器评论=回复、动态详情=评论/回复） |
 | 中间 | 中键（OK）当前会做什么的提示（打开/播放/暂停），本身不接收按键 |
-| 右软键 | 子页面固定为返回：`/history`、`/settings`、`/about`、`/search`、`/search-results`、`/favorites`、`/folder`、`/login`、`/player`、`/fullscreen`、`/dynamic-detail`；三个主 Tab（首页/关注/我的）保持各自动作（搜索/切Tab/登出） |
+| 右软键 | 页面自己定义（首页=搜索、关注=切Tab、我的=登出、回复框=发送）；**没定义就是什么都不做** |
 
 - 方向键：上下移动焦点（列表内自动滚动居中），左右在详情/评论等子 Tab 间切换
 - 中键：打开/播放/暂停；评论列表中展开子评论
 - 回复框等模态组件打开时独占按键（左软键=取消，右软键=发送，Enter=发送）
-- 返回键家族：右软键 `SoftRight`、退格键 `Backspace`、挂断键 `EndCall`、Smart Touch 的 `GoBack`/`BrowserBack` 都能当"返回"用（顶层页面不拦截，交给系统退出）
+- **返回键家族**：退格键 `Backspace`（规范名 `Back`，官方语义就是"返回上一级"）、挂断键 `EndCall`、Smart Touch 的 `GoBack`/`BrowserBack` 都能当"返回"用（顶层页面不拦截，交给系统退出）
 - 有硬件音量键的机型（`VolumeUp`/`VolumeDown`/`VolumeMute`）在播放器里调音量；系统类按键（电源/相机/拨号/短信/通知/语音助手）一律不拦截，长按才能退出应用
 - **左软键在这类机型上是 `KEY_MENU`，DOM 层拿到的 key 名是 `SoftLeft`**（不是 `F1`/`ContextMenu`），按下时系统会同时弹自己的菜单 —— 这是 OS 行为，网页拦不住，但按键本身能正常绑定
+
+> 为什么把右软键从返回家族里摘出去：以前右软键兜底返回，副作用是**每个子页面的右软键都被"返回"占住**，页面自己声明的动作还容易被全局兜底抢走（旧实现里就出过"右软键在二级页仍然触发搜索"的回归）。现在返回只有一个入口（返回键），软键栏的文案和按键行为严格一一对应，没绑定的键就不显示文案。
 
 ## 按键导航框架
 
@@ -361,8 +373,8 @@ KaiOS 把硬件返回键（`KEY_BACK`）上报为 DOM 事件 `key: "SoftRight"`�
 | --- | --- | --- | --- |
 | `Up` / `Down` / `Left` / `Right` | `ArrowUp` / … | 38 / 40 / 37 / 39 | 方向键（每台机器都有） |
 | `Enter` | `Enter` / `Accept` | 13 | 中键 |
-| `SoftLeft` / `SoftRight` | `SoftLeft` / `SoftRight` | **0** | 左右软键（KaiOS 把硬件 `KEY_BACK` 上报成 `SoftRight`） |
-| `Back` | `Backspace` | 8 | 退格键（官方语义就是"返回上一级"） |
+| `SoftLeft` / `SoftRight` | `SoftLeft` / `SoftRight` | **0** | 左右软键。**`SoftRight` 是页面动作键，不是返回键** |
+| `Back` | `Backspace` | 8 | **返回键**（官方语义就是"返回上一级"；应用里的"返回"统一绑它） |
 | `BrowserBack` | `BrowserBack` | 0 | 浏览器返回键 |
 | `GoBack` | `GoBack` | 0 | Smart Touch 返回键（KaiOS 3，如 Nokia 8000 4G） |
 | `EndCall` | `EndCall` | **95**（实测） | 挂断键（官方语义"结束当前操作"） |
@@ -383,8 +395,8 @@ KaiOS 把硬件返回键（`KEY_BACK`）上报为 DOM 事件 `key: "SoftRight"`�
 | 实体键 | Linux key | DOM `e.key` | 规范名 | `e.keyCode` | 备注 |
 | --- | --- | --- | --- | --- | --- |
 | 左软键 / 菜单键 `≡` | `KEY_MENU` (139) | `SoftLeft` | `SoftLeft` | 0 | **能进页面**，但系统同时会弹菜单 |
-| 右软键 `←` | `KEY_BACK` (158) | `SoftRight` | `SoftRight` | 0 | `e.code` 是 `BrowserBack` |
-| 退格 | `KEY_BACKSPACE` (14) | `Backspace` | `Back` | 8 | |
+| 右软键 | `KEY_BACK` (158) | `SoftRight` | `SoftRight` | 0 | `e.code` 是 `BrowserBack`；**不是返回键** |
+| 返回键（退格 / 方向键右边的「←」） | `KEY_BACKSPACE` (14) | `Backspace` | `Back` | 8 | 应用的"返回"绑它 |
 | 方向键 | 103/105/106/108 | `ArrowUp/Left/Right/Down` | `Up/Left/Right/Down` | 38/37/39/40 | |
 | 中键 OK | `KEY_OK` (352) | `Enter` | `Enter` | 13 | 长按会触发 `MicrophoneToggle`（语音助手） |
 | 挂断键 | `KEY_END` (107) | `EndCall` | `EndCall` | **95** | Gecko 48 的 IDL 里没有这一项，是 KaiOS 自己加的 |
@@ -399,6 +411,7 @@ KaiOS 把硬件返回键（`KEY_BACK`）上报为 DOM 事件 `key: "SoftRight"`�
 
 要点：
 
+- **返回键 = 退格键 / 方向键右边的「←」**，DOM key 名是 `Backspace`，框架归一化成 `Back`。应用的"返回"统一绑它，右软键（`SoftRight`）不再兜底返回，留给页面自己派活。
 - **左软键（`≡`）是可以用的** —— 它上报的是 `KEY_MENU`，DOM 层拿到的就是 `SoftLeft`，框架能正常拦截。只是按下时系统会同时弹自己的菜单，这是 OS 行为，网页拦不住。
 - **相机键 / 电源键 / 语音键根本到不了页面**，任何"拦截系统键"的写法都没意义 —— 框架的 `SYSTEM_KEYS` 把它们列为不拦截，系统键长按才能退出应用，官方要求如此。
 - 页面刚加载完的**第一发按键**会被 Gecko 的 chrome 吞掉（不是 bug），自动化测试时先空打一发预热。
@@ -483,6 +496,27 @@ return onKey('keytest', {}, {
 - `catchAll` 返回 `false` 表示"不处理" → 总线继续往下找更低优先级的作用域
 - 高优先级的 `catchAll` 会盖过低优先级作用域的具名处理器
 - 模态独占作用域不受影响，仍然优先于 `catchAll`
+
+### 返回键（全局兜底）
+
+`src/main.js` 注册了一个 `priority = -100` 的**全局**作用域，专门管"返回"：
+
+```js
+onKey('app-back', {
+  Back: handleBack,        // 返回键 (退格键 / 「←」), 主力
+  EndCall: handleBack,     // 挂断键
+  GoBack: handleBack,      // Smart Touch 返回键
+  BrowserBack: handleBack  // 浏览器返回键
+}, { priority: -100, global: true });
+```
+
+规则：
+
+- **右软键 `SoftRight` 不在里面** —— 软键是页面动作键，页面想用就自己声明；没声明就什么都不做
+- 顶层页面（`/home`、`/following`、`/profile`）不拦截，交给系统退出应用
+- 长按连发时只退一层（`e.repeat` 保护），否则一次长按会连续 pop 掉多级路由
+- 页面自己声明了同名键就以页面为准（优先级更高），全局只在没人管时兜底
+- 输入框聚焦时退格键让给输入法删字（`isTextKey('Back')` 为真）；回复框这类模态框则自己声明 `Back` 的行为
 
 ### 软键栏的所有权
 

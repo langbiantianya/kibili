@@ -77,7 +77,7 @@
         }
         return activateFocused();
       },
-    }, { softkeys: ["搜索", "返回", ""] });
+    }, { softkeys: ["搜索", "", ""] });
   });
 </script>
 

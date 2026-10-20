@@ -128,7 +128,7 @@
       '5': () => startLogin(),
       '0': () => startLogin(),
       SoftLeft: () => startLogin()
-    }, { softkeys: ['刷新', '返回', ''] });
+    }, { softkeys: ['刷新', '', ''] });
     startLogin();
     // onKey() 返回自己的注销函数, 作为 onMount 的返回值 → 组件销毁时
     // 只移除"本实例"注册的作用域 (同名实例之间不会互相踩)

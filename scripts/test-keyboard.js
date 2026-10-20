@@ -860,6 +860,43 @@ check('catchAll: 放行方向键后, 框架默认的焦点漫游仍然生效', (
   clearKeys();
 });
 
+// ── 4. 返回键家族 ──────────────────────────────────────────────────────
+check('返回键: 退格键(Back)/挂断键(EndCall) 触发返回, 右软键不触发', () => {
+  clearKeys();
+  resetDom();
+  let backCount = 0;
+  // 照抄 main.js 里 app-back 的注册方式 (右软键不在返回家族里)
+  const off = onKey('app-back', {
+    Back: () => { backCount++; },
+    EndCall: () => { backCount++; },
+    GoBack: () => { backCount++; },
+    BrowserBack: () => { backCount++; }
+  }, { priority: -100, global: true });
+  press('Backspace');
+  eq(backCount, 1, '退格键应该触发返回');
+  press('EndCall');
+  eq(backCount, 2, '挂断键应该触发返回');
+  press('SoftRight');
+  eq(backCount, 2, '右软键不是返回键, 不应该触发返回');
+  off();
+  clearKeys();
+});
+
+check('返回键: 右软键留给页面自己派活, 不被全局兜底抢走', () => {
+  clearKeys();
+  resetDom();
+  const got = [];
+  const offBack = onKey('app-back', { Back: () => { got.push('back'); } }, { priority: -100, global: true });
+  const offPage = onKey('page', { SoftRight: () => { got.push('page'); } }, { priority: 0 });
+  press('SoftRight');
+  eq(got.join(','), 'page', '页面声明的右软键动作应该生效');
+  press('Backspace');
+  eq(got.join(','), 'page,back', '退格键仍然走全局返回');
+  offPage();
+  offBack();
+  clearKeys();
+});
+
 // ── 运行 ────────────────────────────────────────────────────────────────
 // 顺序执行 (测试之间共用全局的按键总线, 并发/交叠会互相污染)
 for (const t of tests) {

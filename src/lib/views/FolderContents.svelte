@@ -51,7 +51,7 @@
       Down: () => moveFocus(+1),
       Up: () => moveFocus(-1),
       SoftLeft: () => load()
-    }, { softkeys: ["刷新", "返回", "播放"] });
+    }, { softkeys: ["刷新", "", "播放"] });
   });
 </script>
 

@@ -330,10 +330,10 @@
 
   function updateSoftkeys() {
     const centerLabel = isPlaying ? '暂停' : '播放';
-    // 本机没有独立返回键, 右软键固定为"返回";
+    // 返回由退格键 (Back) 负责, 右软键不占 —— 它留给页面自己派活
     // 左软键: 评论 tab = 回复, 详情 tab = 全屏
     const leftLabel = activeTabKey === 'comments' ? '回复' : '全屏';
-    setSoftkeys(leftLabel, '返回', centerLabel);
+    setSoftkeys(leftLabel, '', centerLabel);
   }
 
   onMount(() => {

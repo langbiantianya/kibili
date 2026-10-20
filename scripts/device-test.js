@@ -8,7 +8,7 @@
 //
 // 检查项 (全部在真机上跑, 不依赖模拟器):
 //   * 页面可达 + 软键栏存在
-//   * 子页面右软键必须是「返回」(本机右软键即硬件返回键)
+//   * 各页面的软键文案与实际绑定的动作一致 (右软键不是返回键)
 //   * 列表底部不能被裁掉 (height:100% + 兄弟元素 这类布局错)
 //   * 文字不能超出 240px 视口
 //   * 图片必须加载成功 (封面/头像)
@@ -42,15 +42,15 @@ const PAGES = [
   { name: 'home', hash: '#/home', wait: 6000, softkeys: { left: '刷新' } },
   { name: 'following', hash: '#/following', wait: 6000, softkeys: { left: '刷新' } },
   { name: 'profile', hash: '#/profile', wait: 4000, softkeys: { left: '打开' } },
-  { name: 'history', hash: '#/history', wait: 7000, softkeys: { right: '返回' } },
-  { name: 'favorites', hash: '#/favorites', wait: 6000, softkeys: { right: '返回' } },
-  { name: 'settings', hash: '#/settings', wait: 3000, softkeys: { right: '返回' } },
-  { name: 'about', hash: '#/about', wait: 3000, softkeys: { right: '返回' } },
+  { name: 'history', hash: '#/history', wait: 7000, softkeys: { left: '刷新' } },
+  { name: 'favorites', hash: '#/favorites', wait: 6000, softkeys: {} },
+  { name: 'settings', hash: '#/settings', wait: 3000, softkeys: {} },
+  { name: 'about', hash: '#/about', wait: 3000, softkeys: {} },
   // 按键检测页: 不绑任何软键快捷键, 软键栏只有中键提示
   { name: 'keytest', hash: '#/keytest', wait: 3000, softkeys: { center: '选择' } },
-  { name: 'search', hash: '#/search', wait: 5000, softkeys: { right: '返回' } },
-  { name: 'search-results', hash: '#/search-results?keyword=%E5%8E%9F%E7%A5%9E', wait: 8000, softkeys: { right: '返回' } },
-  { name: 'player', hash: '#/player?bvid=BV1ZqpE6uEKd', wait: 9000, softkeys: { right: '返回' } }
+  { name: 'search', hash: '#/search', wait: 5000, softkeys: { left: '搜索' } },
+  { name: 'search-results', hash: '#/search-results?keyword=%E5%8E%9F%E7%A5%9E', wait: 8000, softkeys: {} },
+  { name: 'player', hash: '#/player?bvid=BV1ZqpE6uEKd', wait: 9000, softkeys: {} }
 ];
 
 function sh(cmd, args) {
@@ -88,6 +88,7 @@ function connect(times = 5) {
 
 /** 设备按键 (matrix_keypad): KaiOS 把 Linux 键码映射成 DOM key 名 */
 const KEYS = { 139: 'SoftLeft', 158: 'SoftRight', 352: 'Enter', 103: 'ArrowUp', 108: 'ArrowDown', 105: 'ArrowLeft', 106: 'ArrowRight', 14: 'Backspace' };
+// 返回键 = 退格键 (Linux KEY_BACKSPACE) → DOM 'Backspace' → 规范名 'Back'
 function press(linuxKey) {
   const ev = k => spawnSync('adb', ['shell', `sendevent /dev/input/event1 1 ${k} 1; sendevent /dev/input/event1 0 0 0; sendevent /dev/input/event1 1 ${k} 0; sendevent /dev/input/event1 0 0 0`], { encoding: 'utf8' });
   ev(linuxKey);
@@ -250,9 +251,9 @@ for (const page of PAGES) {
   }
 }
 
-// 真机按键: 子页面右软键必须回到上一级。
+// 真机按键: 子页面的**返回键 (退格键)** 必须回到上一级。
 // 先进入 /profile 再进 /settings, 让历史栈里的上一级确定是 /profile,
-// 这样能抓住"首页残留的搜索处理器把右软键劫持到 /search"这类回归 (旧断言只看
+// 这样能抓住"首页残留的搜索处理器把返回键劫持到 /search"这类回归 (旧断言只看
 // before !== after, 被劫持到 /search 也算通过)。
 if (!only.length || only.indexOf('back-key') >= 0) {
   await goto('#/profile');
@@ -260,12 +261,12 @@ if (!only.length || only.indexOf('back-key') >= 0) {
   await goto('#/settings');
   await delay(3000);
   const before = (await probe()).route;
-  const key = press(158);
+  const key = press(14);   // 退格键 = 返回键
   await delay(2500);
   const after = (await probe()).route;
   const ok = after === '#/profile';
   results.push({ page: 'back-key', fails: ok ? [] : [`按 ${key} 未返回上一级: 期望 #/profile 实际 ${after}`] });
-  console.log((ok ? '✓' : '✗') + ' ' + 'back-key'.padEnd(16) + (ok ? `右软键 ${before} → ${after}` : `右软键未返回上一级, ${before} → ${after}`));
+  console.log((ok ? '✓' : '✗') + ' ' + 'back-key'.padEnd(16) + (ok ? `返回键 ${before} → ${after}` : `返回键未返回上一级, ${before} → ${after}`));
 }
 
 if (pageErrors.length) {

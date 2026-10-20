@@ -110,7 +110,7 @@
       Down: () => roam(+1, () => loadMore()),
       Up: () => roam(-1),
       SoftLeft: () => doSearch(1)
-    }, { softkeys: ["刷新", "返回", "打开"] });
+    }, { softkeys: ["刷新", "", "打开"] });
   });
 </script>
 

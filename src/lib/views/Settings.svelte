@@ -34,7 +34,7 @@
     return onKey("settings", {
       Down: () => moveFocus(+1),
       Up: () => moveFocus(-1)
-    }, { softkeys: ["", "返回", ""] });
+    }, { softkeys: ["", "", ""] });
   });
 </script>
 

@@ -42,7 +42,8 @@
   };
 
   // 返回键统一由 lib/keyboard/index.js 的全局 app-back 作用域处理
-  // (SoftRight / Back 两个键都归一化后走同一处, 顶层路由不拦截)
+  // (退格键 Back / 挂断键 EndCall / GoBack / BrowserBack 归一化后走同一处,
+  //  顶层路由不拦截; 右软键不是返回键)
   // 这里不再单独监听 keydown, 避免同一个按键被处理两遍。
 
   onMount(() => {

@@ -478,7 +478,7 @@
           toggleFullscreen();
         }
       }
-      // SoftRight 不声明: 交给全局 app-back 兜底 (右软键 = 返回, 退出播放器)
+      // SoftRight 不声明: 右软键是页面动作键, 不做返回; 返回走退格键 (全局 app-back)
     }, { priority: 10, softkeys: true });
   });
 

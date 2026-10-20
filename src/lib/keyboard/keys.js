@@ -65,6 +65,11 @@ export const KEY = {
   SoftRight: { key: 'SoftRight',  code: 0 },
 
   // 返回家族 (都能当"返回/取消"用)
+  //
+  // Back = **返回键** (退格键, 官方语义"返回上一级")。Nokia 6300 4G 这类
+  // 方向键右边带独立"←"物理返回键的机型, 那颗键上报的就是 Backspace,
+  // 所以规范名就叫 Back —— 应用的"返回"统一绑它。
+  // 右软键 SoftRight 是页面动作键, 不在返回家族里。
   Back:        { key: 'Backspace',   code: 8 },
   GoBack:      { key: 'GoBack',      code: 0 },
   BrowserBack: { key: 'BrowserBack', code: 0 },

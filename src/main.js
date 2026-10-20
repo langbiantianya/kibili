@@ -8,15 +8,23 @@ import { back } from './lib/router/index.js';
 // KaiOS 设备上能当"返回/取消"用的键有一整个家族 (DOM key 名, 官方表格见
 // kaios.dev "Special Keys on KaiOS"):
 //
-//   SoftRight    右软键 (KaiOS 把硬件 KEY_BACK 上报成这个)   ← 主力
-//   Back         退格键 (keyCode 8), 官方语义就是"返回上一级"
+//   Back         退格键 (keyCode 8) —— **主力**
+//                官方语义就是"返回上一级"; Nokia 6300 4G 这类机型上, 方向键
+//                右边那颗"←"物理返回键上报的就是它 (e.key = "Backspace")
 //   EndCall      挂断键 (keyCode 95), 官方语义"结束当前操作/关闭应用"
 //   GoBack       Smart Touch 机型的返回键 (KaiOS 3, 如 Nokia 8000)
 //   BrowserBack  浏览器里的返回键 (浏览器环境才有, 顺手支持)
 //
 // 这些键注册成 priority = -100 的**全局**作用域: 页面自己接管了 (首页=搜索 /
-// 关注页=切Tab / 播放器里的返回) 就由页面处理, 否则视为"返回"。
+// 关注页=切Tab / 播放器的返回) 就由页面处理, 否则视为"返回"。
 // 顶层页面不拦截, 让系统默认行为 (退出应用) 生效。
+//
+// ⚠️ **右软键 SoftRight 不再兜底返回**。
+// 软键是"页面动作"键, 不是导航键: 页面想用就自己声明 (首页=搜索 /
+// 关注页=切Tab / 我的=登出), 页面没声明就什么都不做。
+// 以前把右软键塞进返回家族, 副作用是每个子页面的右软键都被"返回"占住,
+// 页面自己声明的动作还容易被全局兜底抢走 (旧实现里就出过"右软键在二级页
+// 仍然触发搜索"的回归)。
 //
 // 旧实现里返回逻辑散落在两处: main.js 的 app-back 只管 SoftRight,
 // App.svelte 的 onGlobalKey 只管 Backspace/Back/BrowserBack 且没有防长按连发,
@@ -36,7 +44,6 @@ function handleBack(e) {
 }
 
 onKey('app-back', {
-  SoftRight: handleBack,
   Back: handleBack,
   EndCall: handleBack,
   GoBack: handleBack,
