@@ -1,15 +1,19 @@
 <script>
   import { onMount } from "svelte";
   import { onKey, moveFocus } from "../keyboard/index.js";
+  import { navigate } from "../router/index.js";
 
   const version = "0.0.1a";
   const githubUrl = "https://github.com/langbiantianya/kibili";
-  const bilibiliSpaceUrl = "https://space.bilibili.com/29529884";
   const issuesUrl = "https://github.com/langbiantianya/kibili/issues";
+
+  // 开发者的 B 站 uid (原来配的是网页空间链接 https://space.bilibili.com/29529884)
+  // 直接在应用里进他的个人主页, 比 window.open 拉起外部浏览器顺手得多
+  const developerMid = 29529884;
 
   const links = [
     { icon: "▤", label: "项目仓库", url: githubUrl },
-    { icon: "●", label: "开发者", url: bilibiliSpaceUrl },
+    { icon: "●", label: "开发者", uid: developerMid },
     { icon: "✎", label: "问题反馈", url: issuesUrl },
   ];
 
@@ -26,6 +30,22 @@
 
   function openUrl(/** @type {string} */ url) {
     window.open(url, "_blank");
+  }
+
+  /**
+   * 链接条目点击
+   *
+   * 带 uid 的 (开发者) → 应用内进那个人的个人主页
+   * 其余 → 用外部浏览器打开
+   *
+   * @param {any} l 链接条目
+   */
+  function activateLink(l) {
+    if (l.uid) {
+      navigate('/user?uid=' + l.uid);
+      return;
+    }
+    openUrl(l.url);
   }
 
   onMount(() => {
@@ -65,7 +85,7 @@
           data-navable
           tabindex="0"
           role="button"
-          on:click={() => openUrl(l.url)}
+          on:click={() => activateLink(l)}
         >
           <span class="link-icon">{l.icon}</span>
           <span class="link-label">{l.label}</span>
