@@ -464,8 +464,14 @@
         } else {
           toggleFullscreen();
         }
+      },
+      // 右软键: 进 UP 主主页 (和用户主页的路由是同一条: /user?uid=xxx)
+      // 全屏播放器不绑这个 —— 全屏要沉浸, 右软键留空
+      SoftRight: () => {
+        if (meta && meta.owner && meta.owner.mid) {
+          dispatch('author', { mid: meta.owner.mid });
+        }
       }
-      // SoftRight 不声明: 右软键是页面动作键, 不做返回; 返回走退格键 (全局 app-back)
     }, { priority: 10, softkeys: true });
   });
 

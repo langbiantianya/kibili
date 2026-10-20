@@ -53,7 +53,9 @@ const PAGES = [
   // 用户主页: 路由带 uid, 自己的主页和别人的主页同一条路由
   // (中间软键随 tab 变: 资料 tab 没有可打开的东西, 所以不写 center 断言)
   { name: 'user', hash: '#/user?uid=946974', wait: 9000, softkeys: { left: '刷新', right: '切Tab' } },
-  { name: 'player', hash: '#/player?bvid=BV1ZqpE6uEKd', wait: 9000, softkeys: {} }
+  { name: 'player', hash: '#/player?bvid=BV1ZqpE6uEKd', wait: 9000, softkeys: { right: '主页' } },
+  // 全屏播放器: 右软键**不绑**主页 (全屏要沉浸), 所以这一格必须没有文案
+  { name: 'fullscreen', hash: '#/fullscreen?bvid=BV1ZqpE6uEKd&t=0', wait: 9000, softkeys: { right: '' } },
 ];
 
 function sh(cmd, args) {
@@ -238,12 +240,17 @@ for (const page of PAGES) {
       fails.push(`软键 ${side} 期望「${want}」实际「${got}」`);
     }
   }
-  if (!snap.navables && page.name !== 'player' && page.name !== 'settings') fails.push('没有可聚焦元素 (data-navable)');
+  // 全屏/播放器/设置页本来就没有可聚焦元素
+  if (!snap.navables && !['player', 'fullscreen', 'settings'].includes(page.name)) {
+    fails.push('没有可聚焦元素 (data-navable)');
+  }
   for (const g of snap.missingGlyphs) fails.push('字体无字形: ' + g);
   for (const it of snap.issues) {
     if (it.t === 'imageFailed') fails.push('图片加载失败: ' + it.el);
     else if (it.t === 'scrollBoxClipped') fails.push(`可滚动区域被裁剪: ${it.el} (被 ${it.clippedBy} 裁掉)`);
-    else if (it.t === 'outOfViewportX') fails.push(`超出 240px 视口: ${it.el}`);
+    // 全屏播放器是按**横屏**设计的: 视频转了 90°, 进度条是 320x320 的固定层 ——
+    // 竖屏 (240 宽) 下超出视口是设计如此, 不是布局 bug
+    else if (it.t === 'outOfViewportX' && page.name !== 'fullscreen') fails.push(`超出 240px 视口: ${it.el}`);
   }
   if (snap.focus && snap.focus.inViewport === false) fails.push('焦点元素不在可视区: ' + snap.focus.el);
 

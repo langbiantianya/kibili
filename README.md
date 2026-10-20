@@ -254,7 +254,7 @@ node scripts/device-test.js --only home,player       # 只跑指定页面
 node scripts/device-test.js --only back-key          # 只验证右软键返回
 ```
 
-实跑输出（11 个页面 + 一次真实按键）：
+实跑输出（13 个页面 + 一次真实按键）：
 
 ```text
 设备: app://bilibili.com/manifest.webapp  视口 240x320
@@ -268,10 +268,12 @@ node scripts/device-test.js --only back-key          # 只验证右软键返回
 ✓ keytest         softkeys={"left":"","center":"选择","right":""} navables=19
 ✓ search          softkeys={"left":"刷新","center":"","right":"搜索"} navables=10
 ✓ search-results  softkeys={"left":"刷新","center":"打开","right":""} navables=20
-✓ player          softkeys={"left":"全屏","center":"暂停","right":""} navables=0
-✓ back-key        右软键 #/settings → #/profile
+✓ user            softkeys={"left":"刷新","center":"","right":"切Tab"} navables=11
+✓ player          softkeys={"left":"全屏","center":"暂停","right":"主页"} navables=0
+✓ fullscreen      softkeys={"left":"播放/暂停","center":"","right":""} navables=0
+✓ back-key        返回键 #/settings → #/profile
 
-结果: 11/11 项通过
+结果: 14/14 项通过
 ```
 
 检查项（全部在真机上判定）：
@@ -284,7 +286,7 @@ node scripts/device-test.js --only back-key          # 只验证右软键返回
 | 字形是否存在 | canvas 位图与空白/豆腐块位图比对 | emoji 图标在 KaiOS 上渲染成空白 |
 | 图片是否加载 | `complete && naturalWidth === 0` | 坏图、协议相对 URL、缺封面 |
 | 列表是否被裁 | 可滚动容器盒模型 vs 最近裁剪祖先 | 底部内容永远滚不到 |
-| 是否超出视口 | 元素右边界 vs 240px | 长文本把布局撑破 |
+| 是否超出视口 | 元素右边界 vs 240px | 长文本把布局撑破（全屏播放器按横屏设计，豁免） |
 | 焦点是否可见 | 活动元素矩形是否落在视口内 | 焦点跑到屏幕外 |
 | JS 异常 | 订阅 console actor 的 `pageError` 事件 | 未捕获异常 |
 
@@ -341,13 +343,14 @@ node scripts/device-test.js --only back-key          # 只验证右软键返回
 | --- | --- |
 | 左软键 | 页面主操作（首页=刷新、播放器详情=全屏、播放器评论=回复、动态详情=评论/回复） |
 | 中间 | 中键（OK）当前会做什么的提示（打开/播放/暂停），本身不接收按键 |
-| 右软键 | 页面自己定义（首页=搜索、关注=切Tab、回复框=发送）；**没定义就是什么都不做** |
+| 右软键 | 页面自己定义（首页=搜索、关注=切Tab、视频页=UP 主页、回复框=发送）；**没定义就是什么都不做** |
 
 - 方向键：上下移动焦点（列表内自动滚动居中），左右在详情/评论等子 Tab 间切换
 - 中键：打开/播放/暂停；评论列表中展开子评论
 - **「我的」页不绑左右软键**：进页面焦点落在用户卡片上，中键（OK）打开当前选中项（用户卡片 / 历史记录 / 收藏 / 设置 / 关于 / 登出），软键栏只留中间的"打开"提示
 - **搜索页**：左软键=刷新热搜，右软键=搜索；中间提示跟着焦点走（焦点在热搜列表里="打开"，输入框里中键什么都不做、就不显示文案）；↑ 从热搜列表顶部回到输入框，输入框里再按 ↑ 原地不动。**输入框里不绑中键搜索** —— 输入文本时按 OK 容易误触，搜索走右软键
-- **全屏播放器**：↑ 后退 10 秒，↓ 短按前进 10 秒、**长按直接进 2 倍速**（长按不会先跳 10 秒，松手恢复原速）；←/→ 与硬件音量键调系统音量；中键/左软键 = 播放暂停
+- **视频页**：右软键 = 进 **UP 主主页**（`/user?uid=xxx`）；作者信息还没加载出来时这一格不显示文案（文案必须和行为一致）
+- **全屏播放器**：↑ 后退 10 秒，↓ 短按前进 10 秒、**长按直接进 2 倍速**（长按不会先跳 10 秒，松手恢复原速）；←/→ 与硬件音量键调系统音量；中键/左软键 = 播放暂停；**右软键不绑**（全屏要沉浸，右软键留空）
 - 回复框等模态组件打开时独占按键（左软键=取消，右软键=发送，Enter=发送）
 - **返回键家族**：退格键 `Backspace`（规范名 `Back`，官方语义就是"返回上一级"）、Smart Touch 的 `GoBack`/`BrowserBack` 都能当"返回"用（顶层页面不拦截，交给系统退出）
 - **通话键 `Call` / 挂断键 `EndCall` 永远不拦截**：它们关系到打电话本身，网页吞掉用户就没法拨号、没法挂断。框架在按键总线的**最前面**就把这两个键放行（`NEVER_INTERCEPT`）——不进任何作用域、不 `preventDefault`，连页面显式声明也接管不到（回复框也不能拿挂断键当"取消"）

@@ -76,6 +76,8 @@
       currentAid = info.aid;
       currentCid = info.cid;
       currentOwner = info.owner || null;
+      // 作者信息到了, 右软键才有"主页"可显示
+      updateSoftkeys();
       currentDuration = info.duration || 0;
       title = info.title;
       poster = info.pic;
@@ -330,10 +332,20 @@
 
   function updateSoftkeys() {
     const centerLabel = isPlaying ? '暂停' : '播放';
-    // 返回由退格键 (Back) 负责, 右软键不占 —— 它留给页面自己派活
+    // 返回由退格键 (Back) 负责 —— 右软键不占返回, 它留给页面自己派活
     // 左软键: 评论 tab = 回复, 详情 tab = 全屏
     const leftLabel = activeTabKey === 'comments' ? '回复' : '全屏';
-    setSoftkeys(leftLabel, '', centerLabel);
+    // 右软键: 进 UP 主主页。作者信息还没到就不显示文案 —— 文案必须和行为一致
+    const rightLabel = currentOwner && currentOwner.mid ? '主页' : '';
+    setSoftkeys(leftLabel, rightLabel, centerLabel);
+  }
+
+  // 右软键: 进 UP 主主页
+  function onAuthor(e) {
+    const mid = e.detail && e.detail.mid;
+    if (mid) {
+      navigate('/user?uid=' + mid);
+    }
   }
 
   onMount(() => {
@@ -378,6 +390,7 @@
         on:tabchange={onTabChange}
         on:playstate={onPlayState}
         on:fullscreen={onFullscreen}
+        on:author={onAuthor}
         on:loadmore={loadMoreReplies}
       />
     {:else}
