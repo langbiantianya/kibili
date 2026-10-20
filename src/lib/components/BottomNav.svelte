@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { location as routerLocation } from 'svelte-spa-router';
   import { navigate } from '../router/index.js';
-  import { ui, setSoftkeys } from '../stores/ui.js';
+  import { ui } from '../stores/ui.js';
 
   // 五 Tab: home / following / profile / search / settings
   // 当前应用只有前 3 个; 4=search, 5=settings 暂留空

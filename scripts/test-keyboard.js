@@ -159,6 +159,15 @@ const { onKey, offKey, clearKeys, activeScopes, exclusiveScope } = await import(
 const kb = await import('../src/lib/keyboard/index.js');
 const { moveFocus, focusFirst, getFocusables } = await import('../src/lib/keyboard/roving.js');
 const { openModalScope } = await import('../src/lib/keyboard/modalkeys.js');
+const { setSoftkeys } = await import('../src/lib/stores/ui.js');
+const { get } = await import('svelte/store');
+const { ui } = await import('../src/lib/stores/ui.js');
+
+/** 读当前软键文案 */
+function softkeys() {
+  const s = get(ui).softkeys;
+  return s.left + '|' + s.right + '|' + s.center;
+}
 
 kb.installKeyboard();
 
@@ -715,6 +724,140 @@ check('getFocusables 过滤掉 disabled 的元素', () => {
   items[0].setAttribute('disabled', '');
   eq(getFocusables(root).length, 1);
   resetDom();
+});
+
+// ── 9. 软键栏的所有权 (参考 KaiUI SoftKey) ─────────────────────────────
+check('软键文案随作用域一起生效: onKey(..., { softkeys }) ', () => {
+  clearKeys();
+  resetDom();
+  const off = onKey('page', { SoftLeft: () => {} }, { softkeys: ['刷新', '返回', '打开'] });
+  eq(softkeys(), '刷新|返回|打开', '注册后软键栏应该显示作用域声明的文案');
+  off();
+  clearKeys();
+});
+
+check('软键文案随作用域一起注销: 作用域销毁后自动还原', () => {
+  clearKeys();
+  resetDom();
+  const before = softkeys();
+  const off = onKey('page', { SoftLeft: () => {} }, { softkeys: ['刷新', '返回', '打开'] });
+  eq(softkeys(), '刷新|返回|打开');
+  off();
+  eq(softkeys(), before, '注销后应该还原成接管前的文案');
+  clearKeys();
+});
+
+check('软键文案: 路由切换的交错顺序不会还原错 (Svelte 新组件先 onMount)', () => {
+  clearKeys();
+  resetDom();
+  const before = softkeys();
+  // 旧页面注册
+  const offOld = onKey('old-page', { SoftLeft: () => {} }, { softkeys: ['旧', '旧', '旧'] });
+  // 新页面注册 (Svelte: 新组件先 onMount)
+  const offNew = onKey('new-page', { SoftLeft: () => {} }, { softkeys: ['新', '新', '新'] });
+  // 旧页面销毁 (Svelte: 旧组件后 onDestroy)
+  offOld();
+  eq(softkeys(), '新|新|新', '旧页面销毁不能把新页面的文案覆盖掉');
+  offNew();
+  eq(softkeys(), before);
+  clearKeys();
+});
+
+check('软键文案: 动态文案 (softkeys: true) 也会跟着更新', () => {
+  clearKeys();
+  resetDom();
+  const off = onKey('page', { SoftLeft: () => {} }, { softkeys: true });
+  setSoftkeys('动态', '返回', '');
+  eq(softkeys(), '动态|返回|');
+  off();
+  clearKeys();
+});
+
+check('模态框接管软键: 打开时显示取消/发送, 关闭后自动还原', () => {
+  clearKeys();
+  resetDom();
+  const before = softkeys();
+  const off = onKey('page', { SoftLeft: () => {} }, { softkeys: ['全屏', '返回', '播放'] });
+  const close = openModalScope('modal', { SoftLeft: () => {} }, { softkeys: ['取消', '发送', ''] });
+  eq(softkeys(), '取消|发送|', '模态打开时应该显示模态自己的文案');
+  close();
+  eq(softkeys(), '全屏|返回|播放', '模态关闭后应该还原成底层页面的文案');
+  off();
+  eq(softkeys(), before);
+  clearKeys();
+});
+
+// ── 3. catchAll (整页拦截按键) ──────────────────────────────────────────
+check('catchAll: 接管本作用域没具名声明的按键', () => {
+  clearKeys();
+  resetDom();
+  const got = [];
+  const off = onKey('page', { SoftLeft: () => { got.push('named'); } }, {
+    catchAll: (e, key) => { got.push('catch:' + key); }
+  });
+  const e = press('SoftRight');
+  eq(got.join(','), 'catch:SoftRight', '没具名声明的键应该交给 catchAll');
+  ok(e.defaultPrevented, 'catchAll 处理过的键应该被 preventDefault');
+  off();
+  clearKeys();
+});
+
+check('catchAll: 同作用域内具名声明优先于 catchAll', () => {
+  clearKeys();
+  resetDom();
+  const got = [];
+  const off = onKey('page', { SoftLeft: () => { got.push('named'); } }, {
+    catchAll: (e, key) => { got.push('catch:' + key); }
+  });
+  press('SoftLeft');
+  eq(got.join(','), 'named');
+  off();
+  clearKeys();
+});
+
+check('catchAll: 返回 false 表示不处理, 继续找低优先级作用域', () => {
+  clearKeys();
+  resetDom();
+  const got = [];
+  const offHigh = onKey('high', {}, { priority: 50, catchAll: () => false });
+  const offLow = onKey('low', { SoftRight: () => { got.push('low'); } }, { priority: 0 });
+  press('SoftRight');
+  eq(got.join(','), 'low');
+  offHigh();
+  offLow();
+  clearKeys();
+});
+
+check('catchAll: 高优先级的 catchAll 会盖过低优先级的具名处理器', () => {
+  clearKeys();
+  resetDom();
+  const got = [];
+  const offHigh = onKey('high', {}, {
+    priority: 50,
+    catchAll: (e, key) => { got.push('catch:' + key); return true; }
+  });
+  const offLow = onKey('low', { SoftRight: () => { got.push('low'); } }, { priority: 0 });
+  const e = press('SoftRight');
+  eq(got.join(','), 'catch:SoftRight');
+  ok(e.defaultPrevented);
+  offHigh();
+  offLow();
+  clearKeys();
+});
+
+check('catchAll: 放行方向键后, 框架默认的焦点漫游仍然生效', () => {
+  clearKeys();
+  resetDom();
+  const list = makeList(3);
+  const off = onKey('page', {}, {
+    catchAll: (e, key) => key !== 'Up' && key !== 'Down' && key !== 'Enter'
+  });
+  press('Down');
+  ok(doc.activeElement === list.items[0], '放行 Down 之后焦点应该漫游到第一个元素');
+  press('Down');
+  ok(doc.activeElement === list.items[1], '再按一次应该走到第二个元素');
+  off();
+  clearKeys();
 });
 
 // ── 运行 ────────────────────────────────────────────────────────────────

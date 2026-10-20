@@ -3,7 +3,7 @@
   import { searchVideo } from "../api/user.js";
   import { navigate, getRouteParams } from "../router/index.js";
   import { onKey, roam } from "../keyboard/index.js";
-  import { setSoftkeys, showToast } from "../stores/ui.js";
+  import { showToast } from "../stores/ui.js";
   import Loading from "../components/Loading.svelte";
   import LoadingMore from "../components/LoadingMore.svelte";
   import EmptyState from "../components/EmptyState.svelte";
@@ -103,14 +103,14 @@
       hasSearched = true;
     }
 
-    setSoftkeys("刷新", "返回", "打开");
     // onKey() 返回注销函数, 直接作为 onMount 的返回值 → 组件销毁时自动注销
+    // softkeys: 作用域同时接管软键栏 (文案随作用域一起释放)。
     return onKey("search-results", {
       // 向下漫游到列表末尾时加载下一页 (roam 的 onEdge 在"没能移动"时触发)
       Down: () => roam(+1, () => loadMore()),
       Up: () => roam(-1),
       SoftLeft: () => doSearch(1)
-    });
+    }, { softkeys: ["刷新", "返回", "打开"] });
   });
 </script>
 

@@ -1,10 +1,8 @@
 <script>
   import { createEventDispatcher, tick } from 'svelte';
-  import { get } from 'svelte/store';
   import { getSubReplies } from '../api/interact.js';
   import { formatCount, relativeTime } from '../utils/format.js';
   import { biliImg } from '../utils/platform.js';
-  import { ui, setSoftkeys } from '../stores/ui.js';
   import { matchKey } from '../keyboard/keys.js';
   import CommentReply from './CommentReply.svelte';
   import LoadingMore from './LoadingMore.svelte';
@@ -35,15 +33,6 @@
   // CommentReply 组件实例引用
   /** @type {any} */
   let commentReplyRef;
-
-  // 打开回复框前的软键标签 (关闭时还原)
-  let prevSoftkeys = null;
-
-  function restoreSoftkeys() {
-    if (!prevSoftkeys) return;
-    setSoftkeys(prevSoftkeys.left, prevSoftkeys.right, prevSoftkeys.center);
-    prevSoftkeys = null;
-  }
 
   const dispatch = createEventDispatcher();
 
@@ -112,13 +101,9 @@
     setReplyTarget(c, sub);
     replyText = '';
     showReplyModal = true;
-    // 回复框独占按键: 软键切换为 取消 / 发送 (CommentReply 内部处理这两个键)
-    if (!prevSoftkeys) {
-      const sk = get(ui).softkeys;
-      prevSoftkeys = { left: sk.left, right: sk.right, center: sk.center };
-    }
-    setSoftkeys('取消', '发送');
-    // CommentReply 的界面由它自己的 open() 控制 (且 {#if showReplyModal} 需要先完成挂载)
+    // 回复框的软键 (取消/发送) 由 CommentReply 自己的模态作用域接管,
+    // 关闭时自动还原 —— 不用在这里手动存/还原
+    // (CommentReply 的界面由它自己的 open() 控制, 且 {#if showReplyModal} 需要先完成挂载)
     await tick();
     if (commentReplyRef) commentReplyRef.open();
   }
@@ -128,7 +113,6 @@
     showReplyModal = false;
     replyText = '';
     replyTarget = null;
-    restoreSoftkeys();
   }
 
   // 发送评论
@@ -162,7 +146,7 @@
     replyText = '';
     replyTarget = null;
     showReplyModal = false;
-    restoreSoftkeys();
+    // 软键由 CommentReply 的模态作用域持有, 组件销毁时自动还原
   }
 
   // 处理发送失败（由父组件调用）
@@ -266,7 +250,6 @@
           showReplyModal = false;
           replyText = '';
           replyTarget = null;
-          restoreSoftkeys();
         }}
       />
     {/if}

@@ -20,6 +20,7 @@
   import SearchResults from "./lib/views/SearchResults.svelte";
   import Settings from "./lib/views/Settings.svelte";
   import About from "./lib/views/About.svelte";
+  import KeyTest from "./lib/views/KeyTest.svelte";
 
   const routes = {
     "/home": MainLayout,
@@ -36,6 +37,7 @@
     "/search-results": SearchResults,
     "/settings": Settings,
     "/about": About,
+    "/keytest": KeyTest,
     "*": MainLayout, // fallback
   };
 

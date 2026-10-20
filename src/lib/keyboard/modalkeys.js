@@ -44,13 +44,16 @@ export const MODAL_PRIORITY = 100;
  * @param {Object<string, Function|Object>} map 按键表
  * @param {Object} [opts]
  * @param {number} [opts.priority=100]
+ * @param {Array<string>} [opts.softkeys] [left, right, center]
+ *        模态打开时接管软键栏 (显示"取消/发送"), 关闭时自动还原成底层的文案
  * @returns {Function} 关闭函数 (同时注销作用域)
  */
 export function openModalScope(name, map, opts) {
   opts = opts || {};
   return onKey(name, map, {
     exclusive: true,
-    priority: typeof opts.priority === 'number' ? opts.priority : MODAL_PRIORITY
+    priority: typeof opts.priority === 'number' ? opts.priority : MODAL_PRIORITY,
+    softkeys: opts.softkeys || null
   });
 }
 

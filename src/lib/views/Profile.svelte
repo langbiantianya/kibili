@@ -15,12 +15,14 @@
       hydrateFromNav();
     }
     // onKey() 返回注销函数, 直接作为 onMount 的返回值 → 组件销毁时自动注销
+    // softkeys: true → 本作用域接管软键栏 (文案由下面的响应式语句动态改),
+    // 组件卸载时自动还原, 不会把上一个页面的文案留在软键栏
     return onKey("profile", {
       Down: () => moveFocus(+1),
       Up: () => moveFocus(-1),
       SoftLeft: () => activateFocused(),
       SoftRight: () => onLogoutClick()
-    });
+    }, { softkeys: true });
   });
 
   // 软键随登录状态变化 (登录/登出后立即更新, 不用重进页面)

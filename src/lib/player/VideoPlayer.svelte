@@ -479,7 +479,7 @@
         }
       }
       // SoftRight 不声明: 交给全局 app-back 兜底 (右软键 = 返回, 退出播放器)
-    }, { priority: 10 });
+    }, { priority: 10, softkeys: true });
   });
 
   function fmt(t) {

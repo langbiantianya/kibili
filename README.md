@@ -67,8 +67,10 @@
 │       ├── player/          # 视频播放器
 │       ├── router/          # 路由工具
 │       ├── stores/          # Svelte stores (状态管理)
+│       │   └── keytest.js   #   按键检测数据 (真机核对用, 可从 adb 拉取)
 │       ├── utils/           # 工具函数
 │       └── views/           # 页面视图
+│           └── KeyTest.svelte # 按键检测页 (真机核对实体键 ↔ 框架映射)
 ├── index.html               # HTML 模板
 ├── rollup.config.js         # Rollup 构建配置
 └── package.json
@@ -332,15 +334,18 @@ KaiOS 把硬件返回键（`KEY_BACK`）上报为 DOM 事件 `key: "SoftRight"`�
 - 回复框等模态组件打开时独占按键（左软键=取消，右软键=发送，Enter=发送）
 - 返回键家族：右软键 `SoftRight`、退格键 `Backspace`、挂断键 `EndCall`、Smart Touch 的 `GoBack`/`BrowserBack` 都能当"返回"用（顶层页面不拦截，交给系统退出）
 - 有硬件音量键的机型（`VolumeUp`/`VolumeDown`/`VolumeMute`）在播放器里调音量；系统类按键（电源/相机/拨号/短信/通知/语音助手）一律不拦截，长按才能退出应用
+- **左软键在这类机型上是 `KEY_MENU`，DOM 层拿到的 key 名是 `SoftLeft`**（不是 `F1`/`ContextMenu`），按下时系统会同时弹自己的菜单 —— 这是 OS 行为，网页拦不住，但按键本身能正常绑定
 
 ## 按键导航框架
 
 `src/lib/keyboard/` 是全应用**唯一**的按键入口。视图不再各自监听 `window`，而是注册"按键作用域"（scope），由总线统一分发。
 
+设计参考了 [KaiUI](https://github.com/AdrianMachado/KaiUI) 的 `SoftKey` 组件（KaiOS 官方生态里最常用的组件库）：软键的**文案**和**处理器**由同一个对象持有，组件卸载时一起释放。
+
 | 文件 | 职责 |
 | --- | --- |
 | `keys.js` | 按键归一化：把 KaiOS 各机型不一致的 `e.key` / `keyCode` 统一成规范名 |
-| `scopes.js` | 作用域注册表：优先级、独占、按实例注销 |
+| `scopes.js` | 作用域注册表：优先级、独占、按实例注销、软键栏所有权 |
 | `roving.js` | 焦点漫游：`[data-navable]` 收集、上下移动、区域边界、滚动居中、激活 |
 | `index.js` | 按键总线：分发顺序、输入框策略、默认行为、长按 |
 | `modalkeys.js` | 模态框独占作用域（回复框等） |
@@ -360,16 +365,59 @@ KaiOS 把硬件返回键（`KEY_BACK`）上报为 DOM 事件 `key: "SoftRight"`�
 | `Back` | `Backspace` | 8 | 退格键（官方语义就是"返回上一级"） |
 | `BrowserBack` | `BrowserBack` | 0 | 浏览器返回键 |
 | `GoBack` | `GoBack` | 0 | Smart Touch 返回键（KaiOS 3，如 Nokia 8000 4G） |
-| `EndCall` | `EndCall` | 0 | 挂断键（官方语义"结束当前操作"） |
+| `EndCall` | `EndCall` | **95**（实测） | 挂断键（官方语义"结束当前操作"） |
 | `VolumeUp` / `VolumeDown` | `VolumeUp` / `VolumeDown` | **183 / 182** | 音量键（Gecko 48 的值） |
 | `Mute` | `VolumeMute` | 181 | 静音键 |
 | `Symbol` | `Symbol` | 0 | 符号输入键（`#` `*` `-` `+` `@`） |
-| `Camera` / `Power` / `Call` / `HeadsetHook` / `Notification` / `LaunchWebBrowser` / `LaunchMail` | 同名 | 0 | 系统/其它应用的键，**应用不应吞掉** |
+| `Camera` / `Power` / `Call` / `HeadsetHook` / `Notification` / `LaunchWebBrowser` / `LaunchMail` | 同名 | 0（`HeadsetHook` 实测 112） | 系统/其它应用的键，**应用不应吞掉** |
 | `0`–`9`、`*`、`#` | 同名字符 | 48–57 | 数字键与符号键 |
 
 ⚠️ **Gecko 48 里软键/相机键/电源键没有对应的 `DOM_VK`** —— 它们的 `keyCode` 是 `0`，只能靠 `e.key` 识别。官方文档也明确要求用 `KeyboardEvent#key`（`code` 会随键盘布局变，不可靠）。
 
 ⚠️ **KaiOS 2.4 与 KaiOS 3 的音量 keyCode 正好相反**（2.4: 183=音量+；3.0: 182=音量+）。框架为此做了**运行时自学习**：只要见过一次"已知 key 名 + 某个 keyCode"，就记住这台机器的对应关系，之后 `e.key === 'Unidentified'` 的事件也能正确还原。自学习到的映射优先于静态表。
+
+### 真机实测：Nokia 6300 4G（KaiOS 2.4 / Gecko 48）
+
+上表的 `keyCode` 一半来自 Gecko 源码，一半是这台机器上按出来的。下面这张表是**逐个实体键实测**的结果（内核层 `getevent` + DOM 层同时抓，按键映射对得上）：
+
+| 实体键 | Linux key | DOM `e.key` | 规范名 | `e.keyCode` | 备注 |
+| --- | --- | --- | --- | --- | --- |
+| 左软键 / 菜单键 `≡` | `KEY_MENU` (139) | `SoftLeft` | `SoftLeft` | 0 | **能进页面**，但系统同时会弹菜单 |
+| 右软键 `←` | `KEY_BACK` (158) | `SoftRight` | `SoftRight` | 0 | `e.code` 是 `BrowserBack` |
+| 退格 | `KEY_BACKSPACE` (14) | `Backspace` | `Back` | 8 | |
+| 方向键 | 103/105/106/108 | `ArrowUp/Left/Right/Down` | `Up/Left/Right/Down` | 38/37/39/40 | |
+| 中键 OK | `KEY_OK` (352) | `Enter` | `Enter` | 13 | 长按会触发 `MicrophoneToggle`（语音助手） |
+| 挂断键 | `KEY_END` (107) | `EndCall` | `EndCall` | **95** | Gecko 48 的 IDL 里没有这一项，是 KaiOS 自己加的 |
+| 通话键 | `KEY_SEND` (231) | `Call` | `Call` | 0 | |
+| 音量 + / − | `KEY_VOLUMEUP/DOWN` (115/114) | `VolumeUp/VolumeDown` | 同名 | **183 / 182** | 与 KaiOS 2.4 的静态表一致 |
+| 媒体键 | `KEY_MEDIA` (226) | `HeadsetHook` | `HeadsetHook` | **112** | Gecko 里 112 是 `F1` |
+| 数字键 | `KEY_1`…`KEY_0` | `1`…`0` | 同名字符 | 49…48 | |
+| 相机键 | `KEY_CAMERA` (207) | — | — | — | **被系统吃掉**，直接开相机，页面收不到 |
+| 电源键 | `KEY_POWER` (116) | — | — | — | 被系统吃掉（熄屏/退出） |
+| 语音键 | `KEY_VOICECOMMAND` (217) | — | — | — | 被系统吃掉 |
+| `*` / `#` | `KEY_NUMERIC_STAR/POUND` | — | — | — | 走 `gpio-keys` / `qpnp_pon`，页面收不到 |
+
+要点：
+
+- **左软键（`≡`）是可以用的** —— 它上报的是 `KEY_MENU`，DOM 层拿到的就是 `SoftLeft`，框架能正常拦截。只是按下时系统会同时弹自己的菜单，这是 OS 行为，网页拦不住。
+- **相机键 / 电源键 / 语音键根本到不了页面**，任何"拦截系统键"的写法都没意义 —— 框架的 `SYSTEM_KEYS` 把它们列为不拦截，系统键长按才能退出应用，官方要求如此。
+- 页面刚加载完的**第一发按键**会被 Gecko 的 chrome 吞掉（不是 bug），自动化测试时先空打一发预热。
+
+### 按键检测页
+
+应用内有一个**按键检测页**（设置 → 按键检测，路由 `#/keytest`），用于在真机上核对实体键与框架映射：
+
+- 捕获阶段监听 `keydown`，拿未经框架处理的原始事件
+- 表格逐行对照「规范名 / 硬件 / 实测 e.key / keyCode(实测/期望) / 判定」
+- 「一致」= 原始 key 与 keyCode 都对得上；「别名」= 框架仍能归一化，但和官方表格的原始名不同；「码差」= 静态兜底表在这台机器上不准
+- 页面会吃掉**所有**按键（`catchAll`），不会被任何键带走；清空/返回是页面底部的按钮，不绑快捷键
+- 同时显示运行时自学习表和当前生效的按键作用域（谁在抢键一目了然）
+
+也可以直接从 adb 把结果拉回机器上比对：
+
+```bash
+node scripts/device-console.js --eval 'JSON.stringify(window.__keytest.seen)'
+```
 
 ### 设备按键探测
 
@@ -408,6 +456,67 @@ onMount(() => {
 - 函数返回 `false` 表示"我没处理这个键" → 总线不 `preventDefault`，浏览器默认行为照常发生
 - `onKey(name, map, { priority })` 声明优先级，大的优先（默认 0；模态 100、播放器 10、全局返回 -100）
 
+### 整页拦截按键（catchAll）
+
+有些页面需要**吃掉所有按键** —— 比如按键检测页：任何键都不能把页面带走（否则按退格键/右软键就退出了，根本测不完）。
+
+`onKey` 的 `catchAll` 选项负责这件事：接管本作用域**没有具名声明**的任何按键。
+
+```js
+return onKey('keytest', {}, {
+  priority: 50,
+  catchAll: (e, key) => {
+    // 方向键/中键放行: 框架默认行为 (焦点漫游 + 激活按钮) 要继续工作
+    if (key === 'Up' || key === 'Down' || key === 'Left' || key === 'Right' || key === 'Enter') {
+      return false;
+    }
+    // 系统键放行: 官方要求永远别拦着用户离开应用
+    if (SYSTEM_KEYS.indexOf(key) >= 0) return false;
+    return true;   // 其余一律吞掉 (会被 preventDefault)
+  }
+});
+```
+
+规则：
+
+- 同作用域内**具名声明优先**于 `catchAll`
+- `catchAll` 返回 `false` 表示"不处理" → 总线继续往下找更低优先级的作用域
+- 高优先级的 `catchAll` 会盖过低优先级作用域的具名处理器
+- 模态独占作用域不受影响，仍然优先于 `catchAll`
+
+### 软键栏的所有权
+
+参考 KaiUI 的 `SoftKey`：软键的**文案**和**处理器**由同一个作用域持有，卸载时一起释放。否则会出现两类问题：
+
+- 页面注册了按键处理器但忘了设文案 → 软键栏还显示上一个页面的文案
+- 页面已经卸载但文案还在 → 软键栏写着"刷新"，按下去却没人响应
+
+`onKey` 的 `softkeys` 选项让作用域接管软键栏：
+
+```js
+// 文案固定：直接声明在作用域里
+return onKey('history', {
+  SoftLeft: () => refresh(),
+  SoftRight: () => navigate('/home')
+}, { softkeys: ['刷新', '返回', '播放'] });   // [左, 右, 中]
+
+// 文案随状态变：作用域只接管生命周期，文案自己用 setSoftkeys 改
+$: setSoftkeys($isLogin ? "刷新" : "登录", "返回", "打开");
+return onKey('home', { ... }, { softkeys: true });
+```
+
+作用域注销时自动还原成接管之前的文案。模态框（回复框）也是这么做的 —— 打开时显示"取消/发送"，关闭时自动还原成播放器页面的文案：
+
+```js
+const closeScope = openModalScope('reply', {
+  SoftLeft: () => close(),
+  SoftRight: () => send(),
+  Enter: () => send()
+}, { softkeys: ['取消', '发送', ''] });
+```
+
+> 还原用的是"声明栈"而不是简单栈：Svelte 3 路由切换时是**新组件先 `onMount`、旧组件后 `onDestroy`**（和 React 相反），简单栈会还原错。声明栈按下标取最后一个持有者，与注销顺序无关。
+
 ### 框架默认行为
 
 页面没有注册对应按键时，框架自动提供：
@@ -437,8 +546,9 @@ const closeScope = openModalScope('reply', {
   SoftLeft: () => close(),
   SoftRight: () => send(),
   Enter: () => send(),
-  Back: () => (!value ? close() : false)  // 非空时返回 false → 退格正常删字
-});
+  EndCall: () => close(),                        // 挂断键 = 取消
+  Back: () => (!value ? close() : false)         // 非空时返回 false → 退格正常删字
+}, { softkeys: ['取消', '发送', ''] });           // 关闭时软键栏自动还原
 ```
 
 ### 自测
@@ -449,11 +559,12 @@ const closeScope = openModalScope('reply', {
 node scripts/test-keyboard.js
 ```
 
-覆盖按键归一化、作用域优先级与实例隔离、输入框策略、模态独占、焦点漫游的首/末/边界、长按与 keyup 收尾。
+覆盖按键归一化、跨版本 keyCode 自学习、作用域优先级与实例隔离、输入框策略、模态独占、软键栏所有权与还原、焦点漫游的首/末/边界、长按与 keyup 收尾、`catchAll` 整页拦截。
 
 ## 致谢
 
 - [bili-apis](https://github.com/realysy/bili-apis) — B站 API 参考
+- [KaiUI](https://github.com/AdrianMachado/KaiUI) — KaiOS 组件库（软键栏的设计参考）
 - [Svelte](https://svelte.dev/) — UI 框架
 - [Rollup](https://rollupjs.org/) — 模块打包
 

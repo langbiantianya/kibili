@@ -270,7 +270,7 @@
         if (activeTab === 0) { videos = []; videoOffset = ''; videoHasMore = true; loadVideos(); }
         else { dynamics = []; dynOffset = ''; dynHasMore = true; loadDynamics(); }
       },
-    });
+    }, { softkeys: true });
   });
 </script>
 

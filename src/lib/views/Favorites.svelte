@@ -5,7 +5,7 @@
   import { user, isLogin } from "../stores/user.js";
   import { navigate } from "../router/index.js";
   import { onKey, moveFocus } from "../keyboard/index.js";
-  import { setSoftkeys, showToast } from "../stores/ui.js";
+  import { setSoftkeys } from "../stores/ui.js";
   import Loading from "../components/Loading.svelte";
   import EmptyState from "../components/EmptyState.svelte";
 
@@ -44,6 +44,7 @@
     load();
     // onKey() 返回自己的注销函数, 直接交给 onMount 的返回值 → 组件销毁时
     // 只移除"本实例"注册的作用域 (同名实例之间不会互相踩)。
+    // softkeys: true → 接管软键栏的生命周期, 文案仍由上面的 setSoftkeys 动态给
     return onKey("favorites", {
       Down: () => moveFocus(+1),
       Up: () => moveFocus(-1),
@@ -51,7 +52,7 @@
         if ($isLogin) load();
         else navigate("/login");
       }
-    });
+    }, { softkeys: true });
   });
 </script>
 

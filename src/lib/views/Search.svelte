@@ -3,7 +3,7 @@
   import { getHotSearch } from "../api/user.js";
   import { navigate } from "../router/index.js";
   import { onKey, moveFocus, activateFocused } from "../keyboard/index.js";
-  import { setSoftkeys, showToast } from "../stores/ui.js";
+  import { showToast } from "../stores/ui.js";
   import Loading from "../components/Loading.svelte";
   import EmptyState from "../components/EmptyState.svelte";
 
@@ -47,13 +47,13 @@
   }
 
   onMount(() => {
-    setSoftkeys("搜索", "返回", "");
     loadHot();
     // 页面加载时聚焦输入框
     setTimeout(() => {
       if (inputRef) inputRef.focus();
     }, 100);
     // onKey() 返回注销函数, 直接作为 onMount 的返回值 → 组件销毁时自动注销
+    // softkeys: 作用域同时接管软键栏 (文案随作用域一起释放)。
     return onKey("search", {
       // 向下: 输入框有焦点时也会走到这里, 因为输入框不在 [data-navable] 列表里,
       // moveFocus 会把焦点落到第一个热搜项
@@ -77,7 +77,7 @@
         }
         return activateFocused();
       },
-    });
+    }, { softkeys: ["搜索", "返回", ""] });
   });
 </script>
 

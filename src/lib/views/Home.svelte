@@ -101,7 +101,7 @@
           navigate("/search");
         }
       },
-    });
+    }, { softkeys: true });
   });
 </script>
 

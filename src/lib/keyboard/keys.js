@@ -38,6 +38,14 @@
 //   KaiOS 2.4: VolumeUp=183, VolumeDown=182
 // 所以静态表只按 2.4 (本项目目标) 写, 跨版本由"运行时自学习"兜底 ——
 // 见下面 learnKeyCode()。
+//
+// ── Nokia 6300 4G (KaiOS 2.4) 真机实测 ──────────────────────────────────
+// 下面两项 Gecko 48 的 IDL 里根本没有, 是 KaiOS 自己加的 (或映射到别的 VK):
+//
+//   EndCall      e.key='EndCall'      keyCode=95   (Gecko 里 95 是 F6)
+//   HeadsetHook  e.key='HeadsetHook'  keyCode=112  (Gecko 里 112 是 F1)
+//
+// 实体键 → DOM key 的完整对应见 README「真机实测」一节。
 
 /**
  * 规范键名表 (视图里的按键表统一用这些名字)
@@ -60,13 +68,15 @@ export const KEY = {
   Back:        { key: 'Backspace',   code: 8 },
   GoBack:      { key: 'GoBack',      code: 0 },
   BrowserBack: { key: 'BrowserBack', code: 0 },
-  EndCall:     { key: 'EndCall',     code: 0 },
+  // EndCall 的 keyCode 95 是 KaiOS 2.4 真机实测 (Gecko 48 的 IDL 里没有这一项)
+  EndCall:     { key: 'EndCall',     code: 95 },
 
   // 系统 / 硬件键
   Power:            { key: 'Power',            code: 0 },
   Call:             { key: 'Call',             code: 0 },
+  // HeadsetHook 的 keyCode 112 也是实测 (Gecko 48 里 112 是 F1)
+  HeadsetHook:      { key: 'HeadsetHook',      code: 112 },
   Camera:           { key: 'Camera',           code: 0 },
-  HeadsetHook:      { key: 'HeadsetHook',      code: 0 },
   LaunchWebBrowser: { key: 'LaunchWebBrowser', code: 0 },
   LaunchMail:       { key: 'LaunchMail',       code: 0 },
   Message:          { key: 'Message',          code: 0 },
@@ -176,6 +186,10 @@ const CODE_TO_NAME = {
   107: 'Add',
   110: 'Decimal',
   111: 'Divide',
+  // 下面两个是 Nokia 6300 4G (KaiOS 2.4) 真机实测:
+  // Gecko 48 的 IDL 里没有 EndCall/HeadsetHook, 它们复用了 F6(95)/F1(112)
+  95: 'EndCall',
+  112: 'HeadsetHook',
   181: 'Mute',
   182: 'VolumeDown',
   183: 'VolumeUp'

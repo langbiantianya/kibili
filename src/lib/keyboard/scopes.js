@@ -21,6 +21,17 @@
 //     0  页面/组件 (默认)
 //  -100  应用级兜底 (返回键) —— 全局 scope, 任何页面没接管时才生效
 // 同优先级仍然按"后注册优先", 保持直觉。
+//
+// ── 软键栏的所有权 ────────────────────────────────────────────────────
+// 参考 KaiUI 的 SoftKey 组件: 软键的**文案**和**处理器**应该由同一个对象持有,
+// 组件卸载时一起释放, 否则会出现"软键栏写着刷新、按下去没人响应"这类问题。
+//
+// onKey() 的 opts.softkeys 让本作用域接管软键栏:
+//   softkeys: true                → 只接管生命周期, 文案由页面自己 setSoftkeys() 改
+//   softkeys: [left,right,center] → 接管并立即设置成这三个文案
+// 作用域注销时自动还原。
+
+import { claimSoftkeys, releaseSoftkeys } from '../stores/ui.js';
 
 /** @type {Array<Object>} */
 let scopes = [];
@@ -40,6 +51,13 @@ let seq = 0;
  * @param {number} [opts.priority=0] 优先级, 越大越优先
  * @param {boolean} [opts.exclusive=false] 独占: 生效期间只有它能响应按键
  * @param {boolean} [opts.global=false] 全局: 路由切换时不清理
+ * @param {Function} [opts.catchAll] 兜底处理器: 接管本作用域**没具名声明**的
+ *        任何按键。用于"本页要吃掉所有按键"的场景 (例如按键检测页:
+ *        不能让任何键把页面带走)。返回 false 表示不处理, 继续往下找。
+ * @param {boolean|Array<string>} [opts.softkeys] 接管软键栏
+ *        true → 只接管生命周期 (文案由页面自己 setSoftkeys 改)
+ *        [left, right, center] → 接管并立即设置成这三个文案
+ *        作用域注销时自动还原 (参考 KaiUI SoftKey 的 unregisterSoftKeys)
  * @returns {Function} 注销函数
  */
 export function onKey(name, map, opts) {
@@ -50,9 +68,17 @@ export function onKey(name, map, opts) {
     map: map || {},
     priority: typeof opts.priority === 'number' ? opts.priority : 0,
     exclusive: !!opts.exclusive,
-    global: !!opts.global
+    global: !!opts.global,
+    catchAll: typeof opts.catchAll === 'function' ? opts.catchAll : null,
+    softkeys: opts.softkeys || null
   };
   scopes.push(scope);
+
+  // 接管软键栏: 文案和处理器由同一个作用域持有, 注销时一起释放
+  if (scope.softkeys) {
+    const labels = Array.isArray(scope.softkeys) ? scope.softkeys : null;
+    claimSoftkeys(scope, labels);
+  }
   return function off() {
     removeScope(scope);
   };
@@ -64,7 +90,11 @@ export function onKey(name, map, opts) {
  */
 export function removeScope(scope) {
   const i = scopes.indexOf(scope);
-  if (i >= 0) scopes.splice(i, 1);
+  if (i >= 0) {
+    scopes.splice(i, 1);
+    // 一并归还软键栏
+    if (scope.softkeys) releaseSoftkeys(scope);
+  }
 }
 
 /**
@@ -73,7 +103,7 @@ export function removeScope(scope) {
  */
 export function offKey(name) {
   for (let i = scopes.length - 1; i >= 0; i--) {
-    if (scopes[i].name === name) scopes.splice(i, 1);
+    if (scopes[i].name === name) removeScope(scopes[i]);
   }
 }
 
@@ -81,7 +111,9 @@ export function offKey(name) {
  * 清空所有作用域 (仅测试用)
  */
 export function clearKeys() {
-  scopes.length = 0;
+  while (scopes.length) {
+    removeScope(scopes[scopes.length - 1]);
+  }
 }
 
 /**

@@ -1,7 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { getVideoInfo, getPlayUrl, getDashUrls } from '../api/video.js';
-  import { setSoftkeys } from '../stores/ui.js';
   import { settings } from '../stores/settings.js';
   import { onKey } from '../keyboard/index.js';
 
@@ -224,7 +223,6 @@
 
   onMount(() => {
     // 左软键 = 播放/暂停, 右软键 = 返回 (返回交给全局 app-back 兜底)
-    setSoftkeys('播放/暂停', '返回', '');
     loadVideo();
     return onKey('fullscreen-player', {
       // 中键用 { press } 形式: 松手时触发一次, 按住不放不会连发
@@ -244,7 +242,7 @@
       // 真机硬件音量键 (Nokia 6300 4G / 8000 4G 等)
       VolumeUp: () => bumpVolume(+1),
       VolumeDown: () => bumpVolume(-1)
-    }, { priority: 10 });
+    }, { priority: 10, softkeys: ['播放/暂停', '返回', ''] });
   });
 
   onDestroy(() => {

@@ -63,7 +63,7 @@
         send();
         return true;
       }
-    });
+    }, { softkeys: ['取消', '发送'] });
 
     // 延迟聚焦，确保 DOM 已更新
     setTimeout(() => {

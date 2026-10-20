@@ -1,8 +1,9 @@
 <script>
   import { onMount } from "svelte";
   import { onKey, moveFocus } from "../keyboard/index.js";
-  import { setSoftkeys, showToast } from "../stores/ui.js";
+  import { showToast } from "../stores/ui.js";
   import { settings } from "../stores/settings.js";
+  import { navigate } from "../router/index.js";
 
   // 分辨率选项
   const qualityOptions = [
@@ -27,13 +28,13 @@
   }
 
   onMount(() => {
-    setSoftkeys("", "返回");
     // onKey() 返回自己的注销函数, 直接交给 onMount 的返回值 → 组件销毁时
     // 只移除"本实例"注册的作用域 (同名实例之间不会互相踩)。
+    // softkeys: 作用域同时接管软键栏 (文案随作用域一起释放)。
     return onKey("settings", {
       Down: () => moveFocus(+1),
       Up: () => moveFocus(-1)
-    });
+    }, { softkeys: ["", "返回", ""] });
   });
 </script>
 
@@ -66,6 +67,11 @@
           {/each}
         </div>
       {/if}
+      <!-- 按键检测: 在真机上核对实体按键与框架按键映射是否对得上 -->
+      <div class="menu-item" data-navable tabindex="0" on:click={() => navigate("/keytest")}>
+        <span class="label">按键检测</span>
+        <span class="value">›</span>
+      </div>
     </div>
   </div>
 </div>

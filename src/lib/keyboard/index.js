@@ -151,9 +151,19 @@ function onKeyDown(e) {
   //    处理器返回 false 表示"我没处理" → 继续找优先级更低的作用域
   const scopes = activeScopes();
   for (let i = 0; i < scopes.length; i++) {
-    const spec = lookup(scopes[i].map, key, e);
-    if (!spec) continue;
-    if (runSpec(spec, key, e, scopes[i])) {
+    const scope = scopes[i];
+    const spec = lookup(scope.map, key, e);
+    if (!spec) {
+      // 该作用域没具名声明这个键, 但声明了 catchAll → 它接管
+      // (用于"本页吃掉所有按键"的场景, 例如按键检测页)
+      if (!scope.catchAll) continue;
+      if (runSpec(scope.catchAll, key, e, scope)) {
+        e.preventDefault();
+        return;
+      }
+      continue;
+    }
+    if (runSpec(spec, key, e, scope)) {
       e.preventDefault();
       return;
     }

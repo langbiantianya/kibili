@@ -1,7 +1,6 @@
 <script>
   import { onMount } from "svelte";
   import { onKey, moveFocus } from "../keyboard/index.js";
-  import { setSoftkeys } from "../stores/ui.js";
 
   const version = "0.0.1a";
   const githubUrl = "https://github.com/langbiantianya/kibili";
@@ -30,13 +29,13 @@
   }
 
   onMount(() => {
-    setSoftkeys("", "返回");
     // onKey() 返回自己的注销函数, 直接交给 onMount 的返回值 → 组件销毁时
     // 只移除"本实例"注册的作用域 (同名实例之间不会互相踩)。
+    // softkeys: 作用域同时接管软键栏 (文案随作用域一起释放)。
     return onKey("about", {
       Down: () => moveFocus(+1),
       Up: () => moveFocus(-1)
-    });
+    }, { softkeys: ["", "返回", ""] });
   });
 </script>
 
