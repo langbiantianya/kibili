@@ -48,7 +48,7 @@ const PAGES = [
   { name: 'about', hash: '#/about', wait: 3000, softkeys: {} },
   // 按键检测页: 不绑任何软键快捷键, 软键栏只有中键提示
   { name: 'keytest', hash: '#/keytest', wait: 3000, softkeys: { center: '选择' } },
-  { name: 'search', hash: '#/search', wait: 5000, softkeys: { left: '搜索' } },
+  { name: 'search', hash: '#/search', wait: 5000, softkeys: { left: '搜索', center: '搜索' } },
   { name: 'search-results', hash: '#/search-results?keyword=%E5%8E%9F%E7%A5%9E', wait: 8000, softkeys: {} },
   { name: 'player', hash: '#/player?bvid=BV1ZqpE6uEKd', wait: 9000, softkeys: {} }
 ];

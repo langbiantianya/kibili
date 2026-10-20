@@ -266,7 +266,7 @@ node scripts/device-test.js --only back-key          # 只验证右软键返回
 ✓ settings        softkeys={"left":"","center":"","right":""} navables=2
 ✓ about           softkeys={"left":"","center":"","right":""} navables=11
 ✓ keytest         softkeys={"left":"","center":"选择","right":""} navables=19
-✓ search          softkeys={"left":"搜索","center":"","right":""} navables=10
+✓ search          softkeys={"left":"搜索","center":"搜索","right":""} navables=10
 ✓ search-results  softkeys={"left":"刷新","center":"打开","right":""} navables=20
 ✓ player          softkeys={"left":"全屏","center":"暂停","right":""} navables=0
 ✓ back-key        右软键 #/settings → #/profile
@@ -345,6 +345,7 @@ node scripts/device-test.js --only back-key          # 只验证右软键返回
 - 方向键：上下移动焦点（列表内自动滚动居中），左右在详情/评论等子 Tab 间切换
 - 中键：打开/播放/暂停；评论列表中展开子评论
 - **「我的」页不绑左右软键**：进页面焦点落在用户卡片上，中键（OK）打开当前选中项（用户卡片 / 历史记录 / 收藏 / 设置 / 关于 / 登出），软键栏只留中间的"打开"提示
+- **搜索页**：左软键=搜索，中间提示跟着焦点走（输入框里="搜索"，热搜列表里="打开"）；↑ 从热搜列表顶部回到输入框，输入框里再按 ↑ 原地不动
 - 回复框等模态组件打开时独占按键（左软键=取消，右软键=发送，Enter=发送）
 - **返回键家族**：退格键 `Backspace`（规范名 `Back`，官方语义就是"返回上一级"）、挂断键 `EndCall`、Smart Touch 的 `GoBack`/`BrowserBack` 都能当"返回"用（顶层页面不拦截，交给系统退出）
 - 有硬件音量键的机型（`VolumeUp`/`VolumeDown`/`VolumeMute`）在播放器里调音量；系统类按键（电源/相机/拨号/短信/通知/语音助手）一律不拦截，长按才能退出应用
