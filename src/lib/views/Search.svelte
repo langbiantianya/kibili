@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { getHotSearch } from "../api/user.js";
   import { navigate } from "../router/index.js";
-  import { onKey, moveFocus, activateFocused } from "../keyboard/index.js";
+  import { onKey, moveFocus, activateFocused, focusFirst } from "../keyboard/index.js";
   import { setSoftkeys, showToast } from "../stores/ui.js";
   import Loading from "../components/Loading.svelte";
   import EmptyState from "../components/EmptyState.svelte";
@@ -14,7 +14,10 @@
   let error = "";
 
   // 焦点当前在输入框 ("input") 还是热搜列表 ("list") —— 决定中键的提示文案
-  let zone = "input";
+  let zone = "";
+
+  // 正在刷新热搜 (防止左软键被触发两次时把列表清空两遍)
+  let hotRefreshing = false;
 
   // 输入框引用
   let inputRef;
@@ -32,12 +35,52 @@
     }
   }
 
+  /**
+   * 刷新热搜 (左软键)
+   *
+   * 刷新**不清空列表**: 页面继续显示旧的热搜, 数据到了再替换。
+   *  - 清空会把整块列表换成 <Loading> 再卸载, 焦点跟着丢
+   *  - 左软键在这类机型上是 KEY_MENU, 按下时系统会弹自己的菜单, 应用被挂到
+   *    后面, 请求要等菜单关掉才回来 —— 这时页面至少还是原来那份内容, 不会一片空白
+   *
+   * 焦点**不等请求**先回第一条 (菜单挂着的时候请求是回不来的),
+   * 数据到了再补一次 (列表换掉后 DOM 会重建, 焦点得再放回去)。
+   *
+   * 要有守卫: 同一个按键可能被分发两次 (系统菜单重放), 不挡住的话会重复请求。
+   */
+  async function refreshHot() {
+    if (hotRefreshing) return;
+    hotRefreshing = true;
+    const wasInList = zone === "list";
+    try {
+      // 焦点本来在列表里才动它 (在输入框里刷新就别把焦点抢走)
+      if (wasInList) focusFirstHot();
+      error = "";
+      const d = await getHotSearch();
+      hotList = (d && d.list) ? d.list : [];
+      await tick();
+      if (wasInList) focusFirstHot();
+    } catch (e) {
+      error = e.message || "加载失败";
+    } finally {
+      hotRefreshing = false;
+    }
+  }
+
+  /** 焦点放到热搜列表第一条 */
+  function focusFirstHot() {
+    const list = document.querySelector(".hot-list");
+    if (list) focusFirst(list);
+  }
+
   function doSearch() {
     const term = keyword.trim();
     if (!term) {
       showToast("请输入搜索关键词");
       return;
     }
+    // 已经在搜索结果页就不重复跳 (软键可能被触发两次)
+    if (location.hash.indexOf("#/search-results") === 0) return;
     // 跳转到搜索结果页
     navigate("/search-results?keyword=" + encodeURIComponent(term));
   }
@@ -75,15 +118,16 @@
         if (!moved && inputRef) inputRef.focus();
         return true;
       },
-      SoftLeft: () => doSearch(),
-      // 中键: 输入框里 = 搜索; 列表里 = 激活当前热搜项
+      SoftLeft: () => refreshHot(),
+      SoftRight: () => doSearch(),
+      // 中键: 列表里 = 激活当前热搜项
       // (scope 里显式声明了 Enter 之后, 框架默认的"Enter 激活焦点元素"就不会再触发,
       //  所以列表里要自己调 activateFocused 补上, 等价于点一下当前项)
+      //
+      // **输入框里不绑搜索**: 输入文本时按 OK 很容易误触 (手还在键盘上),
+      // 搜索走左软键就行, 输入框里的 OK 什么都不做。
       Enter: () => {
-        if (document.activeElement === inputRef) {
-          doSearch();
-          return true;
-        }
+        if (document.activeElement === inputRef) return true;
         return activateFocused();
       },
     }, { softkeys: true });
@@ -101,11 +145,15 @@
       zone = "input";
     } else if (e.target && e.target.classList && e.target.classList.contains("hot-item")) {
       zone = "list";
+    } else {
+      zone = "";
     }
   }
 
-  // 软键栏: 左软键=搜索; 中间提示中键 (OK) 当前的作用 (输入框里=搜索, 列表里=打开)
-  $: setSoftkeys("搜索", "", zone === "list" ? "打开" : "搜索");
+  // 软键栏: 左软键=刷新热搜, 右软键=搜索;
+  // 中间提示中键 (OK) 当前的作用 ——
+  // 焦点在热搜列表里才显示"打开", 输入框里中键什么都不做, 就不显示文案
+  $: setSoftkeys("刷新", "搜索", zone === "list" ? "打开" : "");
 </script>
 
 <div class="screen">
