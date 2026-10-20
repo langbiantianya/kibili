@@ -32,8 +32,8 @@ function blank(uid) {
   return {
     uid: uid || 0,
     activeTab: 0,          // 0 = 资料, 1 = 投稿, 2 = 动态
-    // 个人资料
-    profile: null,         // { card, space }
+    // 个人资料 (拍平后的, 字段路径见 api/user.js 的 mapUserProfile)
+    profile: null,         // { uid, name, face, sign, level, sex, birthday, official, fans, attention, archive, likeNum }
     profileLoading: false,
     profileError: '',
     // 投稿视频

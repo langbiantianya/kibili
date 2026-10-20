@@ -101,44 +101,9 @@
 
   // ============ 资料 ============
 
-  /** 性别代码 → 文案 */
-  function sexText(sex) {
-    if (sex === '男') return '男';
-    if (sex === '女') return '女';
-    return '保密';
-  }
-
-  /**
-   * 名片 + 空间详细信息 → 一份好用的展示数据
-   *
-   * 两个接口的字段有重叠也有互补:
-   *   名片 (card)   有粉丝数/关注数/获赞数
-   *   空间 (space)  有性别/生日/认证
-   * 有一个失败就用另一个的, 别让整页空掉。
-   */
-  function buildInfo(p) {
-    if (!p) return null;
-    const card = (p.card && p.card.card) ? p.card.card : null;
-    const space = p.space || null;
-    const levelInfo = card && card.level_info ? card.level_info : null;
-    return {
-      uid: (space && space.mid) || (card && card.mid) || 0,
-      name: (space && space.name) || (card && card.name) || '',
-      face: (space && space.face) || (card && card.face) || '',
-      sign: (space && space.sign) || (card && card.sign) || '',
-      level: (space && space.level) || (levelInfo && levelInfo.current_level) || 0,
-      sex: sexText(space && space.sex),
-      birthday: (space && space.birthday) || '',
-      official: (space && space.official && space.official.title) ||
-        (card && card.Official && card.Official.title) || '',
-      fans: (card && card.fans) || 0,
-      attention: (card && card.attention) || 0,
-      archive: (space && space.archive_count) || (card && card.archive_count) || 0,
-      likeNum: (card && card.like_num) || 0
-    };
-  }
-
-  $: info = buildInfo($userPage.profile);
+  // 资料已经是拍平过的 (见 api/user.js 的 mapUserProfile):
+  // 投稿数/获赞数这类统计在名片响应的**顶层**, 字段路径都在 API 层处理好了
+  $: info = $userPage.profile;
 
   /** 资料 tab 的行 (空的行不显示) */
   $: infoRows = info ? [
@@ -149,7 +114,8 @@
     { label: 'UID', value: String(info.uid) },
     { label: '关注', value: formatCount(info.attention) },
     { label: '粉丝', value: formatCount(info.fans) },
-    { label: '投稿', value: formatCount(info.archive) },
+    // 名片里没有投稿数时, 退回用投稿 tab 的分页总数
+    { label: '投稿', value: formatCount(info.archive || $userPage.videoCount) },
     { label: '获赞', value: formatCount(info.likeNum) }
   ].filter(r => r.value) : [];
 
@@ -230,7 +196,7 @@
       </div>
       <div class="head-stat">
         {#if info}
-          UID {info.uid} · 粉丝 {formatCount(info.fans)} · 投稿 {formatCount(info.archive)}
+          UID {info.uid} · 粉丝 {formatCount(info.fans)} · 投稿 {formatCount(info.archive || $userPage.videoCount)}
         {/if}
       </div>
     </div>

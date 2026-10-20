@@ -1048,6 +1048,75 @@ check('用户主页: 换人时各自缓存自己的数据和焦点', async () =>
   eq(switchUser(111), false, '同一个人再切一次应该什么都不做');
 });
 
+// ── 7. 用户资料字段映射 ────────────────────────────────────────────────
+// 名片接口 (x/web-interface/card) 的字段是分层的, 记错位置就会显示成 0:
+//   粉丝/关注在 card 里面, 投稿/获赞在**顶层**
+check('用户资料: 投稿数和获赞数取名片响应的顶层字段', async () => {
+  const { mapUserProfile } = await import('../src/lib/api/user.js');
+
+  // 真实响应 (x/web-interface/card, mid=946974) 的形状
+  const cardRes = {
+    card: {
+      mid: 946974,
+      name: '影视飓风',
+      sex: '男',
+      face: 'https://i0.hdslb.com/face.jpg',
+      sign: '无限进步！',
+      level_info: { current_level: 6 },
+      fans: 18661047,
+      attention: 686,
+      Official: { title: '2025百大UP主' }
+    },
+    follower: 18661047,
+    following: false,        // 布尔值! 不是关注数
+    archive_count: 950,      // 投稿数在顶层
+    article_count: 0,
+    like_num: 129421015      // 获赞数也在顶层
+  };
+
+  const info = mapUserProfile(cardRes, null);
+  eq(info.archive, 950, '投稿数应该取顶层的 archive_count');
+  eq(info.likeNum, 129421015, '获赞数应该取顶层的 like_num');
+  eq(info.fans, 18661047, '粉丝数应该取 card.fans');
+  eq(info.attention, 686, '关注数应该取 card.attention');
+  eq(info.sex, '男', '性别应该取 card.sex');
+  eq(info.level, 6, '等级应该取 card.level_info.current_level');
+  eq(info.official, '2025百大UP主', '认证应该取 card.Official.title');
+  eq(info.uid, 946974, 'UID 应该取 card.mid');
+  eq(info.name, '影视飓风', '昵称应该取 card.name');
+});
+
+check('用户资料: 空间接口被风控挡掉时, 名片照样能出数据', async () => {
+  const { mapUserProfile } = await import('../src/lib/api/user.js');
+  const info = mapUserProfile({
+    card: { mid: 2, name: '哔哩哔哩', sex: '女' },
+    archive_count: 29,
+    like_num: 0
+  }, null);
+  eq(info.name, '哔哩哔哩', '名字应该来自名片');
+  eq(info.archive, 29, '投稿数应该来自名片顶层');
+  eq(info.sex, '女', '性别应该来自名片');
+  eq(info.likeNum, 0, '没有获赞数据时应该是 0 而不是 undefined');
+});
+
+check('用户资料: 空间信息的字段优先于名片', async () => {
+  const { mapUserProfile } = await import('../src/lib/api/user.js');
+  const info = mapUserProfile(
+    { card: { mid: 2, name: '哔哩哔哩', sex: '男' }, archive_count: 29, like_num: 100 },
+    { mid: 2, name: '哔哩哔哩弹幕网', sex: 1, birthday: '2000-01-01', archive_count: 30 }
+  );
+  eq(info.name, '哔哩哔哩弹幕网', '名字应该优先用空间信息');
+  eq(info.birthday, '2000-01-01', '生日应该来自空间信息');
+  eq(info.archive, 30, '投稿数应该优先用空间信息');
+  eq(info.likeNum, 100, '空间信息没有获赞数时用名片的');
+});
+
+check('用户资料: 两个接口都没数据时返回 null', async () => {
+  const { mapUserProfile } = await import('../src/lib/api/user.js');
+  eq(mapUserProfile(null, null), null, '两个接口都没数据应该返回 null');
+  eq(mapUserProfile(undefined, undefined), null, 'undefined 也应该返回 null');
+});
+
 // ── 运行 ────────────────────────────────────────────────────────────────
 // 顺序执行 (测试之间共用全局的按键总线, 并发/交叠会互相污染)
 for (const t of tests) {

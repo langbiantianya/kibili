@@ -22,8 +22,11 @@ export async function getNavStat() {
 
 // 用户空间信息 (wbi 签名版)
 // 端点: GET /x/space/wbi/acc/info
+//
+// 这个接口在设备上基本都会被风控挡掉 (-352 风控校验失败 / -401 非法访问),
+// 所以超时给短一点, 别让卡住的请求把整页资料拖到超时才显示
 export async function getUserSpace(mid) {
-  return get('/x/space/wbi/acc/info', { query: { mid }, wbi: true });
+  return get('/x/space/wbi/acc/info', { query: { mid }, wbi: true, timeout: 6000 });
 }
 
 // 用户空间信息 (非 wbi 版, 返回 card)
@@ -34,19 +37,99 @@ export async function getUserCard(mid, photo = false) {
 
 // ============ 用户主页 ============
 
+/**
+ * 数字兜底: 不是数字就当 0
+ *
+ * B 站的字段类型不统一 —— 缺失时可能是 null, 甚至是**布尔值**
+ * (比如 card 接口的 data.following 是"是否关注", 不是关注数),
+ * 直接拿去当数字用会显示成 "true" / "NaN"
+ *
+ * @param {*} v
+ * @returns {number}
+ */
+function num(v) {
+  if (typeof v === 'number') return isFinite(v) ? v : 0;
+  if (typeof v === 'string' && v !== '') {
+    const n = Number(v);
+    return isFinite(n) ? n : 0;
+  }
+  return 0;
+}
+
+/**
+ * 性别代码 → 文案
+ *
+ * 名片 (x/web-interface/card) 的 sex 是 '男'/'女' 字符串,
+ * 空间接口 (x/space/wbi/acc/info) 的 sex 是 1=男 / 2=女, 0=保密
+ *
+ * @param {*} sex
+ * @returns {string}
+ */
+function sexText(sex) {
+  if (sex === 1 || sex === '男' || sex === 'male') return '男';
+  if (sex === 2 || sex === '女' || sex === 'female') return '女';
+  return '保密';
+}
+
+/**
+ * 名片 + 空间信息 → 一份扁平的资料
+ *
+ * ⚠️ x/web-interface/card 的结构是**嵌套**的, 字段位置特别容易记错:
+ *   data.card.fans / data.card.attention → 粉丝数 / 关注数 (在 card 里面)
+ *   data.archive_count / data.like_num    → 投稿数 / 获赞数 (**在顶层, 不在 card 里面**)
+ *   data.following                        → 布尔值(是否关注), 不是关注数!
+ *
+ * 空间信息 (x/space/wbi/acc/info) 能补生日/空间简介之类的字段,
+ * 但设备上基本都被风控挡掉, 所以名片是主力, 空间信息拿得到就拿来补。
+ *
+ * @param {Object} cardRes x/web-interface/card 的 data
+ * @param {Object} spaceRes x/space/wbi/acc/info 的 data
+ * @returns {Object|null} 扁平资料, 两个接口都没数据时返回 null
+ */
+export function mapUserProfile(cardRes, spaceRes) {
+  const card = (cardRes && cardRes.card) ? cardRes.card : null;
+  const space = spaceRes || null;
+  if (!card && !space) return null;
+
+  const levelInfo = card && card.level_info ? card.level_info : null;
+  const official = (space && space.official && space.official.title) ||
+    (card && card.Official && card.Official.title) ||
+    (card && card.official_verify && card.official_verify.desc) || '';
+
+  return {
+    uid: num((space && space.mid) || (card && card.mid)),
+    name: (space && space.name) || (card && card.name) || '',
+    face: (space && space.face) || (card && card.face) || '',
+    sign: (space && space.sign) || (card && card.sign) || '',
+    level: num((space && space.level) || (levelInfo && levelInfo.current_level)),
+    sex: sexText(space && space.sex != null ? space.sex : (card && card.sex)),
+    birthday: (space && space.birthday) || (card && card.birthday) || '',
+    official: official,
+    fans: num((card && card.fans) || (cardRes && cardRes.follower)),
+    attention: num(card && card.attention),
+    // 投稿数 / 获赞数在**顶层** (data.archive_count / data.like_num)
+    archive: num((space && space.archive_count) || (cardRes && cardRes.archive_count)),
+    likeNum: num((space && space.like_num) || (cardRes && cardRes.like_num))
+  };
+}
+
 // 用户主页资料: 名片 + 空间详细信息
 //
-// 名片 (x/web-interface/card): 昵称/头像/签名/等级/粉丝数/关注数/投稿数/认证
+// 名片 (x/web-interface/card): 昵称/头像/签名/等级/粉丝数/关注数/投稿数/获赞数/认证
 // 空间详细信息 (x/space/wbi/acc/info): 性别/生日/空间简介/是否已关注
 //
-// 两个接口分开拉, 互不影响 —— 有的账号空间接口会 -403 (私密/风控),
+// 两个接口分开拉, 互不影响 —— 空间接口基本都会被风控挡掉 (-352/-401),
 // 但名片照样能用, 页面至少能显示头像昵称
+//
+// 返回的是**拍平后**的资料 (见 mapUserProfile), 视图层直接用字段就行
 export async function getUserProfile(mid) {
   const parts = await Promise.all([
     getUserCard(mid).catch(() => null),
     getUserSpace(mid).catch(() => null)
   ]);
-  return { card: parts[0], space: parts[1] };
+  const info = mapUserProfile(parts[0], parts[1]);
+  if (!info) throw new Error('资料加载失败');
+  return info;
 }
 
 // 用户投稿视频

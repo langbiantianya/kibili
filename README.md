@@ -19,7 +19,7 @@
 ### 开发中 / 计划中
 
 - [ ] 弹幕
-- [ ] 用户主页
+- [x] 用户主页
 - [ ] 一键三连（点赞 / 收藏 / 投币）
 - [ ] 关注 / 取关
 
@@ -409,9 +409,20 @@ node scripts/device-test.js --only back-key          # 只验证右软键返回
 
 | tab | 接口 | 说明 |
 | --- | --- | --- |
-| 资料 | `GET /x/web-interface/card` + `GET /x/space/wbi/acc/info` | 名片给昵称/头像/签名/等级/粉丝数/关注数/获赞数，空间信息给性别/生日/认证；两个接口分开拉，一个失败另一个还能用 |
+| 资料 | `GET /x/web-interface/card` + `GET /x/space/wbi/acc/info` | 名片给昵称/头像/签名/等级/粉丝数/关注数/投稿数/获赞数，空间信息给性别/生日/认证；两个接口分开拉，一个失败另一个还能用 |
 | 投稿 | `GET /x/space/arc/search` | 投稿视频列表（`pn`/`ps`/`order` 分页） |
 | 动态 | `GET /x/polymer/web-dynamic/v1/feed/space` | 该用户的动态（`offset` 游标翻页） |
+
+名片接口的字段是**分层**的，取错位置就会显示成 0（投稿数/获赞数之前就踩过这个坑）：
+
+| 字段 | 位置 | 备注 |
+| --- | --- | --- |
+| 昵称/头像/签名/性别/等级/认证 | `data.card.*` | 名片主体 |
+| 粉丝数/关注数 | `data.card.fans` / `data.card.attention` | |
+| 投稿数/获赞数 | `data.archive_count` / `data.like_num` | **在顶层，不在 `data.card` 里面** |
+| 是否关注 | `data.following` | 是**布尔值**，不是关注数 |
+
+所以 `src/lib/api/user.js` 里有一层 `mapUserProfile()` 专门把这些字段拍平成一份资料（`{ uid, name, face, sign, level, sex, birthday, official, fans, attention, archive, likeNum }`），视图层直接用字段名，不用再关心接口的嵌套结构。
 
 入口：
 
@@ -422,12 +433,13 @@ node scripts/device-test.js --only back-key          # 只验证右软键返回
 
 按键：上下键在列表里漫游（到底了自动加载下一页），**左右方向键切 tab**，左软键刷新当前 tab，中键打开当前选中的视频/动态。右软键在这一页不派活（没绑就不显示文案）。
 
-### 两个风控坑（真机实测）
+### 三个风控坑（真机实测）
 
 B 站对这几个接口的风控比推荐流严，直接照文档写会被挡：
 
 1. **投稿接口用 wbi 版会被拒**：`x/space/wbi/arc/search` 在设备上返回 `-403 访问权限不足` / `-352 风控校验失败`（它还要 `dm_img_list`/`dm_img_str` 这两个风控参数）。改用**非 wbi 的老端点** `x/space/arc/search`，不用签名就能正常返回。
 2. **设备标识要用服务器发的真 buvid**：应用启动时访问一次 `bilibili.com`，服务器回的 `Set-Cookie` 里有 `buvid3`/`b_nut`。之前应用是自己随机生成一套 buvid 发出去的，风控不认 —— 空间动态接口直接 `-412 request was banned`。现在 `getBuvid()` 每次都先从 cookie jar 里读**真实的** buvid，读不到才自己生成。
+3. **空间详细信息接口基本拿不到**：`x/space/wbi/acc/info` 在设备上返回 `-352 风控校验失败`（不签名的非 wbi 版 `x/space/acc/info` 也一样是 `-401 非法访问`）。所以资料页以**名片** `x/web-interface/card` 为主力，空间信息只当补充 —— 拿不到也不影响昵称/头像/签名/粉丝/关注/投稿/获赞这些字段。这个接口的超时还特意调短到 6 秒，免得它卡住把整页资料拖到超时。
 
 ## 按键导航框架
 
