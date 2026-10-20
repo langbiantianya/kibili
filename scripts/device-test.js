@@ -41,7 +41,7 @@ const only = (opt('--only') || '').split(',').filter(Boolean);
 const PAGES = [
   { name: 'home', hash: '#/home', wait: 6000, softkeys: { left: '刷新' } },
   { name: 'following', hash: '#/following', wait: 6000, softkeys: { left: '刷新' } },
-  { name: 'profile', hash: '#/profile', wait: 4000, softkeys: { left: '打开' } },
+  { name: 'profile', hash: '#/profile', wait: 4000, softkeys: { left: '', center: '打开', right: '' } },
   { name: 'history', hash: '#/history', wait: 7000, softkeys: { left: '刷新' } },
   { name: 'favorites', hash: '#/favorites', wait: 6000, softkeys: {} },
   { name: 'settings', hash: '#/settings', wait: 3000, softkeys: {} },
@@ -227,9 +227,12 @@ for (const page of PAGES) {
 
   if (!snap.softkeys) fails.push('软键栏缺失');
   for (const side of ['left', 'center', 'right']) {
-    const want = page.softkeys && page.softkeys[side];
-    if (want && (!snap.softkeys || snap.softkeys[side] !== want)) {
-      fails.push(`软键 ${side} 期望「${want}」实际「${snap.softkeys ? snap.softkeys[side] : '?'}」`);
+    // 只断言显式写出来的位置; 写成 '' 表示"这一格必须没有文案"
+    if (!page.softkeys || !(side in page.softkeys)) continue;
+    const want = page.softkeys[side];
+    const got = snap.softkeys ? snap.softkeys[side] : '?';
+    if (got !== want) {
+      fails.push(`软键 ${side} 期望「${want}」实际「${got}」`);
     }
   }
   if (!snap.navables && page.name !== 'player' && page.name !== 'settings') fails.push('没有可聚焦元素 (data-navable)');

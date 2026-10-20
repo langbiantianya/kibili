@@ -213,7 +213,7 @@ node scripts/device-console.js --eval 'location.hash'   # 在应用里执行一�
 ```text
 已连接 app://bilibili.com/manifest.webapp 的 console actor (appId 哔哩哔哩)，下面是应用内输出:
 [log] hello-from-eval #/profile 哔哩哔哩
-[eval] 返回: {"route":"#/profile","navables":6,"softkeys":"打开|登出"}
+[eval] 返回: {"route":"#/profile","navables":6,"softkeys":{"left":"","center":"打开","right":""}}
 ```
 
 `--eval` 也能当“真机自检”用，比如查软键文案、焦点元素、标题是否被截断、图标是否渲染：
@@ -260,14 +260,15 @@ node scripts/device-test.js --only back-key          # 只验证右软键返回
 设备: app://bilibili.com/manifest.webapp  视口 240x320
 ✓ home            softkeys={"left":"刷新","center":"打开","right":"搜索"} navables=8
 ✓ following       softkeys={"left":"刷新","center":"","right":"切Tab"} navables=22
-✓ profile         softkeys={"left":"打开","center":"","right":"登出"} navables=6
-✓ history         softkeys={"left":"刷新","center":"播放","right":"返回"} navables=30
-✓ favorites       softkeys={"left":"刷新","center":"打开","right":"返回"} navables=9
-✓ settings        softkeys={"left":"","center":"","right":"返回"} navables=1
-✓ about           softkeys={"left":"","center":"","right":"返回"} navables=11
-✓ search          softkeys={"left":"搜索","center":"","right":"返回"} navables=10
-✓ search-results  softkeys={"left":"刷新","center":"打开","right":"返回"} navables=20
-✓ player          softkeys={"left":"全屏","center":"暂停","right":"返回"} navables=0
+✓ profile         softkeys={"left":"","center":"打开","right":""} navables=6
+✓ history         softkeys={"left":"刷新","center":"播放","right":""} navables=29
+✓ favorites       softkeys={"left":"刷新","center":"打开","right":""} navables=9
+✓ settings        softkeys={"left":"","center":"","right":""} navables=2
+✓ about           softkeys={"left":"","center":"","right":""} navables=11
+✓ keytest         softkeys={"left":"","center":"选择","right":""} navables=19
+✓ search          softkeys={"left":"搜索","center":"","right":""} navables=10
+✓ search-results  softkeys={"left":"刷新","center":"打开","right":""} navables=20
+✓ player          softkeys={"left":"全屏","center":"暂停","right":""} navables=0
 ✓ back-key        右软键 #/settings → #/profile
 
 结果: 11/11 项通过
@@ -339,10 +340,11 @@ node scripts/device-test.js --only back-key          # 只验证右软键返回
 | --- | --- |
 | 左软键 | 页面主操作（首页=刷新、播放器详情=全屏、播放器评论=回复、动态详情=评论/回复） |
 | 中间 | 中键（OK）当前会做什么的提示（打开/播放/暂停），本身不接收按键 |
-| 右软键 | 页面自己定义（首页=搜索、关注=切Tab、我的=登出、回复框=发送）；**没定义就是什么都不做** |
+| 右软键 | 页面自己定义（首页=搜索、关注=切Tab、回复框=发送）；**没定义就是什么都不做** |
 
 - 方向键：上下移动焦点（列表内自动滚动居中），左右在详情/评论等子 Tab 间切换
 - 中键：打开/播放/暂停；评论列表中展开子评论
+- **「我的」页不绑左右软键**：进页面焦点落在用户卡片上，中键（OK）打开当前选中项（用户卡片 / 历史记录 / 收藏 / 设置 / 关于 / 登出），软键栏只留中间的"打开"提示
 - 回复框等模态组件打开时独占按键（左软键=取消，右软键=发送，Enter=发送）
 - **返回键家族**：退格键 `Backspace`（规范名 `Back`，官方语义就是"返回上一级"）、挂断键 `EndCall`、Smart Touch 的 `GoBack`/`BrowserBack` 都能当"返回"用（顶层页面不拦截，交给系统退出）
 - 有硬件音量键的机型（`VolumeUp`/`VolumeDown`/`VolumeMute`）在播放器里调音量；系统类按键（电源/相机/拨号/短信/通知/语音助手）一律不拦截，长按才能退出应用

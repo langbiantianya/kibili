@@ -1,13 +1,16 @@
 <script>
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, tick } from "svelte";
   import { user, isLogin, userLogout, hydrateFromNav } from "../stores/user.js";
   import { navigate } from "../router/index.js";
   import {
     onKey,
     moveFocus,
-    activateFocused,
+    focusFirst,
   } from "../keyboard/index.js";
   import { setSoftkeys, showToast } from "../stores/ui.js";
+
+  // 页面容器 (聚焦用)
+  let mainEl = null;
 
   onMount(() => {
     // 已登录则刷新用户信息
@@ -17,16 +20,26 @@
     // onKey() 返回注销函数, 直接作为 onMount 的返回值 → 组件销毁时自动注销
     // softkeys: true → 本作用域接管软键栏 (文案由下面的响应式语句动态改),
     // 组件卸载时自动还原, 不会把上一个页面的文案留在软键栏
-    return onKey("profile", {
+    //
+    // 这里**不绑左右软键**:
+    //   - 左软键原来是"打开"、右软键原来是"登出", 都去掉了
+    //   - "打开"交给中键 (框架默认 Enter → activateFocused, 点当前焦点元素)
+    //   - "登出"在下面的菜单项里, 同样用中键打开
+    const off = onKey("profile", {
       Down: () => moveFocus(+1),
-      Up: () => moveFocus(-1),
-      SoftLeft: () => activateFocused(),
-      SoftRight: () => onLogoutClick()
+      Up: () => moveFocus(-1)
     }, { softkeys: true });
+
+    // 进入页面焦点落在用户卡片上 —— "打开"由中键承担, 焦点得先在能打开的东西上
+    tick().then(() => {
+      if (mainEl) focusFirst(mainEl);
+    });
+
+    return () => off();
   });
 
-  // 软键随登录状态变化 (登录/登出后立即更新, 不用重进页面)
-  $: setSoftkeys("打开", $isLogin ? "登出" : "登录");
+  // 软键栏: 左右都不绑功能 (不显示文案), 中间提示"打开" = 中键 (OK) 的作用
+  $: setSoftkeys("", "", "打开");
 
   onDestroy(() => {
     clearTimeout(logoutTimer);
@@ -81,7 +94,7 @@
 
 <div class="screen">
   <!-- 方向键漫游区域: 焦点在用户卡片和菜单项之间移动 -->
-  <div class="main scroll-y" data-nav-root>
+  <div class="main scroll-y" data-nav-root bind:this={mainEl}>
     <!-- 中键由框架默认行为触发 (activateFocused → click), 不再单独监听 keydown -->
     <div
       class="user-card"
