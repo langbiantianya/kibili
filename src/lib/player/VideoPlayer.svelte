@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { releaseWakeLock } from './wake.js';
+  import { requestSystemVolume } from './volume.js';
   import { settings } from '../stores/settings.js';
   import { moveFocus, onKey } from '../keyboard/index.js';
   import { addReply, reportProgress, getSubReplies } from '../api/interact.js';
@@ -47,9 +48,6 @@
   /** @type {any} */
   let root;
   let showControls = false;
-  let showVolSlider = false;
-  /** @type {number|null} */
-  let volTimer = null;
   let currentTime = 0;
   let duration = 0;
   let error = '';
@@ -73,12 +71,16 @@
 
   const dispatch = createEventDispatcher();
 
-  $: vol = $settings.volume;
+  // 静音状态: 系统音量接口在 KaiOS 2.4 上没有静音方法, 静音只能由应用把媒体元素 muted 置位
   $: muted = $settings.muted;
 
-  // 当音量/静音状态变化时, 同步更新 DASH 音频
+  // 静音状态变化时, 立刻作用到媒体元素 (不只在 loadedmetadata 时)
+  $: if (media) {
+    try { media.muted = muted; } catch (e) {}
+  }
+
+  // DASH 模式下, 同步播放独立音频流
   $: if (dashAudio && mode === 'video') {
-    dashAudio.volume = vol;
     dashAudio.muted = muted;
   }
 
@@ -89,11 +91,10 @@
     const m = media;
     if (!m) return;
     duration = m.duration || 0;
-    m.volume = vol;
+    // 音量不设: 交给系统音量管, 应用不叠第二层增益
     m.muted = muted;
     // DASH 模式下, 同步播放独立音频流
     if (mode === 'video' && dashAudio && audioSrc) {
-      dashAudio.volume = vol;
       dashAudio.muted = muted;
       dashAudio.currentTime = m.currentTime;
       dashAudio.play().catch(() => {});
@@ -241,27 +242,16 @@
     }
   }
 
-  // KaiOS 系统音量调节 (使用 navigator.volumeManager)
-  // 参考: navigator.volumeManager.requestUp() / requestDown()
+  // 调音量 = 只调系统音量
+  //
+  // 应用不维护"应用内音量": KaiOS 2.4 读不到系统音量 (volumeManager 只有
+  // requestUp/requestDown/requestShow, 没有读数也没有 input 事件),
+  // 自己画一根滑块只会和系统对不上。requestUp/requestDown 会让系统弹出
+  // 自己的音量气泡 (显示 1/15 这样的档位), 反馈交给系统。
 
   /** @param {number} delta */
   function bumpVolume(delta) {
-    // delta > 0 增加音量, delta < 0 降低音量
-    if (typeof navigator !== 'undefined' && /** @type {any} */ (navigator).volumeManager) {
-      try {
-        if (delta > 0) {
-          /** @type {any} */ (navigator).volumeManager.requestUp();
-        } else if (delta < 0) {
-          /** @type {any} */ (navigator).volumeManager.requestDown();
-        }
-      } catch (e) {
-        // 降级: 不执行任何操作
-      }
-    }
-    // 显示音量提示 (KaiOS 系统会显示自己的音量 UI)
-    showVolSlider = true;
-    if (volTimer) clearTimeout(volTimer);
-    volTimer = setTimeout(() => showVolSlider = false, 1500);
+    requestSystemVolume(delta);
   }
 
   // Tab 切换
@@ -463,12 +453,9 @@
       // 硬件音量键 → 和长按 ↑↓ 一样调音量 (KaiOS 侧走 navigator.volumeManager)
       VolumeUp: () => bumpVolume(1),
       VolumeDown: () => bumpVolume(-1),
-      // 静音键
+      // 静音键: 系统音量接口没有静音方法, 静音由应用把媒体元素 muted 置位
       Mute: () => {
         settings.update(s => ({ ...s, muted: !s.muted }));
-        showVolSlider = true;
-        if (volTimer) clearTimeout(volTimer);
-        volTimer = setTimeout(() => showVolSlider = false, 1500);
       },
       SoftLeft: () => {
         // 评论 tab: 回复评论; 详情 tab: 全屏
@@ -560,18 +547,10 @@
         ></audio>
       {/if}
 
-      <div class="overlay" class:hidden={!showControls && !showVolSlider}>
+      <!-- 覆盖层: 平时隐藏, 出错时露出错误文案 (音量提示交给系统自己的气泡) -->
+      <div class="overlay" class:hidden={!showControls && !error}>
         <div class="title">{title}</div>
         <div class="time">{fmt(currentTime)} / {fmt(duration)}</div>
-        {#if showVolSlider}
-          <div class="vol-slider">
-            <span>音量</span>
-            <div class="bar">
-              <div class="fill" style="width: {(vol * 100)}%"></div>
-            </div>
-            <span>{Math.round(vol * 100)}%</span>
-          </div>
-        {/if}
         {#if mode === 'audio'}
           <div class="listen-badge">● 听视频模式 (仅音频)</div>
         {/if}
@@ -768,26 +747,6 @@
   .overlay .time {
     font-size: var(--md-sys-typescale-body-small-size);
     color: #aaa;
-  }
-  .vol-slider {
-    margin-top: 4px;
-    display: flex;
-    align-items: center;
-    /* gap: 4px; Firefox 48 不支持 flex gap */
-    font-size: var(--md-sys-typescale-body-small-size);
-  }
-  .vol-slider > * + * {
-    margin-left: 4px;
-  }
-  .vol-slider .bar {
-    flex: 1;
-    height: 6px;
-    background: #333;
-    border: 1px solid #555;
-  }
-  .vol-slider .fill {
-    height: 100%;
-    background: var(--md-sys-color-primary);
   }
   .listen-badge {
     margin-top: 4px;

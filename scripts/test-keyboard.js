@@ -159,6 +159,7 @@ const { onKey, offKey, clearKeys, activeScopes, exclusiveScope } = await import(
 const kb = await import('../src/lib/keyboard/index.js');
 const { moveFocus, focusFirst, getFocusables, focusIndex, focusAt } = await import('../src/lib/keyboard/roving.js');
 const { openModalScope } = await import('../src/lib/keyboard/modalkeys.js');
+const { requestSystemVolume } = await import('../src/lib/player/volume.js');
 const { setSoftkeys } = await import('../src/lib/stores/ui.js');
 const { get } = await import('svelte/store');
 const { ui } = await import('../src/lib/stores/ui.js');
@@ -937,6 +938,60 @@ check('返回键: 右软键留给页面自己派活, 不被全局兜底抢走', 
   offPage();
   offBack();
   clearKeys();
+});
+
+// ── 5. 系统音量 (KaiOS) ────────────────────────────────────────────────
+// 音量只走系统: 应用不维护自己的音量, 也不画自己的滑块
+// (KaiOS 2.4 的 volumeManager 读不到当前音量, 画出来只会和系统对不上)
+const navDesc = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+
+/** 临时替换全局 navigator (Node 21+ 自带只读的 navigator) */
+function setNavigator(value) {
+  Object.defineProperty(globalThis, 'navigator', {
+    value: value,
+    configurable: true,
+    writable: true
+  });
+}
+
+function restoreNavigator() {
+  if (navDesc) Object.defineProperty(globalThis, 'navigator', navDesc);
+  else delete globalThis.navigator;
+}
+
+check('系统音量: 调高走 requestUp, 调低走 requestDown', () => {
+  const calls = [];
+  setNavigator({
+    volumeManager: {
+      requestUp: () => calls.push('up'),
+      requestDown: () => calls.push('down')
+    }
+  });
+  eq(requestSystemVolume(1), true, '调高应该成功');
+  eq(requestSystemVolume(-1), true, '调低应该成功');
+  eq(calls.join(','), 'up,down', '方向不能反');
+  eq(requestSystemVolume(0), false, 'delta 为 0 不该发请求');
+  eq(calls.length, 2, 'delta 为 0 不该调 requestUp/Down');
+  restoreNavigator();
+});
+
+check('系统音量: 设备没有音量接口时不报错', () => {
+  setNavigator({});
+  eq(requestSystemVolume(1), false, '没有 volumeManager 应该返回 false');
+  setNavigator(undefined);
+  eq(requestSystemVolume(1), false, '连 navigator 都没有也不该抛异常');
+  restoreNavigator();
+});
+
+check('系统音量: 系统接口抛异常时兜住', () => {
+  setNavigator({
+    volumeManager: {
+      requestUp: () => { throw new Error('boom'); },
+      requestDown: () => { throw new Error('boom'); }
+    }
+  });
+  eq(requestSystemVolume(1), false, '抛异常应该被兜住并返回 false');
+  restoreNavigator();
 });
 
 // ── 运行 ────────────────────────────────────────────────────────────────

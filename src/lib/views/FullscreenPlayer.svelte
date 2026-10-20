@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { getVideoInfo, getPlayUrl, getDashUrls } from '../api/video.js';
   import { settings } from '../stores/settings.js';
+  import { requestSystemVolume } from '../player/volume.js';
   import { onKey } from '../keyboard/index.js';
 
   let videoSrc = '';
@@ -28,6 +29,12 @@
 
   // 从普通播放器传入的初始播放位置（秒）
   let startAt = 0;
+
+  // 静音状态: 与普通播放器共用 settings.muted
+  // (系统音量接口在 KaiOS 2.4 上没有静音方法, 静音只能由应用把媒体元素 muted 置位)
+  $: muted = $settings.muted;
+  $: if (video) { try { video.muted = muted; } catch (e) {} }
+  $: if (dashAudio) { try { dashAudio.muted = muted; } catch (e) {} }
 
   function getBvidFromUrl() {
     const hash = location.hash || '';
@@ -190,17 +197,9 @@
     setPlaybackRate(normalPlaybackRate);
   }
 
-  // KaiOS 系统音量调节
+  // 调音量 = 只调系统音量 (应用不维护自己的音量, 详见 player/volume.js)
   function bumpVolume(delta) {
-    if (typeof navigator !== 'undefined' && /** @type {any} */ (navigator).volumeManager) {
-      try {
-        if (delta > 0) {
-          /** @type {any} */ (navigator).volumeManager.requestUp();
-        } else if (delta < 0) {
-          /** @type {any} */ (navigator).volumeManager.requestDown();
-        }
-      } catch (e) {}
-    }
+    requestSystemVolume(delta);
   }
 
   // 将字符串拆分成单个字符数组
