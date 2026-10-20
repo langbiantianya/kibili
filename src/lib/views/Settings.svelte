@@ -27,6 +27,14 @@
     showDropdown = false;
   }
 
+  // 打开视频是否立刻播放
+  // 关掉的话: 打开视频不拉流也不播, 只显示封面, 按中键(播放)才真的加载
+  function toggleAutoPlay() {
+    const cur = $settings.autoPlay !== false;
+    settings.update(s => ({ ...s, autoPlay: !cur }));
+    showToast(!cur ? '已开启: 打开视频立刻播放' : '已关闭: 只显示封面, 按中键播放');
+  }
+
   onMount(() => {
     // onKey() 返回自己的注销函数, 直接交给 onMount 的返回值 → 组件销毁时
     // 只移除"本实例"注册的作用域 (同名实例之间不会互相踩)。
@@ -71,6 +79,11 @@
       <div class="menu-item" data-navable tabindex="0" on:click={() => navigate("/keytest")}>
         <span class="label">按键检测</span>
         <span class="value">›</span>
+      </div>
+      <!-- 打开视频立刻播放: 关掉之后打开视频只显示封面, 按中键才加载并播放 -->
+      <div class="menu-item" data-navable tabindex="0" on:click={toggleAutoPlay}>
+        <span class="label">打开视频立刻播放</span>
+        <span class="value">{$settings.autoPlay === false ? '关' : '开'}</span>
       </div>
     </div>
   </div>

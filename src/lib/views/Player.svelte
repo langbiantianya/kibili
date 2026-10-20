@@ -3,6 +3,7 @@
   import { getVideoInfo, getPlayUrl, getDashUrls } from '../api/video.js';
   import { getReplies, getStatus, likeVideo, coinVideo, favVideo, unfavVideo, tripleAction, reportProgress } from '../api/interact.js';
   import { isLogin } from '../stores/user.js';
+  import { settings } from '../stores/settings.js';
   import { navigate } from '../router/index.js';
   import { setSoftkeys, showToast } from '../stores/ui.js';
   import { addLocal } from '../stores/history.js';
@@ -18,6 +19,15 @@
   let error = '';
   let playerMode = 'video';    // 'video' | 'audio'
   let resumeAt = 0;            // 听视频时保存 currentTime, 切回 video 时恢复
+
+  // 打开视频要不要立刻加载并播放
+  //   true  = 保持原样, 打开就拉流并播放
+  //   false = 不拉流也不播, 只显示封面, 按中键(播放)才去拉流
+  // settings 里没这个字段的老数据按 true 处理 (见 stores/settings.js)
+  $: autoPlay = $settings.autoPlay !== false;
+
+  let streamLoading = false;   // 用户按了播放, 正在拉播放地址
+  let streamError = '';        // 拉播放地址失败
 
   let meta = null;
   let status = { like: 0, coin: 0, fav: 0, attention: 0 };
@@ -51,6 +61,39 @@
     return match ? parseInt(match[1], 10) : 0;
   }
 
+  /**
+   * 拉播放地址: DASH 优先, 拿不到退回 MP4 单流
+   *
+   * @param {string} bvid
+   * @param {number} cid
+   * @returns {Promise<{src: string, audio: string}>}
+   */
+  async function fetchStream(bvid, cid) {
+    let src = '';
+    let audio = '';
+    // 2. 拉 DASH 拿独立音视频流 (供听视频模式用)
+    // 普通播放器使用 qn=6 (240P 极速), 节省流量
+    try {
+      const dash = await getDashUrls(bvid, cid, 6);
+      if (dash && dash.videoUrl) {
+        src = dash.videoUrl;
+        audio = dash.audioUrl;
+      }
+    } catch (e) {
+      // DASH 拉取失败
+    }
+    // DASH 拿不到可用地址时退回 MP4 单流 (听视频功能不可用, 但视频能播)
+    if (!src) {
+      try {
+        src = await getPlayUrl(bvid, cid, 6);
+        audio = '';
+      } catch (e) {
+        src = '';
+      }
+    }
+    return { src, audio };
+  }
+
   async function loadVideo() {
     // 从 URL query 参数获取 bvid
     const bvid = getBvidFromUrl();
@@ -70,7 +113,7 @@
     resumeAt = getStartTimeFromUrl();
 
     try {
-      // 1. 视频信息
+      // 1. 视频信息 (封面/标题/详情都要它)
       const info = await getVideoInfo(bvid);
       meta = info;
       currentAid = info.aid;
@@ -87,36 +130,29 @@
         fav: info.stat ? info.stat.favorite : 0
       };
 
-      // 2. 拉 DASH 拿独立音视频流 (供听视频模式用)
-      // 普通播放器使用 qn=6 (240P 极速), 节省流量
-      try {
-        const dash = await getDashUrls(bvid, info.cid, 6);
-        if (dash && dash.videoUrl) {
-          videoSrc = dash.videoUrl;
-          audioSrc = dash.audioUrl;
+      if (autoPlay) {
+        // 老行为: 拉流 + 状态 + 评论, 都好了才显示页面
+        const s = await fetchStream(bvid, info.cid);
+        if (!s.src) {
+          error = '无法获取播放地址';
+          return;
         }
-      } catch (e) {
-        // DASH 拉取失败
-      }
-      // DASH 拿不到可用地址时退回 MP4 单流 (听视频功能不可用, 但视频能播)
-      if (!videoSrc) {
-        try {
-          videoSrc = await getPlayUrl(bvid, info.cid, 6);
-          audioSrc = '';
-        } catch (e) {
-          videoSrc = '';
-        }
-      }
-      if (!videoSrc) {
-        error = '无法获取播放地址';
-        return;
-      }
+        videoSrc = s.src;
+        audioSrc = s.audio;
 
-      // 3. 状态 + 评论 (登录后才查)
-      if ($isLogin) {
-        try { status = await getStatus(bvid); } catch (e) { /* ignore */ }
+        // 3. 状态 + 评论 (登录后才查)
+        if ($isLogin) {
+          try { status = await getStatus(bvid); } catch (e) { /* ignore */ }
+        }
+        await loadReplies();
+      } else {
+        // 不立刻播放: 封面先出来, 评论在后台慢慢加载, 播放地址等用户按播放再拉
+        loading = false;
+        if ($isLogin) {
+          getStatus(bvid).then(st => { status = st; }).catch(() => {});
+        }
+        loadReplies();
       }
-      await loadReplies();
 
       // 4. 记录到历史
       addLocal({
@@ -132,6 +168,30 @@
       error = e.message || '加载失败';
     } finally {
       loading = false;
+    }
+  }
+
+  /**
+   * 设置里关了"打开立刻播放" → 用户按了播放, 这时才去拉播放地址
+   *
+   * 拉到的地址交给 <video> 元素, 它 loadedmetadata 之后会自动播起来
+   */
+  async function onPlayRequest() {
+    if (videoSrc || streamLoading) return;
+    streamLoading = true;
+    streamError = '';
+    try {
+      const s = await fetchStream(currentBvid, currentCid);
+      if (!s.src) {
+        streamError = '无法获取播放地址';
+        return;
+      }
+      videoSrc = s.src;
+      audioSrc = s.audio;
+    } catch (e) {
+      streamError = e.message || '加载失败';
+    } finally {
+      streamLoading = false;
     }
   }
 
@@ -369,7 +429,7 @@
         <p>{error}</p>
         <p class="hint">按 Back 返回</p>
       </div>
-    {:else if videoSrc}
+    {:else if meta}
       <VideoPlayer
         src={videoSrc}
         audioSrc={audioSrc}
@@ -384,6 +444,8 @@
         {replyLoading}
         {replyHasMore}
         {replyError}
+        streamLoading={streamLoading}
+        streamError={streamError}
         on:ended={onEnded}
         on:listenon={onListenOn}
         on:listenoff={onListenOff}
@@ -392,6 +454,7 @@
         on:fullscreen={onFullscreen}
         on:author={onAuthor}
         on:loadmore={loadMoreReplies}
+        on:playrequest={onPlayRequest}
       />
     {:else}
       <EmptyState message="暂无数据" />

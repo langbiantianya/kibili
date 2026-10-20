@@ -1117,6 +1117,30 @@ check('用户资料: 两个接口都没数据时返回 null', async () => {
   eq(mapUserProfile(undefined, undefined), null, 'undefined 也应该返回 null');
 });
 
+// ── 8. 设置项 ──────────────────────────────────────────────────────────
+// 设置是存在 localStorage 里的, 这里用一个假的 localStorage 来测
+// "老版本存的数据"升级之后的行为
+check('设置: 老数据没有 autoPlay 字段时缺省是"立刻播放"', async () => {
+  // 模拟老版本存过的设置 (只有 quality/muted, 没有 autoPlay)
+  const store = new Map([
+    ['settings:v1', JSON.stringify({ quality: 16, muted: false })]
+  ]);
+  globalThis.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => { store.set(k, v); },
+    removeItem: (k) => { store.delete(k); }
+  };
+
+  const { settings } = await import('../src/lib/stores/settings.js');
+  const { get } = await import('svelte/store');
+  eq(get(settings).autoPlay, true, '老数据缺省应该是 true (保持原来的行为)');
+
+  // 关掉之后要能存回去
+  settings.update(s => ({ ...s, autoPlay: false }));
+  eq(get(settings).autoPlay, false, '关掉之后应该是 false');
+  eq(JSON.parse(store.get('settings:v1')).autoPlay, false, '关掉之后应该写进 localStorage');
+});
+
 // ── 运行 ────────────────────────────────────────────────────────────────
 // 顺序执行 (测试之间共用全局的按键总线, 并发/交叠会互相污染)
 for (const t of tests) {

@@ -7,6 +7,7 @@
   import { addReply, reportProgress, getSubReplies } from '../api/interact.js';
   import { showToast } from '../stores/ui.js';
   import { formatCount } from '../utils/format.js';
+  import { biliImg } from '../utils/platform.js';
   import CommentSection from '../components/CommentSection.svelte';
 
   // 双模式播放器:
@@ -20,6 +21,10 @@
   export let mode = 'video';      // 'video' | 'audio'
   // 听视频模式下保存当前位置, 切回 video 模式时同步
   export let resumeAt = 0;
+
+  // 设置里关了"打开视频立刻播放" → 播放地址还没拉, 只显示封面
+  export let streamLoading = false;
+  export let streamError = '';
 
   // 视频详情数据 (新增)
   export let meta = /** @type {any} */ (null);
@@ -86,6 +91,9 @@
 
   // 当前激活的媒体元素
   $: media = mode === 'audio' ? audio : video;
+
+  // 播放地址还没拿到 (设置里关了"打开视频立刻播放") → 只显示封面, 不加载视频
+  $: notLoaded = mode === 'video' && !src;
 
   function onMediaLoaded() {
     const m = media;
@@ -223,6 +231,20 @@
         dashAudio.pause();
       }
     }
+  }
+
+  /**
+   * 中键 (播放)
+   *
+   * 播放地址还没拿到时 (设置里关了"打开视频立刻播放"), 这一下不是"播放/暂停",
+   * 而是"去把视频加载出来并播放" —— 通知父组件去拉播放地址
+   */
+  function requestPlay() {
+    if (notLoaded) {
+      dispatch('playrequest');
+      return;
+    }
+    togglePlay();
   }
 
   function toggleFullscreen() {
@@ -442,10 +464,10 @@
                 loadSubReplies(rootComment);
               }
             } else {
-              togglePlay();
+              requestPlay();
             }
           } else {
-            togglePlay();
+            requestPlay();
           }
         }
       },
@@ -513,20 +535,28 @@
   <div class="player-area">
     <div class="player">
       {#if mode === 'video'}
-        <video
-          bind:this={video}
-          {src}
-          {poster}
-          preload="metadata"
-          audio-channel="content"
-          on:loadedmetadata={onMediaLoaded}
-          on:timeupdate={onTimeUpdate}
-          on:progress={onTimeUpdate}
-          on:play={onPlay}
-          on:pause={onPause}
-          on:ended={onVideoEnded}
-          on:error={onMediaError}
-        ></video>
+        {#if src}
+          <video
+            bind:this={video}
+            {src}
+            {poster}
+            preload="metadata"
+            audio-channel="content"
+            on:loadedmetadata={onMediaLoaded}
+            on:timeupdate={onTimeUpdate}
+            on:progress={onTimeUpdate}
+            on:play={onPlay}
+            on:pause={onPause}
+            on:ended={onVideoEnded}
+            on:error={onMediaError}
+          ></video>
+        {:else}
+          <!--
+            播放地址还没拉到 (设置里关了"打开视频立刻播放"):
+            不建 <video> 元素 = 一个字节的视频数据都不下, 只显示封面
+          -->
+          <img class="cover" src={biliImg(poster, 320, 180, 'jpg')} alt="" />
+        {/if}
         <!-- DASH 模式下同步播放独立音频流 -->
         {#if audioSrc}
           <audio
@@ -564,6 +594,19 @@
           <div class="err">{error}</div>
         {/if}
       </div>
+
+      <!-- 还没加载视频: 提示按中键 (播放) 才去拉流 -->
+      {#if notLoaded}
+        <div class="cover-hint">
+          {#if streamLoading}
+            加载中...
+          {:else if streamError}
+            {streamError}
+          {:else}
+            按 OK 播放
+          {/if}
+        </div>
+      {/if}
 
       <!-- 播放进度条 -->
       <div class="progress-bar">
@@ -720,6 +763,29 @@
     height: 100%;
     object-fit: contain;
     background: #000;
+  }
+
+  /* 还没加载视频时显示的封面 (占法和 <video> 一样) */
+  .cover {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000;
+  }
+
+  /* 封面上的提示: 按中键才去加载播放 (压在封面上, 所以给个深底才看得清) */
+  .cover-hint {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    padding: 4px 10px;
+    background: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    font-size: var(--md-sys-typescale-body-medium-size);
+    border-radius: 12px;
+    white-space: nowrap;
+    pointer-events: none;
   }
 
   audio {

@@ -4,12 +4,20 @@
   import { settings } from '../stores/settings.js';
   import { requestSystemVolume } from '../player/volume.js';
   import { onKey } from '../keyboard/index.js';
+  import { setSoftkeys } from '../stores/ui.js';
+  import { biliImg } from '../utils/platform.js';
 
   let videoSrc = '';
   let audioSrc = '';
   let title = '';
+  let poster = '';
   let loading = true;
   let error = '';
+
+  // 打开视频要不要立刻加载并播放 (设置里没这个字段的老数据按 true 处理)
+  $: autoPlay = $settings.autoPlay !== false;
+  let streamLoading = false;   // 用户按了播放, 正在拉播放地址
+  let streamError = '';
 
   /** @type {any} */
   let video;
@@ -17,6 +25,7 @@
   let dashAudio = null;
 
   let currentBvid = '';        // 当前播放视频的 bvid
+  let currentCid = 0;          // 当前视频的 cid (拉播放地址要用)
   let playError = '';          // 播放失败提示 (视频解码/URL 失效时不再只显示黑屏)
 
   let normalPlaybackRate = 1.0; // 保存正常播放速度
@@ -48,6 +57,38 @@
     return match ? parseInt(match[1], 10) : 0;
   }
 
+  /**
+   * 拉播放地址: DASH 优先, 拿不到退回 MP4 单流
+   *
+   * @param {string} bvid
+   * @param {number} cid
+   * @param {number} qn 清晰度
+   * @returns {Promise<{src: string, audio: string}>}
+   */
+  async function fetchStream(bvid, cid, qn) {
+    let src = '';
+    let audio = '';
+    try {
+      const dash = await getDashUrls(bvid, cid, qn);
+      if (dash && dash.videoUrl) {
+        src = dash.videoUrl;
+        audio = dash.audioUrl;
+      }
+    } catch (e) {
+      // DASH 拉取失败
+    }
+    // DASH 拿不到可用地址时退回 MP4 单流, 避免只有黑屏
+    if (!src) {
+      try {
+        src = await getPlayUrl(bvid, cid, qn);
+        audio = '';
+      } catch (e) {
+        src = '';
+      }
+    }
+    return { src, audio };
+  }
+
   async function loadVideo() {
     // 读取初始播放位置
     startAt = getStartTimeFromUrl();
@@ -67,36 +108,49 @@
     try {
       const info = await getVideoInfo(bvid);
       title = info.title;
+      poster = info.pic;
+      currentCid = info.cid;
 
       // 全屏播放器读取设置中的 quality，默认 360P
       const qn = $settings.quality || 16;
-      try {
-        const dash = await getDashUrls(bvid, info.cid, qn);
-        if (dash && dash.videoUrl) {
-          videoSrc = dash.videoUrl;
-          audioSrc = dash.audioUrl;
+      if (autoPlay) {
+        // 保持原样: 打开就拉流并播放
+        const s = await fetchStream(bvid, info.cid, qn);
+        if (!s.src) {
+          error = '无法获取播放地址';
+          return;
         }
-      } catch (e) {
-        // DASH 拉取失败
+        videoSrc = s.src;
+        audioSrc = s.audio;
       }
-      // DASH 拿不到可用地址时退回 MP4 单流, 避免只有黑屏
-      if (!videoSrc) {
-        try {
-          videoSrc = await getPlayUrl(bvid, info.cid, qn);
-          audioSrc = '';
-        } catch (e) {
-          videoSrc = '';
-        }
-      }
-
-      if (!videoSrc) {
-        error = '无法获取播放地址';
-        return;
-      }
+      // 不立刻播放的话: 只显示封面, 等用户按播放再拉流
     } catch (e) {
       error = e.message || '加载失败';
     } finally {
       loading = false;
+    }
+  }
+
+  /**
+   * 用户按了播放但播放地址还没拉 → 现在去拉, 拉完直接播
+   */
+  async function loadAndPlay() {
+    if (videoSrc || streamLoading) return;
+    streamLoading = true;
+    streamError = '';
+    try {
+      const qn = $settings.quality || 16;
+      const s = await fetchStream(currentBvid, currentCid, qn);
+      if (!s.src) {
+        streamError = '无法获取播放地址';
+        return;
+      }
+      videoSrc = s.src;
+      audioSrc = s.audio;
+    } catch (e) {
+      streamError = e.message || '加载失败';
+    } finally {
+      streamLoading = false;
     }
   }
 
@@ -157,6 +211,11 @@
   }
 
   function togglePlay() {
+    // 播放地址还没拉 (设置里关了"打开视频立刻播放") → 这一下是去加载并播放
+    if (!videoSrc) {
+      loadAndPlay();
+      return;
+    }
     if (!video) return;
     if (video.paused) {
       video.play().catch(() => {});
@@ -241,8 +300,11 @@
       // 真机硬件音量键 (Nokia 6300 4G / 8000 4G 等)
       VolumeUp: () => bumpVolume(+1),
       VolumeDown: () => bumpVolume(-1)
-    }, { priority: 10, softkeys: ['播放/暂停', '', ''] });
+    }, { priority: 10, softkeys: true });
   });
+
+  // 软键文案跟着状态走: 还没加载视频时左软键 = 播放 (去加载), 加载后 = 播放/暂停
+  $: setSoftkeys(videoSrc ? '播放/暂停' : '播放', '', '');
 
   onDestroy(() => {
     if (dashAudio) {
@@ -276,6 +338,21 @@
     {#if playError}
       <div class="error play-error">{playError}</div>
     {/if}
+  {:else}
+    <!--
+      播放地址还没拉到 (设置里关了"打开视频立刻播放"):
+      不建 <video> 元素 = 一个字节的视频数据都不下, 只显示封面
+    -->
+    <img class="cover" src={biliImg(poster, 320, 180, 'jpg')} alt="" />
+    <div class="cover-hint">
+      {#if streamLoading}
+        加载中...
+      {:else if streamError}
+        {streamError}
+      {:else}
+        按 OK 播放
+      {/if}
+    </div>
   {/if}
   <!-- 进度条 -->
   <div class="progress-bar">
@@ -310,6 +387,33 @@
     top: 40px;
     left: -40px;
     background: #000;
+  }
+
+  /* 还没加载视频时显示的封面 (和 <video> 同样的摆放方式) */
+  .cover {
+    width: 320px;
+    height: 240px;
+    position: fixed;
+    transform: rotate(90deg);
+    top: 40px;
+    left: -40px;
+    object-fit: contain;
+    background: #000;
+  }
+
+  /* 封面上的提示: 按中键才去加载播放 (压在封面上, 所以给个深底才看得清) */
+  .cover-hint {
+    position: fixed;
+    top: 140px;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 4px 10px;
+    background: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    font-size: 14px;
+    border-radius: 12px;
+    white-space: nowrap;
+    z-index: 102;
   }
 
   .loading,

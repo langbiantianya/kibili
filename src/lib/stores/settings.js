@@ -4,13 +4,23 @@ import { persist } from './persist.js';
 const initial = persist.load('settings:v1', {
   quality: 16,            // 320p-ish cap
   muted: false,
-  listenOnlyDefault: false
+  listenOnlyDefault: false,
+  // 打开视频是否立刻播放:
+  //   true  = 保持原样, 打开就拉流并播放
+  //   false = 不拉流不播, 只显示封面, 按中键(播放)才去加载
+  autoPlay: true
 });
 
-// 旧版本存过"应用内音量"(settings.volume), 现在音量只走系统 (KaiOS 2.4 读不到系统音量,
+// 旧版本存过的"应用内音量"(settings.volume), 现在音量只走系统 (KaiOS 2.4 读不到系统音量,
 // 应用再叠一层增益只会和系统对不上), 这个字段已经没有意义, 读出来时顺手丢掉
 if (initial && typeof initial === 'object' && 'volume' in initial) {
   delete initial.volume;
+}
+
+// 老版本存过的设置里没有 autoPlay 这个字段 —— 缺省按"立刻播放"处理,
+// 不然老用户升级后打开视频会突然变成不播 (行为变了)
+if (initial && typeof initial === 'object' && typeof initial.autoPlay !== 'boolean') {
+  initial.autoPlay = true;
 }
 
 export const settings = writable(initial);
