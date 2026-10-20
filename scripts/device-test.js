@@ -40,7 +40,7 @@ const only = (opt('--only') || '').split(',').filter(Boolean);
 // 每个页面: 路径 + 等待时间(毫秒) + 期望的软键文案
 const PAGES = [
   { name: 'home', hash: '#/home', wait: 6000, softkeys: { left: '刷新' } },
-  { name: 'following', hash: '#/following', wait: 6000, softkeys: { left: '刷新' } },
+  { name: 'following', hash: '#/following', wait: 6000, softkeys: { left: '刷新', center: '打开' } },
   { name: 'profile', hash: '#/profile', wait: 4000, softkeys: { left: '', center: '打开', right: '' } },
   { name: 'history', hash: '#/history', wait: 7000, softkeys: { left: '刷新' } },
   { name: 'favorites', hash: '#/favorites', wait: 6000, softkeys: {} },

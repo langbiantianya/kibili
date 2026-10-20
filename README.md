@@ -259,7 +259,7 @@ node scripts/device-test.js --only back-key          # 只验证右软键返回
 ```text
 设备: app://bilibili.com/manifest.webapp  视口 240x320
 ✓ home            softkeys={"left":"刷新","center":"打开","right":"搜索"} navables=8
-✓ following       softkeys={"left":"刷新","center":"","right":"切Tab"} navables=22
+✓ following       softkeys={"left":"刷新","center":"打开","right":"切Tab"} navables=22
 ✓ profile         softkeys={"left":"","center":"打开","right":""} navables=6
 ✓ history         softkeys={"left":"刷新","center":"播放","right":""} navables=29
 ✓ favorites       softkeys={"left":"刷新","center":"打开","right":""} navables=9
