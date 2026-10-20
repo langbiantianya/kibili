@@ -452,6 +452,23 @@ node scripts/device-test.js --only back-key          # 只验证右软键返回
 
 按键：上下键在列表里漫游（到底了自动加载下一页），**左右方向键切 tab**，左软键刷新当前 tab，中键打开当前选中的视频/动态。右软键在这一页不派活（没绑就不显示文案）。
 
+## 视频卡片的统计（几个列表统一）
+
+首页推荐流 / 关注页动态流 / 用户主页投稿列表，卡片底部都只显示**播放量**和**点赞量**两项，用的是同一个组件（`components/FeedCard.svelte`，列表层是 `components/FeedList.svelte`）。
+
+三个数据源的字段完全不一样，在 `src/lib/api/videocard.js` 里统一成同一种形状：
+
+| 卡片字段 | 首页推荐流 | 关注页动态流 | 用户主页投稿 |
+| --- | --- | --- | --- |
+| `stat.play` | `stat.view`（数字） | `stat.play`（"275.7万" 字符串） | `v.play`（数字） |
+| `stat.like` | `stat.like` | 动态的 `module_stat.like.count` | **接口没有** → `null` |
+
+**点赞数怎么补齐**：投稿列表的接口（`x/space/arc/search` 的 `vlist`）不返回点赞数，而 B 站也没有批量查的接口（`archive/stats` 那种批量端点已经没了），只能一个视频一个视频地查（`x/web-interface/view`）。
+
+一次打 30 个请求既费流量又容易撞风控，所以做成**焦点驱动**：用户的 D-pad 走到哪张卡，才给那张卡查一个，查到的结果缓存在列表组件里（同一个视频不会查第二次）。还没查到时显示 `—` 而不是 0 —— 0 会被当成"没人赞"，占位才诚实。
+
+顺带修掉的：历史记录页的字段取错了 —— 历史接口的视频信息藏在 `history` 对象里（顶层只有 `uri`/`cover`/`author_mid`），之前取顶层的 `bvid`/`pic`/`owner` 全是 undefined，封面是空的、bvid 成了 `avundefined`（点进去根本播不了）。搜索结果页也把 `like` 写成了 `v.lavorites`（少个 f），点赞数一直是 undefined。
+
 ### 三个风控坑（真机实测）
 
 B 站对这几个接口的风控比推荐流严，直接照文档写会被挡：

@@ -14,6 +14,7 @@
 import { writable, get } from 'svelte/store';
 import { isLogin, user } from './user.js';
 import { getRecommend } from '../api/feed.js';
+import { mapRecommend } from '../api/videocard.js';
 import { refreshWbiKeys } from '../api/wbi.js';
 
 function blank() {
@@ -58,23 +59,6 @@ export function resetFeedState() {
 }
 
 /**
- * 推荐接口的条目 → 卡片数据
- * @param {any} v 接口返回的条目
- */
-function toItem(v) {
-  return {
-    bvid: v.bvid,
-    cid: v.cid,
-    aid: v.aid,
-    title: v.title,
-    pic: v.pic,
-    owner: v.owner ? { mid: v.owner.mid, name: v.owner.name } : null,
-    duration: v.duration,
-    stat: v.stat
-  };
-}
-
-/**
  * 拉首页推荐 (第一页)
  *
  * 已经在拉 → 直接返回 (挡住重复请求)
@@ -105,7 +89,7 @@ export async function loadHomeFeed() {
     if (d && typeof d.fresh_idx_1h === 'number') feedState.fresh_idx_1h = d.fresh_idx_1h;
     homeFeed.update(st => ({
       ...st,
-      items: items.map(toItem),
+      items: items.map(mapRecommend),
       hasMore: true
     }));
   } catch (e) {
@@ -153,7 +137,7 @@ export async function loadMoreHomeFeed() {
       feedState.fresh_idx_1h = nextFreshIdx1h;
     }
     // 追加到现有列表
-    homeFeed.update(st => ({ ...st, items: st.items.concat(items.map(toItem)) }));
+    homeFeed.update(st => ({ ...st, items: st.items.concat(items.map(mapRecommend)) }));
   } catch (e) {
     // 加载更多失败, 静默处理
   } finally {

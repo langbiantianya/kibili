@@ -1,6 +1,7 @@
 import { writable } from 'svelte/store';
 import { getFavResources } from '../api/user.js';
-import { getDynamicAll, getDynamicNew, extractArchive, extractAuthor } from '../api/dynamic.js';
+import { getDynamicAll, getDynamicNew } from '../api/dynamic.js';
+import { mapDynamicVideo } from '../api/videocard.js';
 
 // queue = current playlist (favorites folder, dynamic, 搜索结果…)
 // items: VideoItem[] = { bvid, cid, title, pic, owner, duration }
@@ -37,7 +38,9 @@ export async function loadFolder(media_id, label = '收藏夹') {
       title: m.title,
       pic: m.cover,
       owner: m.upper ? { mid: m.upper.mid, name: m.upper.name } : null,
-      duration: m.duration
+      duration: m.duration,
+      // 收藏夹给播放数, 不给点赞数 → 点赞数由列表层按需补 (见 FeedList)
+      stat: { play: m.play || 0, like: null }
     })).filter(v => v.bvid),
     index: 0,
     source: 'folder',
@@ -53,21 +56,7 @@ export async function loadDynamicVideos(uid) {
     const d = await getDynamicAll({ type: 'video' });
     const items = (d && d.items) ? d.items : [];
     const videos = items
-      .map(it => {
-        const a = extractArchive(it);
-        if (!a) return null;
-        const author = extractAuthor(it);
-        return {
-          bvid: a.bvid,
-          cid: a.cid,
-          aid: a.aid,
-          title: a.title,
-          pic: a.pic,
-          owner: author,
-          duration: a.duration,
-          stat: a.stat
-        };
-      })
+      .map(it => mapDynamicVideo(it))
       .filter(Boolean);
     queue.set({
       items: videos,

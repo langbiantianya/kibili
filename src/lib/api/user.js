@@ -139,30 +139,10 @@ export async function getUserProfile(mid) {
 // (-403 访问权限不足 / -352 风控校验失败), 因为它还要求 dm_img_list/dm_img_str
 // 这两个风控参数。老端点不用签名, 实测能正常返回。
 // 返回: { list: { vlist: [...] }, page: { count, pn, ps } }
-// vlist 里的字段是扁平的 (play/comment/length/author), 用 mapUserVideo 转成
-// FeedCard 认识的形状
+// vlist 里的字段是扁平的 (play/comment/length/author), 用 videocard.js 的
+// mapUserVideo 转成统一的卡片形状
 export async function getUserVideos(mid, { pn = 1, ps = 30, order = 'pubdate' } = {}) {
   return get('/x/space/arc/search', { query: { mid, pn, ps, order } });
-}
-
-// 投稿列表条目 → FeedCard 的形状
-// 投稿接口的字段是扁平的, 动态/推荐流的字段是嵌套的, 这里补齐
-export function mapUserVideo(v) {
-  return {
-    bvid: v.bvid,
-    aid: v.aid,
-    title: v.title,
-    pic: v.pic,
-    duration: v.length || '',
-    owner: { mid: v.mid, name: v.author || '' },
-    stat: {
-      play: v.play || 0,
-      comment: v.comment || 0,
-      danmaku: v.video_review || 0
-    },
-    // FeedCard 的评论数读的是 moduleStat.comment
-    moduleStat: { comment: v.comment || 0 }
-  };
 }
 
 // 关系状态数 (关注/粉丝/悄悄关注/黑名单)

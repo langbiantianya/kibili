@@ -2,6 +2,14 @@
   // @ts-ignore
   export let video = {};
   export let index = 0;
+  /**
+   * 列表层补来的统计 (播放量 + 点赞数)
+   *
+   * 投稿列表 (x/space/arc/search) 的 vlist 不给点赞数, 历史记录连播放量都没有,
+   * 而 B 站也没有批量查的接口。列表层在焦点落到某张卡时才去查, 查完通过这个
+   * prop 传回来 (见 components/FeedList.svelte)。
+   */
+  export let statOverride = undefined;
   import { formatDuration, formatCount } from '../utils/format.js';
   import { biliImg } from '../utils/platform.js';
   import { matchKey } from '../keyboard/keys.js';
@@ -13,34 +21,53 @@
     : (video.duration || '');
   $: cover = biliImg(video.pic, 80, 60, 'jpg');
 
-  // 视频统计取值:
-  // 推荐feed: stat.view(number) / stat.like(number) / stat.danmaku(number)，无 moduleStat
-  // 动态feed: stat.play(str，可能"1.1万") / moduleStat.like/forward/comment(number)
+  // 视频统计取值 (三个列表统一成 stat: { play, like }, 见 api/videocard.js)
+  //   推荐流:  stat.play = stat.view (数字), stat.like ✓
+  //   动态流:  stat.play = "275.7万" (字符串), stat.like = 动态的 module_stat.like.count
+  //   投稿列表: stat.play = v.play (数字), stat.like = null (没有, 要另外查)
   $: archiveStat = video.stat || {};
-  $: moduleStat = video.moduleStat || {};
-  // 播放量: 优先 stat.play(str/number)，其次 stat.view(number)
-  $: rawPlay = archiveStat.play || archiveStat.view || 0;
-  $: playDisplay = (() => {
-    if (typeof rawPlay === 'number') return formatCount(rawPlay);
-    if (typeof rawPlay === 'string' && rawPlay) {
+  // 播放量: 接口自带 > 兼容老数据的 stat.view > 列表层补来的
+  // null = 还没查到 (显示占位), 0 是真的 0 播放
+  $: playText = (() => {
+    let v = null;
+    if (archiveStat.play != null) v = archiveStat.play;
+    else if (archiveStat.view != null) v = archiveStat.view;
+    else if (statOverride && statOverride.play != null) v = statOverride.play;
+    if (v == null) return '—';
+    if (typeof v === 'number') return formatCount(v);
+    if (typeof v === 'string' && v) {
       // 已格式化的字符串(含中文如"1.1万")直接显示
-      if (/[^\d.]/.test(rawPlay)) return rawPlay;
+      if (/[^\d.]/.test(v)) return v;
       // 纯数字字符串转 number 后 formatCount
-      return formatCount(Number(rawPlay));
+      return formatCount(Number(v));
     }
     return '0';
   })();
-  // 点赞: 优先 stat.like(推荐feed)，其次 moduleStat.like(动态feed)
-  $: likeCount = archiveStat.like || moduleStat.like || 0;
-  // 转发/评论: 仅动态feed的moduleStat有
-  $: forwardCount = moduleStat.forward || 0;
-  $: commentCount = moduleStat.comment || 0;
+  // 点赞: 接口自带 > 列表层补来的 > 兼容老数据的 moduleStat.like
+  // null = 还没查到 (显示占位), 0 是真的没人赞
+  $: likeText = (() => {
+    let v = null;
+    if (archiveStat.like != null) v = archiveStat.like;
+    else if (statOverride && statOverride.like != null) v = statOverride.like;
+    else if (video.moduleStat && video.moduleStat.like != null) v = video.moduleStat.like;
+    return v == null ? '—' : formatCount(v);
+  })();
+
+  // 卡片拿到焦点 → 如果还缺点赞数, 让列表层去查一个
+  // (焦点驱动: 用户 D-pad 走到哪张卡才查哪张, 不会一上来就打一整页的请求)
+  function onFocus() {
+    if (archiveStat.like != null) return;
+    if (statOverride && statOverride.like != null) return;
+    if (!video.bvid) return;
+    dispatch('needstat', { bvid: video.bvid });
+  }
 </script>
 
 <div
   class="feed-card"
   data-navable
   tabindex="0"
+  on:focus={onFocus}
   on:click={() => dispatch('play', video)}
   on:keydown={(e) => {
     // 中键 (Enter) 激活交给按键总线统一处理 (activateFocused → el.click()),
@@ -61,12 +88,10 @@
     <div class="meta">
       {#if video.owner}<span class="up">{video.owner.name}</span>{/if}
     </div>
-    <!-- 点赞/播放/转发/评论统计 -->
+    <!-- 统计: 只显示播放量和点赞量 (三个列表统一) -->
     <div class="stat-row">
-      <span class="stat-item"><span>▶</span><span>{playDisplay}</span></span>
-      <span class="stat-item"><span>❤</span><span>{formatCount(likeCount)}</span></span>
-      {#if forwardCount}<span class="stat-item"><span>↗</span><span>{formatCount(forwardCount)}</span></span>{/if}
-      {#if commentCount}<span class="stat-item"><span>❝</span><span>{formatCount(commentCount)}</span></span>{/if}
+      <span class="stat-item"><span>▶</span><span>{playText}</span></span>
+      <span class="stat-item"><span>❤</span><span>{likeText}</span></span>
     </div>
   </div>
 </div>

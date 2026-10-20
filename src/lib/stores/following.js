@@ -26,7 +26,8 @@
 
 import { writable, get } from 'svelte/store';
 import { isLogin, user } from './user.js';
-import { getDynamicAll, extractArchive, extractAuthor } from '../api/dynamic.js';
+import { getDynamicAll } from '../api/dynamic.js';
+import { mapDynamicVideo } from '../api/videocard.js';
 
 function blank() {
   return {
@@ -74,35 +75,6 @@ function tabKey(tab) {
 }
 
 /**
- * 动态条目 → 视频卡片数据
- * @param {any} it 动态条目
- * @returns {any|null} 不是视频就返回 null
- */
-function toVideo(it) {
-  const v = extractArchive(it);
-  if (!v) return null;
-  const author = extractAuthor(it);
-  const moduleStat = it.modules && it.modules.module_stat;
-  return {
-    bvid: v.bvid,
-    cid: v.cid,
-    aid: v.aid,
-    title: v.title,
-    pic: v.pic,
-    owner: author,
-    duration: v.duration,
-    stat: v.stat,
-    // 动态统计数据: like/forward/comment
-    moduleStat: moduleStat ? {
-      like: moduleStat.like ? moduleStat.like.count : 0,
-      likeStatus: moduleStat.like ? moduleStat.like.status : false,
-      forward: moduleStat.forward ? moduleStat.forward.count : 0,
-      comment: moduleStat.comment ? moduleStat.comment.count : 0
-    } : null
-  };
-}
-
-/**
  * 拉取某个 tab 的数据
  *
  * - 已经在拉 → 直接返回 (挡住重复请求)
@@ -143,7 +115,7 @@ export async function loadFollowing(tab, isLoadMore = false) {
     });
     const items = (d && d.items) ? d.items : [];
     if (items.length) {
-      const list = isVideo ? items.map(toVideo).filter(Boolean) : items;
+      const list = isVideo ? items.map(mapDynamicVideo).filter(Boolean) : items;
       following.update(st => (isVideo
         ? {
           ...st,

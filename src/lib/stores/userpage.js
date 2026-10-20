@@ -20,7 +20,8 @@
 // 走 store 会让整个列表重算一遍, 这种低配设备上不值当。
 
 import { writable, get } from 'svelte/store';
-import { getUserProfile, getUserVideos, mapUserVideo } from '../api/user.js';
+import { getUserProfile, getUserVideos } from '../api/user.js';
+import { mapUserVideo } from '../api/videocard.js';
 import { getDynamicSpace } from '../api/dynamic.js';
 
 /**

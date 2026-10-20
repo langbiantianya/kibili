@@ -11,6 +11,22 @@ export async function getVideoInfo(bvid) {
   return get('/x/web-interface/view', { query: { bvid }, needCookie: true });
 }
 
+// 视频统计 (播放量 + 点赞数)
+//
+// 列表接口基本都不给点赞数 (推荐流除外), 只能一个视频一个视频地查:
+//   端点: GET /x/web-interface/view  →  data.stat.view / data.stat.like
+//
+// 没有批量接口 (B 站的 archive/stats 那种批量端点已经没了), 所以调用方
+// 要**按需**查 —— 别一上来就为一整页 30 个视频各发一次请求。
+//
+// @param {string} bvid
+// @returns {Promise<{play: number, like: number}>}
+export async function getVideoStat(bvid) {
+  const info = await getVideoInfo(bvid);
+  const st = (info && info.stat) || {};
+  return { play: st.view || 0, like: st.like || 0 };
+}
+
 // 视频超详细信息 (wbi 增强版)
 // 端点: GET /x/web-interface/wbi/view/detail
 // 鉴权方式: Wbi 签名

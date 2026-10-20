@@ -1141,6 +1141,64 @@ check('设置: 老数据没有 autoPlay 字段时缺省是"立刻播放"', async
   eq(JSON.parse(store.get('settings:v1')).autoPlay, false, '关掉之后应该写进 localStorage');
 });
 
+// ── 9. 统一的视频卡片形状 ──────────────────────────────────────────────
+// 首页推荐流 / 关注页动态流 / 用户主页投稿列表 —— 三个来源的字段完全不一样,
+// 在 api/videocard.js 里统一成 { stat: { play, like } }, 卡片组件只认这一种
+check('卡片形状: 推荐流的播放量取 stat.view, 点赞取 stat.like', async () => {
+  const { mapRecommend } = await import('../src/lib/api/videocard.js');
+  const c = mapRecommend({
+    bvid: 'BV1', cid: 2, aid: 3, title: 't', pic: 'p', duration: 10,
+    owner: { mid: 5, name: 'UP' },
+    stat: { view: 12345, like: 678, danmaku: 9 }
+  });
+  eq(c.stat.play, 12345, '播放量应该取 stat.view');
+  eq(c.stat.like, 678, '点赞应该取 stat.like');
+  eq(c.owner.name, 'UP', 'UP 主名字');
+  eq(c.duration, 10, '时长');
+});
+
+check('卡片形状: 动态流的播放量是字符串, 点赞取 module_stat.like.count', async () => {
+  const { mapDynamicVideo } = await import('../src/lib/api/videocard.js');
+  const item = {
+    modules: {
+      module_dynamic: {
+        major: {
+          type: 'MAJOR_TYPE_ARCHIVE',
+          archive: {
+            bvid: 'BV2', aid: 4, cid: 6, title: 't2', cover: 'c2',
+            duration_text: '3:21',
+            stat: { play: '275.7万', danmaku: '2.5万' }
+          }
+        }
+      },
+      module_stat: {
+        like: { count: 209628, status: false },
+        forward: { count: 755 },
+        comment: { count: 5831 }
+      }
+    }
+  };
+  const c = mapDynamicVideo(item);
+  eq(c.stat.play, '275.7万', '播放量就是接口给的字符串');
+  eq(c.stat.like, 209628, '点赞取 module_stat.like.count');
+  eq(c.duration, '3:21', '时长用 duration_text');
+
+  eq(mapDynamicVideo({ modules: { module_dynamic: { major: { type: 'MAJOR_TYPE_ARTICLE' } } } }), null,
+    '不是视频的动态应该返回 null');
+});
+
+check('卡片形状: 投稿列表没有点赞数 (留 null, 由列表层按需补)', async () => {
+  const { mapUserVideo } = await import('../src/lib/api/videocard.js');
+  const c = mapUserVideo({
+    bvid: 'BV3', aid: 7, title: 't3', pic: 'p3', length: '44:42',
+    author: '影视飓风', mid: 946974, play: 2745681, comment: 5816, video_review: 24622
+  });
+  eq(c.stat.play, 2745681, '播放量取 v.play');
+  eq(c.stat.like, null, '投稿接口不给点赞数, 应该是 null');
+  eq(c.duration, '44:42', '时长用 length');
+  eq(c.owner.name, '影视飓风', 'UP 主名字用 author');
+});
+
 // ── 运行 ────────────────────────────────────────────────────────────────
 // 顺序执行 (测试之间共用全局的按键总线, 并发/交叠会互相污染)
 for (const t of tests) {

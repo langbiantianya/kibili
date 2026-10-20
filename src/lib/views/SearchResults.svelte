@@ -59,9 +59,12 @@
           owner: v.author ? { mid: v.mid, name: v.author } : null,
           duration: v.duration,
           stat: {
-            view: v.play || 0,
-            like: v.lavorites || 0,
-            danmaku: v.video_review || 0,
+            // 统一的卡片形状: 播放量 + 点赞数
+            // 搜索接口给的是 play (播放) 和 like (点赞)
+            // (注意: 之前这里写的是 v.lavorites —— 少个 f, 一直是 undefined, 点赞恒为 0)
+            // 没有 like 就留 null, 由列表层按需补 (见 components/FeedList.svelte)
+            play: v.play || 0,
+            like: v.like != null ? v.like : null,
           },
         }));
 
