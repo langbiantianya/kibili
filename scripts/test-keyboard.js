@@ -157,7 +157,7 @@ async function main() {
 const { canonicalKey, isTextKey, matchKey, resetLearnedKeyCodes } = await import('../src/lib/keyboard/keys.js');
 const { onKey, offKey, clearKeys, activeScopes, exclusiveScope } = await import('../src/lib/keyboard/scopes.js');
 const kb = await import('../src/lib/keyboard/index.js');
-const { moveFocus, focusFirst, getFocusables } = await import('../src/lib/keyboard/roving.js');
+const { moveFocus, focusFirst, getFocusables, focusIndex, focusAt } = await import('../src/lib/keyboard/roving.js');
 const { openModalScope } = await import('../src/lib/keyboard/modalkeys.js');
 const { setSoftkeys } = await import('../src/lib/stores/ui.js');
 const { get } = await import('svelte/store');
@@ -723,6 +723,48 @@ check('getFocusables 过滤掉 disabled 的元素', () => {
   const { root, items } = makeList(2);
   items[0].setAttribute('disabled', '');
   eq(getFocusables(root).length, 1);
+  resetDom();
+});
+
+check('focusAt: 把焦点放到区域内第 N 个元素', () => {
+  resetDom();
+  const { root, items } = makeList(4);
+  doc.activeElement = doc.body;
+  eq(focusAt(root, 2), true);
+  eq(doc.activeElement, items[2], '焦点应该落在第 3 个元素上');
+  resetDom();
+});
+
+check('focusAt: 下标越界时不乱动焦点', () => {
+  resetDom();
+  const { root, items } = makeList(2);
+  doc.activeElement = doc.body;
+  eq(focusAt(root, 9), false, '超出范围应该返回 false');
+  eq(focusAt(root, -1), false, '负数应该返回 false');
+  eq(doc.activeElement, doc.body, '失败时不应该动焦点');
+  resetDom();
+});
+
+check('focusIndex: 记录当前焦点在区域里的序号', () => {
+  resetDom();
+  const { root, items } = makeList(3);
+  doc.activeElement = doc.body;
+  eq(focusIndex(root), -1, '没有焦点时返回 -1');
+  items[1].focus();
+  eq(focusIndex(root), 1, '焦点在第 2 个元素上时返回 1');
+  resetDom();
+});
+
+check('focusAt / focusIndex 组合: 记住位置再恢复', () => {
+  resetDom();
+  const { root, items } = makeList(5);
+  doc.activeElement = doc.body;
+  items[3].focus();
+  const saved = focusIndex(root);
+  // 模拟"离开页面" —— 焦点掉回 body
+  doc.activeElement = doc.body;
+  eq(focusAt(root, saved), true);
+  eq(doc.activeElement, items[3], '应该回到记住的那一条');
   resetDom();
 });
 

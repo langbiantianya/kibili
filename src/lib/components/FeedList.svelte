@@ -2,6 +2,13 @@
   export let items = [];
   export let empty = '暂无内容';
   export let loadingMore = false;
+  /**
+   * 数据到位后要不要自动聚焦第一条
+   *
+   * 关注页要自己管焦点 (记住并恢复上次看的那一条), 那里传 false,
+   * 否则两处抢焦点, 会出现"刚设好又被拉回第一条"。
+   */
+  export let autoFocus = true;
   import FeedCard from './FeedCard.svelte';
   import EmptyState from './EmptyState.svelte';
   import LoadingMore from './LoadingMore.svelte';
@@ -23,7 +30,7 @@
   // 用户必须先按一次方向键才知道自己在哪。
   // 现在改成"数据到位后再聚焦", 并且只在当前没有焦点时才抢焦点
   // (从子页面返回时保持原来的位置)。
-  $: if (listEl && items.length && !autoFocused) {
+  $: if (autoFocus && listEl && items.length && !autoFocused) {
     autoFocused = true;
     tick().then(() => {
       const active = document.activeElement;

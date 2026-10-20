@@ -1,11 +1,12 @@
 <script>
-  import { onMount } from 'svelte';
-  import { isLogin, user } from '../stores/user.js';
-  import { getDynamicNew, getDynamicHistory, getDynamicAll, extractArchive, extractAuthor } from '../api/dynamic.js';
+  import { onMount, tick } from 'svelte';
+  import { isLogin } from '../stores/user.js';
+  import { extractArchive } from '../api/dynamic.js';
   import { queue } from '../stores/queue.js';
   import { navigate } from '../router/index.js';
-  import { onKey, roam } from '../keyboard/index.js';
-  import { setSoftkeys, showToast } from '../stores/ui.js';
+  import { onKey, roam, getFocusables, focusAt, focusFirst } from '../keyboard/index.js';
+  import { setSoftkeys } from '../stores/ui.js';
+  import { following, followingFocus, resetFollowingData, loadFollowing } from '../stores/following.js';
   import TabBar from '../components/TabBar.svelte';
   import FeedList from '../components/FeedList.svelte';
   import Loading from '../components/Loading.svelte';
@@ -18,107 +19,36 @@
     { key: 'video',   label: '视频' },
     { key: 'dynamic', label: '动态' }
   ];
-  let activeTab = 0;
+  // 数据、分页游标、加载状态全在 store 里 (见 stores/following.js):
+  // 组件销毁也不丢 —— 返回本页时直接用缓存, 不重新发请求。
+  // 这里不建本地别名, 一律直接读 $following.*, 保证读到的是最新值。
+  //
+  // 焦点位置在 followingFocus 里 (每个 tab 记一个序号),
+  // 焦点由**本页独占**: FeedList 的自动聚焦在这里是关掉的 (autoFocus={false}),
+  // 否则两边抢焦点, 会出现"焦点刚设好又被拉回第一条"。
 
-  // 视频流 (来自关注动态, 过滤 video)
-  /** @type {any[]} */
-  let videos = [];
-  let videoLoading = false;
-  let videoLoadingMore = false;
-  let videoError = '';
+  // 列表容器 (视频流是 .feed-list, 动态流是 .dyn-list)
+  let mainEl = null;
 
-  // 动态流 (含文字 / 图片 / 视频)
-  let dynamics = [];
-  let dynLoading = false;
-  let dynLoadingMore = false;
-  let dynError = '';
-
-  // 视频分页
-  let videoOffset = '';
-  let videoHasMore = true;
-
-  // 动态分页
-  let dynOffset = '';
-  let dynHasMore = true;
-
-  async function loadVideos(isLoadMore = false) {
-    if (!$isLogin) {
-      videoError = '请先登录';
-      return;
-    }
-    if (videoLoading || videoLoadingMore || !videoHasMore) return;
-    if (isLoadMore) videoLoadingMore = true;
-    else videoLoading = true;
-    videoError = '';
-    try {
-      const { getDynamicAll } = await import('../api/dynamic.js');
-      const d = await getDynamicAll({ type: 'video', offset: videoOffset });
-      const items = (d && d.items) ? d.items : [];
-      if (items.length) {
-        const newVideos = items.map(it => {
-          const v = extractArchive(it);
-          if (!v) return null;
-          const author = extractAuthor(it);
-          const moduleStat = it.modules && it.modules.module_stat;
-          return {
-            bvid: v.bvid,
-            cid: v.cid,
-            aid: v.aid,
-            title: v.title,
-            pic: v.pic,
-            owner: author,
-            duration: v.duration,
-            stat: v.stat,
-            // 动态统计数据: like/forward/comment
-            moduleStat: moduleStat ? {
-              like: moduleStat.like ? moduleStat.like.count : 0,
-              likeStatus: moduleStat.like ? moduleStat.like.status : false,
-              forward: moduleStat.forward ? moduleStat.forward.count : 0,
-              comment: moduleStat.comment ? moduleStat.comment.count : 0
-            } : null
-          };
-        }).filter(Boolean);
-        videos = videos.concat(newVideos);
-        videoHasMore = d.has_more !== false;
-        videoOffset = d.offset || '';
-      } else {
-        videoHasMore = false;
-      }
-    } catch (e) {
-      videoError = e.message || '加载失败';
-    } finally {
-      videoLoading = false;
-      videoLoadingMore = false;
-    }
+  /** 当前 tab 的缓存键 */
+  function tabKey() {
+    return $following.activeTab === 0 ? 'video' : 'dynamic';
   }
 
-  async function loadDynamics(isLoadMore = false) {
-    if (!$isLogin) {
-      dynError = '请先登录';
-      return;
-    }
-    if (dynLoading || dynLoadingMore || !dynHasMore) return;
-    if (isLoadMore) dynLoadingMore = true;
-    else dynLoading = true;
-    dynError = '';
-    try {
-      // 使用 web 端新协议 (和 video Tab 一致), 确保 ID 格式兼容 getDynamicDetail
-      const { getDynamicAll } = await import('../api/dynamic.js');
-      const d = await getDynamicAll({ type: 'all', offset: dynOffset });
-      const items = (d && d.items) ? d.items : [];
-      if (items.length) {
-        dynamics = dynamics.concat(items);
-        dynHasMore = d.has_more !== false;
-        dynOffset = d.offset || '';
-      } else {
-        dynHasMore = false;
-      }
-    } catch (e) {
-      dynError = e.message || '加载失败';
-    } finally {
-      dynLoading = false;
-      dynLoadingMore = false;
-    }
+  /** 当前列表容器 */
+  function listRoot() {
+    return mainEl ? mainEl.querySelector('.feed-list, .dyn-list') : null;
+  }
+
+  /**
+   * 页面上现在有没有焦点
+   *
+   * body / html 视为"没有焦点" —— 换页回来时旧页面被卸载,
+   * 焦点会掉回 body, 这正是我们要恢复焦点的时机。
+   */
+  function hasFocusSomewhere() {
+    const a = document.activeElement;
+    return !!(a && a !== document.body && a !== document.documentElement);
   }
 
   // 解析 card JSON 字符串
@@ -212,9 +142,10 @@
   }
 
   function playVideo(v) {
-    const idx = videos.findIndex(x => x.bvid === v.bvid);
+    const list = $following.videos;
+    const idx = list.findIndex(x => x.bvid === v.bvid);
     // 将 Following 视频列表写入 queue，而非沿用首页推荐的 queue
-    queue.set({ items: [...videos], index: idx >= 0 ? idx : 0, source: 'following', label: '关注·视频' });
+    queue.set({ items: [...list], index: idx >= 0 ? idx : 0, source: 'following', label: '关注·视频' });
     navigate('/player?bvid=' + v.bvid);
   }
 
@@ -227,77 +158,128 @@
     }
   }
 
-  function gotoLogin() {
-    navigate('/login');
+  /**
+   * 切 tab
+   *
+   * - tab 记在 store 里 (跨页面保留)
+   * - **只有没有缓存时才拉数据**: 返回本页时列表已经在缓存里, 不重复请求
+   * - 焦点放回这个 tab 上次看的那一条
+   */
+  function changeTab(i) {
+    if ($following.activeTab !== i) {
+      following.update(s => ({ ...s, activeTab: i }));
+    }
+    if (i === 0 && $following.videos.length === 0) loadFollowing(0);
+    if (i === 1 && $following.dynamics.length === 0) loadFollowing(1);
+    // 切回某个 tab 时把焦点放回刚才看的那一条
+    restoreFocus();
   }
 
-  function changeTab(i) {
-    activeTab = i;
-    if (i === 0 && videos.length === 0 && !videoLoading) loadVideos();
-    if (i === 1 && dynamics.length === 0 && !dynLoading) loadDynamics();
+  /** 手动刷新当前 tab (左软键 / 数字键 0) */
+  function refreshCurrent() {
+    // 清缓存重拉; 焦点位置一起作废 (刷新后回到最上面)
+    resetFollowingData($following.activeTab);
+    loadFollowing($following.activeTab);
   }
+
+  /**
+   * 焦点落在列表第几条 → 记下来
+   *
+   * Gecko 48 没有 focusin 事件, 用捕获阶段的 focus 事件代替
+   * (按键框架的 installKeyboard 也是这么做的)。
+   */
+  function onFocusCapture(e) {
+    const root = listRoot();
+    if (!root || !root.contains(e.target)) return;
+    const list = getFocusables(root);
+    const i = list.indexOf(e.target);
+    if (i >= 0) followingFocus[tabKey()] = i;
+  }
+
+  /**
+   * 把焦点放回上次的位置
+   *
+   * 规则 (顺序很重要):
+   * 1. 列表还没渲染出来 (还在 loading) → 什么都不做, 等数据到了再调
+   * 2. 页面上已经有焦点 (用户在标签栏/别的控件上) → 不抢
+   * 3. 记过位置 → 放回那一条; 没记过 → 第一条
+   */
+  async function restoreFocus() {
+    await tick();
+    const root = listRoot();
+    if (!root) return;
+    if (!getFocusables(root).length) return;
+    if (hasFocusSomewhere()) return;
+    const idx = followingFocus[tabKey()];
+    if (idx >= 0 && focusAt(root, idx)) return;
+    focusFirst(root);
+  }
+
+  // 列表内容变了 (数据到了 / 翻页追加了) → 把焦点放回该放的位置。
+  // 依赖写在参数里, 只是为了告诉 Svelte "这两个长度变了就重跑"。
+  $: restoreFocus($following.videos.length, $following.dynamics.length);
 
   // 软键标签随登录状态变化 (登录/登出后立即更新, 不用重进页面)
   // 左软键: 未登录=登录, 已登录=刷新; 右软键: 切Tab
   $: setSoftkeys($isLogin ? '刷新' : '登录', '切Tab');
 
   onMount(() => {
-    // 默认加载第一个 Tab
-    changeTab(0);
-    // onKey() 返回注销函数, 直接作为 onMount 的返回值 → 组件销毁时自动注销
-    return onKey('following', {
+    // 恢复上次的 tab (默认「视频」); 有缓存就不重新拉
+    changeTab($following.activeTab);
+    // 记住焦点落在第几条
+    window.addEventListener('focus', onFocusCapture, true);
+    // onKey() 返回注销函数 → 组件销毁时自动注销
+    const off = onKey('following', {
       // 向下漫游到列表末尾时加载下一页 (roam 的 onEdge 在"没能移动"时触发)
-      Down: () => roam(+1, () => {
-        if (activeTab === 0) loadVideos(true);
-        else loadDynamics(true);
-      }),
+      Down: () => roam(+1, () => loadFollowing($following.activeTab, true)),
       Up: () => roam(-1),
       SoftLeft: () => {
         if ($isLogin) {
-          // 已登录: 刷新当前 Tab
-          if (activeTab === 0) { videos = []; videoOffset = ''; videoHasMore = true; loadVideos(); }
-          else { dynamics = []; dynOffset = ''; dynHasMore = true; loadDynamics(); }
+          // 已登录: 刷新当前 Tab (只有手动刷新才重新拉数据)
+          refreshCurrent();
         } else {
           // 未登录: 跳转登录页
           navigate('/login');
         }
       },
-      SoftRight: () => changeTab(activeTab === 0 ? 1 : 0),
+      SoftRight: () => changeTab($following.activeTab === 0 ? 1 : 0),
       // 数字键 0: 重新加载当前 Tab
-      // (loadVideos/loadDynamics 是往数组尾部追加的, 必须先清空分页状态再加载,
+      // (loadFollowing 是往数组尾部追加的, 必须先清空分页状态再加载,
       //  否则整个列表会被追加一份重复的)
-      '0': () => {
-        if (activeTab === 0) { videos = []; videoOffset = ''; videoHasMore = true; loadVideos(); }
-        else { dynamics = []; dynOffset = ''; dynHasMore = true; loadDynamics(); }
-      },
+      '0': () => refreshCurrent(),
     }, { softkeys: true });
+    return () => {
+      window.removeEventListener('focus', onFocusCapture, true);
+      off();
+    };
   });
 </script>
 
 <div class="screen">
-  <TabBar {tabs} active={activeTab} on:change={(e) => changeTab(e.detail)} />
+  <TabBar {tabs} active={$following.activeTab} on:change={(e) => changeTab(e.detail)} />
 
-  <div class="main">
+  <div class="main" bind:this={mainEl}>
     {#if !$isLogin}
       <EmptyState message="登录后查看关注" hint="按 左软键 登录" />
-    {:else if activeTab === 0}
-      {#if videoLoading && videos.length === 0}
+    {:else if $following.activeTab === 0}
+      {#if $following.videoLoading && $following.videos.length === 0}
         <Loading message="加载中..." />
-      {:else if videoError}
-        <EmptyState message={videoError} />
+      {:else if $following.videoError}
+        <EmptyState message={$following.videoError} />
       {:else}
-        <FeedList items={videos} loadingMore={videoLoadingMore} on:play={(e) => playVideo(e.detail)} />
+        <!-- autoFocus={false}: 焦点由本页统一管 (见 restoreFocus) -->
+        <FeedList items={$following.videos} loadingMore={$following.videoLoadingMore} autoFocus={false} on:play={(e) => playVideo(e.detail)} />
       {/if}
     {:else}
-      {#if dynLoading && dynamics.length === 0}
+      {#if $following.dynLoading && $following.dynamics.length === 0}
         <Loading message="加载中..." />
-      {:else if dynError}
-        <EmptyState message={dynError} />
-      {:else if dynamics.length === 0}
+      {:else if $following.dynError}
+        <EmptyState message={$following.dynError} />
+      {:else if $following.dynamics.length === 0}
         <EmptyState message="暂无动态" />
       {:else}
         <div class="dyn-list scroll-y" data-nav-root>
-          {#each dynamics as d (d.id_str)}
+          {#each $following.dynamics as d (d.id_str)}
             {#each [dynVideo(d)] as v}
               <!-- 中键由框架默认行为触发 (activateFocused → click), 不再单独监听 keydown -->
               <div class="dyn-item" data-navable tabindex="0"
@@ -347,7 +329,7 @@
               </div>
             {/each}
           {/each}
-          {#if dynLoadingMore}<LoadingMore />{/if}
+          {#if $following.dynLoadingMore}<LoadingMore />{/if}
         </div>
       {/if}
     {/if}
@@ -451,7 +433,6 @@
   }
   .dyn-stat .stat-item {
     display: flex;
-    align-items: center;
     /* gap: 2px; Firefox 48 不支持 flex gap */
   }
   .dyn-stat .stat-item > * + * {

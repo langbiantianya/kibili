@@ -200,6 +200,37 @@ export function activateFocused() {
 }
 
 /**
+ * 当前焦点元素在区域内的序号 (没有焦点返回 -1)
+ *
+ * 配合 focusAt() 实现"记住并恢复焦点位置": 离开列表页时记下序号,
+ * 回来时把焦点放回同一条。
+ *
+ * @param {Element|Document} [root] 区域; 省略则用当前区域
+ * @returns {number}
+ */
+export function focusIndex(root) {
+  const list = getFocusables(root || currentRegion());
+  return list.indexOf(document.activeElement);
+}
+
+/**
+ * 把焦点移到区域内的第 index 个可导航元素
+ *
+ * @param {Element|Document} root
+ * @param {number} index
+ * @returns {boolean} 是否成功 (区域里没有那么多元素时返回 false)
+ */
+export function focusAt(root, index) {
+  const list = getFocusables(root);
+  if (!list.length) return false;
+  if (index < 0 || index >= list.length) return false;
+  const el = list[index];
+  el.focus();
+  scrollIntoViewCenter(el);
+  return true;
+}
+
+/**
  * 在容器内漫游, 到边界时回调 (用于无限滚动加载更多)
  *
  * @param {number} delta +1 向下 / -1 向上

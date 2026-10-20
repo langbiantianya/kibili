@@ -28,7 +28,8 @@ import { canonicalKey, isTextKey, matchKey, learnKeyCode, SYSTEM_KEYS, LEGACY_AL
 import {
   moveFocus, focusFirst, focusLast, activateFocused, getFocusables,
   currentRegion, findNavRoot, isNavable, roam,
-  scrollIntoViewCenter, findScroller, setLastFocused
+  scrollIntoViewCenter, findScroller, setLastFocused,
+  focusIndex, focusAt
 } from './roving.js';
 import {
   onKey, offKey, clearKeys, hasKeyHandler, activeScopes,
@@ -39,6 +40,7 @@ export {
   onKey, offKey, clearKeys, hasKeyHandler, activeScopes, exclusiveScope,
   moveFocus, focusFirst, focusLast, activateFocused, getFocusables,
   currentRegion, findNavRoot, isNavable, roam, scrollIntoViewCenter, findScroller,
+  focusIndex, focusAt,
   canonicalKey, isTextKey, matchKey, SYSTEM_KEYS
 };
 

@@ -22,10 +22,19 @@
   import About from "./lib/views/About.svelte";
   import KeyTest from "./lib/views/KeyTest.svelte";
 
+  // 主 Tab 的路径 (都由 MainLayout 内部渲染, 路由表里走 "*" 兜底)
+  const MAIN_PATHS = ["/home", "/following", "/profile"];
+
+  // 路由表
+  //
+  // 主 Tab (首页 / 关注 / 我的) 都交给 MainLayout, **只写一条 "*"**:
+  // 之前是 "/home"、"/following"、"/profile" 三条各自指向 MainLayout,
+  // 而 svelte-spa-router 是按"路由条目"决定要不要换组件的 ——
+  // 换 Tab 时它会把整个 MainLayout 销毁重建, 新旧两个实例会短暂共存:
+  // 旧实例先响应了 location 变化挂了一份新页面, 紧接着路由又把组件换掉,
+  // 于是同一个页面被挂载两次 (关注页因此发过两次请求、数据被追加两遍)。
+  // 用同一条 "*" 之后, 换 Tab 不再换组件, 只换 MainLayout 内部的那个页面。
   const routes = {
-    "/home": MainLayout,
-    "/following": MainLayout,
-    "/profile": MainLayout,
     "/history": History,
     "/favorites": Favorites,
     "/folder": FolderContents,
@@ -38,7 +47,8 @@
     "/settings": Settings,
     "/about": About,
     "/keytest": KeyTest,
-    "*": MainLayout, // fallback
+    // 主 Tab + 兜底都走 MainLayout (内部按 /home /following /profile 分发)
+    "*": MainLayout,
   };
 
   // 返回键统一由 lib/keyboard/index.js 的全局 app-back 作用域处理
@@ -62,7 +72,10 @@
     // 兜底路由 "*" 指向 MainLayout, 但 MainLayout 只渲染它自己的三个主 Tab 页面;
     // 若让它把未知路径渲染成 Home, 从主 Tab 过渡到二级页 (/history 等) 的那一帧会多挂载一个
     // Home (MainLayout.getPage 返回 null 避免了这一点, 这里只是双保险)。
-    const knownPaths = Object.keys(routes).filter(p => p !== "*");
+    //
+    // 主 Tab 三个路径走的是 "*" 兜底路由, 不在 routes 里, 要单独算成"已知路径",
+    // 否则会被当成未知路径重定向回首页。
+    const knownPaths = MAIN_PATHS.concat(Object.keys(routes).filter(p => p !== "*"));
     const unsubLocation = routerLocation.subscribe(loc => {
       const path = loc || "/";
       if (knownPaths.indexOf(path) < 0) replace("/home");
