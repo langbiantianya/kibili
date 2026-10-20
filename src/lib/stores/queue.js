@@ -1,28 +1,14 @@
-import { writable, get } from 'svelte/store';
-import { persist } from './persist.js';
+import { writable } from 'svelte/store';
 import { getFavResources } from '../api/user.js';
-import { getRecommend } from '../api/feed.js';
-import { refreshWbiKeys } from '../api/wbi.js';
 import { getDynamicAll, getDynamicNew, extractArchive, extractAuthor } from '../api/dynamic.js';
 
-// queue = current playlist (favorites folder, feed, or dynamic)
+// queue = current playlist (favorites folder, dynamic, 搜索结果…)
 // items: VideoItem[] = { bvid, cid, title, pic, owner, duration }
+//
+// 只放"当前播放列表"。首页推荐流有自己的 store (stores/home.js) ——
+// 之前首页把推荐流寄居在这里, 结果关注页/收藏夹往队列里一写,
+// 首页就会把别人的列表当成推荐流显示。
 export const queue = writable({ items: [], index: 0, source: '', label: '' });
-
-// 首页推荐分页状态
-let feedState = {
-  fresh_idx: 1,
-  fresh_idx_1h: 1,
-  hasMore: true
-};
-
-export function getFeedState() {
-  return { ...feedState };
-}
-
-export function resetFeedState() {
-  feedState = { fresh_idx: 1, fresh_idx_1h: 1, hasMore: true };
-}
 
 export function pushContext(item, source) {
   queue.update(q => ({ ...q, items: [item], index: 0, source: source || q.source }));
@@ -58,84 +44,6 @@ export async function loadFolder(media_id, label = '收藏夹') {
     label
   });
   return all.length;
-}
-
-// 加载首页推荐
-export async function loadFeed() {
-  // 先确保 WBI keys 就绪 (其他接口可能需要)
-  await refreshWbiKeys();
-  // 重置分页状态
-  resetFeedState();
-  // 使用 feed.js 中的默认参数 (fresh_type=3, version=1, ps=8)
-  const d = await getRecommend();
-  // 新版推荐接口返回 data.item 数组, 旧版返回 data 数组
-  const items = (d && d.item) ? d.item : ((d && Array.isArray(d)) ? d : []);
-  // 更新分页状态 (如果有返回)
-  if (d && typeof d.fresh_idx === 'number') {
-    feedState.fresh_idx = d.fresh_idx;
-  }
-  if (d && typeof d.fresh_idx_1h === 'number') {
-    feedState.fresh_idx_1h = d.fresh_idx_1h;
-  }
-  queue.set({
-    items: items.map(v => ({
-      bvid: v.bvid,
-      cid: v.cid,
-      aid: v.aid,
-      title: v.title,
-      pic: v.pic,
-      owner: v.owner ? { mid: v.owner.mid, name: v.owner.name } : null,
-      duration: v.duration,
-      stat: v.stat
-    })),
-    index: 0,
-    source: 'feed',
-    label: '推荐'
-  });
-}
-
-// 加载更多首页推荐
-export async function loadMoreFeed() {
-  if (!feedState.hasMore) return false;
-  await refreshWbiKeys();
-  // 递增分页索引
-  const nextFreshIdx = feedState.fresh_idx + 1;
-  const nextFreshIdx1h = feedState.fresh_idx_1h + 1;
-  const d = await getRecommend({
-    fresh_idx: nextFreshIdx,
-    fresh_idx_1h: nextFreshIdx1h
-  });
-  const items = (d && d.item) ? d.item : ((d && Array.isArray(d)) ? d : []);
-  if (items.length === 0) {
-    feedState.hasMore = false;
-    return false;
-  }
-  // 更新分页状态
-  if (d && typeof d.fresh_idx === 'number') {
-    feedState.fresh_idx = d.fresh_idx;
-  } else {
-    feedState.fresh_idx = nextFreshIdx;
-  }
-  if (d && typeof d.fresh_idx_1h === 'number') {
-    feedState.fresh_idx_1h = d.fresh_idx_1h;
-  } else {
-    feedState.fresh_idx_1h = nextFreshIdx1h;
-  }
-  // 追加到现有队列
-  queue.update(q => ({
-    ...q,
-    items: q.items.concat(items.map(v => ({
-      bvid: v.bvid,
-      cid: v.cid,
-      aid: v.aid,
-      title: v.title,
-      pic: v.pic,
-      owner: v.owner ? { mid: v.owner.mid, name: v.owner.name } : null,
-      duration: v.duration,
-      stat: v.stat
-    })))
-  }));
-  return true;
 }
 
 // 加载关注动态中的视频 (web 端 /x/polymer/web-dynamic/v1/feed/all)

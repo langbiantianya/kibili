@@ -25,7 +25,7 @@
 // 状态和请求都放在模块里, 第二个实例就会看到"已经在拉了", 不会重复发。
 
 import { writable, get } from 'svelte/store';
-import { isLogin } from './user.js';
+import { isLogin, user } from './user.js';
 import { getDynamicAll, extractArchive, extractAuthor } from '../api/dynamic.js';
 
 function blank() {
@@ -186,3 +186,29 @@ export function resetFollowingData(tab) {
     : { ...s, videos: [], videoOffset: '', videoHasMore: true }));
   followingFocus[tabKey(tab)] = -1;
 }
+
+/**
+ * 清空两个 tab 的全部缓存 (换账号时用)
+ */
+export function resetFollowing() {
+  following.update(s => ({
+    ...s,
+    videos: [],
+    videoOffset: '',
+    videoHasMore: true,
+    dynamics: [],
+    dynOffset: '',
+    dynHasMore: true
+  }));
+  followingFocus.video = -1;
+  followingFocus.dynamic = -1;
+}
+
+// 换账号 (登出 / 换号) 时把缓存清掉 ——
+// 关注列表是跟着账号走的, 留着上一个账号的关注不合理。
+let lastMid = get(user).mid;
+user.subscribe(u => {
+  if (lastMid === u.mid) return;
+  lastMid = u.mid;
+  resetFollowing();
+});
