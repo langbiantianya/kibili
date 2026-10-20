@@ -195,8 +195,9 @@
     navigate('/user?uid=' + mid);
   }
 
-  // 软键: 左=刷新当前 tab, 右=切 tab, 中=打开 (资料 tab 没有可打开的东西, 就不显示)
-  $: setSoftkeys('刷新', '切Tab', $userPage.activeTab === 0 ? '' : '打开');
+  // 软键: 左=刷新当前 tab, 中=打开 (资料 tab 没有可打开的东西, 就不显示)
+  // 切 tab 走**左右方向键** —— 右软键不占这个位置
+  $: setSoftkeys('刷新', '', $userPage.activeTab === 0 ? '' : '打开');
 
   onMount(() => {
     // 记住焦点落在第几条
@@ -205,10 +206,11 @@
       // 向下漫游到列表末尾时加载下一页
       Down: () => roam(+1, () => loadMore()),
       Up: () => roam(-1),
+      // 左右方向键: 切 tab (到头就停, 不绕圈)
+      Left: () => { if ($userPage.activeTab > 0) changeTab($userPage.activeTab - 1); },
+      Right: () => { if ($userPage.activeTab < tabs.length - 1) changeTab($userPage.activeTab + 1); },
       // 左软键: 刷新当前 tab (清缓存重拉, 焦点回到最上面)
-      SoftLeft: () => refreshUserTab(),
-      // 右软键: 切 tab
-      SoftRight: () => changeTab(($userPage.activeTab + 1) % tabs.length)
+      SoftLeft: () => refreshUserTab()
     }, { softkeys: true });
     return () => {
       window.removeEventListener('focus', onFocusCapture, true);

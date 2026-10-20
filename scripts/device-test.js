@@ -51,8 +51,8 @@ const PAGES = [
   { name: 'search', hash: '#/search', wait: 5000, softkeys: { left: '刷新', center: '', right: '搜索' } },
   { name: 'search-results', hash: '#/search-results?keyword=%E5%8E%9F%E7%A5%9E', wait: 8000, softkeys: {} },
   // 用户主页: 路由带 uid, 自己的主页和别人的主页同一条路由
-  // (中间软键随 tab 变: 资料 tab 没有可打开的东西, 所以不写 center 断言)
-  { name: 'user', hash: '#/user?uid=946974', wait: 9000, softkeys: { left: '刷新', right: '切Tab' } },
+  // (切 tab 走左右方向键, 右软键不占这一格; 中间软键随 tab 变, 所以不写 center 断言)
+  { name: 'user', hash: '#/user?uid=946974', wait: 9000, softkeys: { left: '刷新', right: '' } },
   { name: 'player', hash: '#/player?bvid=BV1ZqpE6uEKd', wait: 9000, softkeys: { right: '主页' } },
   // 全屏播放器: 右软键**不绑**主页 (全屏要沉浸), 所以这一格必须没有文案
   { name: 'fullscreen', hash: '#/fullscreen?bvid=BV1ZqpE6uEKd&t=0', wait: 9000, softkeys: { right: '' } },

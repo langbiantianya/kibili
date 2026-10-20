@@ -268,7 +268,7 @@ node scripts/device-test.js --only back-key          # 只验证右软键返回
 ✓ keytest         softkeys={"left":"","center":"选择","right":""} navables=19
 ✓ search          softkeys={"left":"刷新","center":"","right":"搜索"} navables=10
 ✓ search-results  softkeys={"left":"刷新","center":"打开","right":""} navables=20
-✓ user            softkeys={"left":"刷新","center":"","right":"切Tab"} navables=11
+✓ user            softkeys={"left":"刷新","center":"","right":""} navables=11
 ✓ player          softkeys={"left":"全屏","center":"暂停","right":"主页"} navables=0
 ✓ fullscreen      softkeys={"left":"播放/暂停","center":"","right":""} navables=0
 ✓ back-key        返回键 #/settings → #/profile
@@ -420,7 +420,7 @@ node scripts/device-test.js --only back-key          # 只验证右软键返回
 
 状态记忆和首页/关注页同一套思路，但**按 uid 分开缓存**（`src/lib/stores/userpage.js`）：看过谁的数据、看到第几条、停在哪个 tab，都记着；换个人再切回来还是原样。
 
-按键：上下键在列表里漫游（到底了自动加载下一页），左软键刷新当前 tab，右软键切 tab，中键打开当前选中的视频/动态。
+按键：上下键在列表里漫游（到底了自动加载下一页），**左右方向键切 tab**，左软键刷新当前 tab，中键打开当前选中的视频/动态。右软键在这一页不派活（没绑就不显示文案）。
 
 ### 两个风控坑（真机实测）
 
