@@ -52,8 +52,10 @@
   };
 
   // 返回键统一由 lib/keyboard/index.js 的全局 app-back 作用域处理
-  // (退格键 Back / 挂断键 EndCall / GoBack / BrowserBack 归一化后走同一处,
+  // (退格键 Back / Smart Touch 返回键 GoBack / BrowserBack 归一化后走同一处,
   //  顶层路由不拦截; 右软键不是返回键)
+  // 通话键 Call / 挂断键 EndCall 根本不在返回家族里 —— 框架在最前面就放行,
+  //  网页不能吞, 否则用户没法拨号/挂断。
   // 这里不再单独监听 keydown, 避免同一个按键被处理两遍。
 
   onMount(() => {

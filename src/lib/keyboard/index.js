@@ -12,6 +12,7 @@
 //      现在只有文字类按键让给输入法, 方向键/中键/软键仍然可以交给页面。
 //
 // ── 分发顺序 ───────────────────────────────────────────────────────────
+//   0. 永远不拦截的键 (通话 Call / 挂断 EndCall): 直接放行, 系统一定要收到
 //   1. 模态框 (exclusive scope) 独占期间: 只有模态能响应, 且只对它声明的按键
 //      preventDefault —— 输入框照常编辑文字。
 //   2. 输入框聚焦: 文字类按键 (数字/字母/空格/退格/标点) 直接放行给输入法。
@@ -24,7 +25,7 @@
 //     SoftLeft: { press: fn, long: fn2 }  // press 在 keyup (短按), long 长按触发
 //   })
 
-import { canonicalKey, isTextKey, matchKey, learnKeyCode, SYSTEM_KEYS, LEGACY_ALIAS } from './keys.js';
+import { canonicalKey, isTextKey, matchKey, learnKeyCode, SYSTEM_KEYS, NEVER_INTERCEPT, LEGACY_ALIAS } from './keys.js';
 import {
   moveFocus, focusFirst, focusLast, activateFocused, getFocusables,
   currentRegion, findNavRoot, isNavable, roam,
@@ -41,7 +42,7 @@ export {
   moveFocus, focusFirst, focusLast, activateFocused, getFocusables,
   currentRegion, findNavRoot, isNavable, roam, scrollIntoViewCenter, findScroller,
   focusIndex, focusAt,
-  canonicalKey, isTextKey, matchKey, SYSTEM_KEYS
+  canonicalKey, isTextKey, matchKey, SYSTEM_KEYS, NEVER_INTERCEPT
 };
 
 /** 默认长按阈值 (ms) */
@@ -128,6 +129,12 @@ function lookup(map, key, e) {
 function onKeyDown(e) {
   const key = canonicalKey(e);
   if (!key) return;
+
+  // 0) 永远不拦截的键 (通话 / 挂断)
+  //    网页吞掉它们, 用户就没法拨号、没法挂断 —— 官方要求不能拦着用户离开应用。
+  //    在最前面直接放行: 不进任何作用域, 不 preventDefault, 系统一定收到。
+  if (NEVER_INTERCEPT.indexOf(key) >= 0) return;
+
   pressed[key] = true;
 
   // 自学习 keyCode → 规范名: 不同机型同一按键的 keyCode 可能不同,

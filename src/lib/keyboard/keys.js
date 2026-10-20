@@ -239,6 +239,7 @@ export const LEGACY_ALIAS = {
 export const SYSTEM_KEYS = [
   'Power',
   'Call',
+  'EndCall',
   'Camera',
   'HeadsetHook',
   'LaunchWebBrowser',
@@ -247,6 +248,20 @@ export const SYSTEM_KEYS = [
   'Notification',
   'MicrophoneToggle'
 ];
+
+/**
+ * 永远不拦截的按键 (连页面都不能接管)
+ *
+ * 通话键 Call / 挂断键 EndCall 关系到打电话这件事 —— 网页吞掉它们, 用户就没法
+ * 拨号、没法挂断, 官方也是明确要求"别拦着用户离开应用"。所以这两个键在按键
+ * 总线的**最前面**就被放行: 不进任何作用域, 不 preventDefault, 系统一定收到。
+ *
+ * 和 SYSTEM_KEYS 的区别: SYSTEM_KEYS 只是"默认不处理", 页面显式声明还能接管;
+ * 这里是不给页面任何机会。
+ *
+ * @type {Array<string>}
+ */
+export const NEVER_INTERCEPT = ['Call', 'EndCall'];
 
 /**
  * 把 KeyboardEvent 归一化成规范键名。

@@ -11,13 +11,16 @@ import { back } from './lib/router/index.js';
 //   Back         退格键 (keyCode 8) —— **主力**
 //                官方语义就是"返回上一级"; Nokia 6300 4G 这类机型上, 方向键
 //                右边那颗"←"物理返回键上报的就是它 (e.key = "Backspace")
-//   EndCall      挂断键 (keyCode 95), 官方语义"结束当前操作/关闭应用"
 //   GoBack       Smart Touch 机型的返回键 (KaiOS 3, 如 Nokia 8000)
 //   BrowserBack  浏览器里的返回键 (浏览器环境才有, 顺手支持)
 //
 // 这些键注册成 priority = -100 的**全局**作用域: 页面自己接管了 (首页=搜索 /
 // 关注页=切Tab / 播放器的返回) 就由页面处理, 否则视为"返回"。
 // 顶层页面不拦截, 让系统默认行为 (退出应用) 生效。
+//
+// ⚠️ **通话键 Call / 挂断键 EndCall 不在返回家族里**。
+// 它们关系到打电话本身 —— 网页吞掉, 用户就没法拨号、没法挂断。框架在按键总线
+// 的最前面就把这两个键放行了 (NEVER_INTERCEPT), 连页面都接管不到。
 //
 // ⚠️ **右软键 SoftRight 不再兜底返回**。
 // 软键是"页面动作"键, 不是导航键: 页面想用就自己声明 (首页=搜索 /
@@ -45,7 +48,6 @@ function handleBack(e) {
 
 onKey('app-back', {
   Back: handleBack,
-  EndCall: handleBack,
   GoBack: handleBack,
   BrowserBack: handleBack
 }, { priority: -100, global: true });

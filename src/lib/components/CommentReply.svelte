@@ -39,11 +39,9 @@
         }
         return false;
       },
-      // 挂断键 / Smart Touch 返回键: 官方语义就是"结束当前操作", 直接关闭回复框
-      EndCall: () => {
-        close();
-        return true;
-      },
+      // Smart Touch 返回键: 关闭回复框
+      // (挂断键 EndCall 不在这里 —— 框架的 NEVER_INTERCEPT 会在最前面放行它,
+      //  网页不能拿它当"取消", 免得用户想挂电话结果把回复框关了)
       GoBack: () => {
         close();
         return true;

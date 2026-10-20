@@ -904,24 +904,55 @@ check('catchAll: 放行方向键后, 框架默认的焦点漫游仍然生效', (
 });
 
 // ── 4. 返回键家族 ──────────────────────────────────────────────────────
-check('返回键: 退格键(Back)/挂断键(EndCall) 触发返回, 右软键不触发', () => {
+check('返回键: 退格键(Back)/Smart Touch 返回键 触发返回, 右软键不触发', () => {
   clearKeys();
   resetDom();
   let backCount = 0;
-  // 照抄 main.js 里 app-back 的注册方式 (右软键不在返回家族里)
+  // 照抄 main.js 里 app-back 的注册方式 (右软键不在返回家族里, EndCall 也不在)
   const off = onKey('app-back', {
     Back: () => { backCount++; },
-    EndCall: () => { backCount++; },
     GoBack: () => { backCount++; },
     BrowserBack: () => { backCount++; }
   }, { priority: -100, global: true });
   press('Backspace');
   eq(backCount, 1, '退格键应该触发返回');
-  press('EndCall');
-  eq(backCount, 2, '挂断键应该触发返回');
+  press('GoBack');
+  eq(backCount, 2, 'Smart Touch 返回键应该触发返回');
   press('SoftRight');
   eq(backCount, 2, '右软键不是返回键, 不应该触发返回');
   off();
+  clearKeys();
+});
+
+check('通话键/挂断键: 网页永远不拦, 页面显式声明也不处理', () => {
+  clearKeys();
+  resetDom();
+  let got = 0;
+  const off = onKey('page', {
+    Call: () => { got++; },
+    EndCall: () => { got++; }
+  }, { priority: 10 });
+  const e1 = press('EndCall');
+  eq(got, 0, '挂断键不应该被页面处理');
+  eq(e1.defaultPrevented, false, '挂断键不应该被 preventDefault');
+  const e2 = press('Call');
+  eq(got, 0, '通话键不应该被页面处理');
+  eq(e2.defaultPrevented, false, '通话键不应该被 preventDefault');
+  off();
+  clearKeys();
+});
+
+check('通话键/挂断键: 模态独占时也不拦', () => {
+  clearKeys();
+  resetDom();
+  let got = 0;
+  const close = openModalScope('modal', {
+    EndCall: () => { got++; }
+  });
+  const e = press('EndCall');
+  eq(got, 0, '模态也不该拿挂断键当取消');
+  eq(e.defaultPrevented, false, '挂断键不应该被 preventDefault');
+  close();
   clearKeys();
 });
 
