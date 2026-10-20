@@ -1,5 +1,5 @@
 // WBI 签名 (B 站反爬强制要求)
-// 参考: SocialSisterYi/bilibili-API-collect/docs/misc/sign/wbi.md
+// 参考: alittlehuaji/bilibili-api-collect-mirror/docs/misc/sign/wbi.md
 //
 // 用法:
 //   import { signWbi, getWbiKeys, refreshWbiKeys } from './wbi.js';

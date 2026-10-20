@@ -1,5 +1,5 @@
 // 用户信息 / 历史记录 / 关注 / 收藏夹 / 关系 / 搜索建议
-// 端点参考: SocialSisterYi/bilibili-API-collect/docs/user/
+// 端点参考: alittlehuaji/bilibili-api-collect-mirror/docs/user/
 
 import { get } from './bili.js';
 import { get as getStore } from 'svelte/store';
@@ -30,6 +30,56 @@ export async function getUserSpace(mid) {
 // 端点: GET /x/web-interface/card
 export async function getUserCard(mid, photo = false) {
   return get('/x/web-interface/card', { query: { mid, photo: photo ? 1 : 0 } });
+}
+
+// ============ 用户主页 ============
+
+// 用户主页资料: 名片 + 空间详细信息
+//
+// 名片 (x/web-interface/card): 昵称/头像/签名/等级/粉丝数/关注数/投稿数/认证
+// 空间详细信息 (x/space/wbi/acc/info): 性别/生日/空间简介/是否已关注
+//
+// 两个接口分开拉, 互不影响 —— 有的账号空间接口会 -403 (私密/风控),
+// 但名片照样能用, 页面至少能显示头像昵称
+export async function getUserProfile(mid) {
+  const parts = await Promise.all([
+    getUserCard(mid).catch(() => null),
+    getUserSpace(mid).catch(() => null)
+  ]);
+  return { card: parts[0], space: parts[1] };
+}
+
+// 用户投稿视频
+// 端点: GET /x/space/arc/search
+//
+// 用**非 wbi** 的老端点: wbi 版 (x/space/wbi/arc/search) 在设备上会被风控挡掉
+// (-403 访问权限不足 / -352 风控校验失败), 因为它还要求 dm_img_list/dm_img_str
+// 这两个风控参数。老端点不用签名, 实测能正常返回。
+// 返回: { list: { vlist: [...] }, page: { count, pn, ps } }
+// vlist 里的字段是扁平的 (play/comment/length/author), 用 mapUserVideo 转成
+// FeedCard 认识的形状
+export async function getUserVideos(mid, { pn = 1, ps = 30, order = 'pubdate' } = {}) {
+  return get('/x/space/arc/search', { query: { mid, pn, ps, order } });
+}
+
+// 投稿列表条目 → FeedCard 的形状
+// 投稿接口的字段是扁平的, 动态/推荐流的字段是嵌套的, 这里补齐
+export function mapUserVideo(v) {
+  return {
+    bvid: v.bvid,
+    aid: v.aid,
+    title: v.title,
+    pic: v.pic,
+    duration: v.length || '',
+    owner: { mid: v.mid, name: v.author || '' },
+    stat: {
+      play: v.play || 0,
+      comment: v.comment || 0,
+      danmaku: v.video_review || 0
+    },
+    // FeedCard 的评论数读的是 moduleStat.comment
+    moduleStat: { comment: v.comment || 0 }
+  };
 }
 
 // 关系状态数 (关注/粉丝/悄悄关注/黑名单)

@@ -18,6 +18,7 @@
   import DynamicDetail from "./lib/views/DynamicDetail.svelte";
   import Search from "./lib/views/Search.svelte";
   import SearchResults from "./lib/views/SearchResults.svelte";
+  import User from "./lib/views/User.svelte";
   import Settings from "./lib/views/Settings.svelte";
   import About from "./lib/views/About.svelte";
   import KeyTest from "./lib/views/KeyTest.svelte";
@@ -44,6 +45,8 @@
     "/dynamic-detail": DynamicDetail,
     "/search": Search,
     "/search-results": SearchResults,
+    // 用户主页: #/user?uid=xxx (自己的主页和别人的主页走同一条路由)
+    "/user": User,
     "/settings": Settings,
     "/about": About,
     "/keytest": KeyTest,

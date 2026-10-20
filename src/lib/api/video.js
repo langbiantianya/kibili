@@ -1,5 +1,5 @@
 // 视频详情 / 播放地址 / DASH / 多分 P
-// 端点参考: SocialSisterYi/bilibili-API-collect/docs/video/
+// 端点参考: alittlehuaji/bilibili-api-collect-mirror/docs/video/
 
 import { get } from './bili.js';
 

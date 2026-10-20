@@ -1,5 +1,5 @@
 // Web 端 QR 登录
-// 端点参考: SocialSisterYi/bilibili-API-collect/docs/login/login_action/QR.md
+// 端点参考: alittlehuaji/bilibili-api-collect-mirror/docs/login/login_action/QR.md
 
 import { get, isDev } from './bili.js';
 

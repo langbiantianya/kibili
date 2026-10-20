@@ -1,5 +1,5 @@
 // 推荐 / 排行榜
-// 端点参考: SocialSisterYi/bilibili-API-collect/docs/video/recommend.md
+// 端点参考: alittlehuaji/bilibili-api-collect-mirror/docs/video/recommend.md
 
 import { get } from './bili.js';
 

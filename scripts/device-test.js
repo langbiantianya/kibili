@@ -50,6 +50,9 @@ const PAGES = [
   { name: 'keytest', hash: '#/keytest', wait: 3000, softkeys: { center: '选择' } },
   { name: 'search', hash: '#/search', wait: 5000, softkeys: { left: '刷新', center: '', right: '搜索' } },
   { name: 'search-results', hash: '#/search-results?keyword=%E5%8E%9F%E7%A5%9E', wait: 8000, softkeys: {} },
+  // 用户主页: 路由带 uid, 自己的主页和别人的主页同一条路由
+  // (中间软键随 tab 变: 资料 tab 没有可打开的东西, 所以不写 center 断言)
+  { name: 'user', hash: '#/user?uid=946974', wait: 9000, softkeys: { left: '刷新', right: '切Tab' } },
   { name: 'player', hash: '#/player?bvid=BV1ZqpE6uEKd', wait: 9000, softkeys: {} }
 ];
 

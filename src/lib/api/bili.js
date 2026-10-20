@@ -1,5 +1,5 @@
 // XHR + systemXHR wrapper for Bilibili API
-// 基于 SocialSisterYi/bilibili-API-collect 文档中的 web 端接口
+// 基于 alittlehuaji/bilibili-api-collect-mirror 文档中的 web 端接口
 //
 // 关键点:
 // - KaiOS 2.4 privileged 模式: XMLHttpRequest({mozSystem:true}) 绕过 CORS
@@ -7,7 +7,7 @@
 // - Web 端请求使用 Cookie 鉴权 (SESSDATA)
 // - WBI 鉴权: 2023+ 强制的反爬, 通过 wbi.js 给 query 加 wts + w_rid
 //
-// 接口来源: https://github.com/SocialSisterYi/bilibili-API-collect
+// 接口来源: https://github.com/alittlehuaji/bilibili-api-collect-mirror
 
 import { get as getStore } from 'svelte/store';
 import { user } from '../stores/user.js';
@@ -18,7 +18,7 @@ import { signWbi, hasWbiKeys } from './wbi.js';
 const UA = 'Mozilla/5.0 (Android 16; Mobile; rv:146.0) Gecko/146.0 Firefox/146.0';
 const REFERER = 'https://m.bilibili.com/';
 
-// API 基础地址 (对应 bili-apis 文档中的 web 端点)
+// API 基础地址 (对应镜像文档里的 web 端点)
 const BASE = 'https://api.bilibili.com';
 const PASSPORT = 'https://passport.bilibili.com';
 const VC = 'https://api.vc.bilibili.com';
@@ -37,12 +37,48 @@ export const isDev = process.env.NODE_ENV !== 'production';
 
 // ============ buvid 设备标识 ============
 // B站风控要求 buvid3/buvid4/b_nut, 缺失会 -412
-// Dev 模式由 dev server 代理注入; KaiOS 设备端手动生成
+// KaiOS 设备端优先用**服务器发的真实 buvid** (见 readRealBuvid),
+// 没有才自己生成
 
 let _buvid = null;
 
+/**
+ * 从 cookie jar 里读 B 站服务器发的**真实** buvid
+ *
+ * 应用启动时会访问一次 bilibili.com, 服务器回的 Set-Cookie 里有 buvid3/b_nut。
+ * 风控认这个 —— 自己随机生成的那套会被拒 (-412 request was banned)。
+ * 每次取都看一眼 cookie: 第一次请求时真实 cookie 可能还没到, 后面的请求就该用上了。
+ *
+ * @returns {{buvid3: string, buvid4: string, b_nut: string}|null}
+ */
+function readRealBuvid() {
+  let cookie = '';
+  try { cookie = document.cookie || ''; } catch (e) { return null; }
+  if (!cookie) return null;
+  const got = {};
+  cookie.split(';').forEach(part => {
+    const i = part.indexOf('=');
+    if (i < 0) return;
+    const k = part.slice(0, i).trim();
+    if (k !== 'buvid3' && k !== 'buvid4' && k !== 'b_nut') return;
+    got[k] = part.slice(i + 1).trim();
+  });
+  if (!got.buvid3) return null;
+  return {
+    buvid3: got.buvid3,
+    buvid4: got.buvid4 || '',
+    b_nut: got.b_nut || String(Math.floor(Date.now() / 1000))
+  };
+}
+
 // wbi.js 需要 buvid 生成签名用的 Cookie 串, 因此必须导出
 export function getBuvid() {
+  // 真实 cookie 里的优先
+  const real = readRealBuvid();
+  if (real) {
+    _buvid = real;
+    return _buvid;
+  }
   if (_buvid) return _buvid;
   // 简单生成 buvid3 (32位hex) + buvid4 (UUID+时间戳) + b_nut (时间戳)
   const ts = Date.now();
@@ -204,20 +240,13 @@ export function request(path, opts = {}) {
         if (u.bili_jct) cookie += '; bili_jct=' + u.bili_jct;
       }
     }
-    // KaiOS 设备端: 始终注入 buvid 设备标识 (B站风控要求, 缺失会 -412)
-    // Dev 模式: 也注入 buvid, dev server 代理会读取 X-Cookie 并转发
-    if (!isDev) {
-      const bv = getBuvid();
-      cookie += (cookie ? '; ' : '') + 'buvid3=' + bv.buvid3;
-      cookie += '; buvid4=' + bv.buvid4;
-      cookie += '; b_nut=' + bv.b_nut;
-    } else {
-      // Dev 模式: 单独注入 buvid (即使没有登录态)
-      const bv = getBuvid();
-      cookie += (cookie ? '; ' : '') + 'buvid3=' + bv.buvid3;
-      cookie += '; buvid4=' + bv.buvid4;
-      cookie += '; b_nut=' + bv.b_nut;
-    }
+    // 始终注入 buvid 设备标识 (B站风控要求, 缺失会 -412)
+    // 设备端用服务器发的真实 buvid (getBuvid 内部会优先读 cookie jar),
+    // Dev 模式由 dev server 代理注入
+    const bv = getBuvid();
+    if (bv.buvid3) cookie += (cookie ? '; ' : '') + 'buvid3=' + bv.buvid3;
+    if (bv.buvid4) cookie += (cookie ? '; ' : '') + 'buvid4=' + bv.buvid4;
+    if (bv.b_nut) cookie += (cookie ? '; ' : '') + 'b_nut=' + bv.b_nut;
     if (cookie) {
       if (isDev) {
         // Dev 模式: 浏览器禁止设置 Cookie, 通过 X-Cookie 传递

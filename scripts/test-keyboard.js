@@ -1025,6 +1025,29 @@ check('系统音量: 系统接口抛异常时兜住', () => {
   restoreNavigator();
 });
 
+// ── 6. 用户主页 store (按 uid 缓存) ────────────────────────────────────
+check('用户主页: 换人时各自缓存自己的数据和焦点', async () => {
+  const { userPage, userPageFocus, switchUser } = await import('../src/lib/stores/userpage.js');
+  const { get } = await import('svelte/store');
+
+  // 假装在看 111 的主页, 已经翻到投稿 tab 的第 4 条
+  userPage.update(s => ({ ...s, uid: 111, activeTab: 1, videos: [{ bvid: 'BV1' }] }));
+  userPageFocus.video = 3;
+
+  eq(switchUser(222), true, '换到另一个人应该返回 true');
+  eq(get(userPage).uid, 222, '换人后 uid 应该变了');
+  eq(get(userPage).videos.length, 0, '新用户的数据应该是空的');
+  eq(userPageFocus.video, -1, '新用户的焦点位置应该重置');
+
+  eq(switchUser(111), true, '换回去应该返回 true');
+  eq(get(userPage).uid, 111, '换回来 uid 应该恢复');
+  eq(get(userPage).videos.length, 1, '换回来数据应该还在缓存里');
+  eq(get(userPage).activeTab, 1, '换回来 tab 也应该记住');
+  eq(userPageFocus.video, 3, '换回来焦点位置应该记住');
+
+  eq(switchUser(111), false, '同一个人再切一次应该什么都不做');
+});
+
 // ── 运行 ────────────────────────────────────────────────────────────────
 // 顺序执行 (测试之间共用全局的按键总线, 并发/交叠会互相污染)
 for (const t of tests) {

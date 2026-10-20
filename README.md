@@ -394,6 +394,38 @@ node scripts/device-test.js --only back-key          # 只验证右软键返回
 >
 > 另一个坑：svelte-spa-router 是按**路由条目**决定换不换组件的。`/home`、`/following`、`/profile` 之前各写了一条路由（都指向 `MainLayout`），切 Tab 时它会把整个 `MainLayout` 销毁重建，新旧两个实例短暂共存 —— 旧实例先响应了 location 变化挂了一份新页面，紧接着路由又把组件换掉，于是同一个页面被挂载两次，关注页因此发过两次请求、同一页数据被追加两遍。现在主 Tab 共用一条 `"*"` 路由，切 Tab 不再换组件。
 
+## 用户主页
+
+路由带上 uid 就是那个人的主页 —— **自己的主页和别人的主页走同一条路由、同一套代码**：
+
+```
+#/user?uid=946974
+```
+
+页面三个 tab（`资料` / `投稿` / `动态`），内容分别来自这几个接口（文档见 [bilibili-api-collect 镜像](https://github.com/alittlehuaji/bilibili-api-collect-mirror) 的 `docs/user/`）：
+
+| tab | 接口 | 说明 |
+| --- | --- | --- |
+| 资料 | `GET /x/web-interface/card` + `GET /x/space/wbi/acc/info` | 名片给昵称/头像/签名/等级/粉丝数/关注数/获赞数，空间信息给性别/生日/认证；两个接口分开拉，一个失败另一个还能用 |
+| 投稿 | `GET /x/space/arc/search` | 投稿视频列表（`pn`/`ps`/`order` 分页） |
+| 动态 | `GET /x/polymer/web-dynamic/v1/feed/space` | 该用户的动态（`offset` 游标翻页） |
+
+入口：
+
+- **我的 → 点用户卡片** = 进自己的主页
+- **关注页 → 动态列表里点作者名** = 进那个人的主页（动态列表抽成了 `components/DynamicList.svelte`，关注页和用户主页共用；一条动态拆成"头部"和"正文"两个焦点，头部打开作者主页，正文打开动态详情）
+
+状态记忆和首页/关注页同一套思路，但**按 uid 分开缓存**（`src/lib/stores/userpage.js`）：看过谁的数据、看到第几条、停在哪个 tab，都记着；换个人再切回来还是原样。
+
+按键：上下键在列表里漫游（到底了自动加载下一页），左软键刷新当前 tab，右软键切 tab，中键打开当前选中的视频/动态。
+
+### 两个风控坑（真机实测）
+
+B 站对这几个接口的风控比推荐流严，直接照文档写会被挡：
+
+1. **投稿接口用 wbi 版会被拒**：`x/space/wbi/arc/search` 在设备上返回 `-403 访问权限不足` / `-352 风控校验失败`（它还要 `dm_img_list`/`dm_img_str` 这两个风控参数）。改用**非 wbi 的老端点** `x/space/arc/search`，不用签名就能正常返回。
+2. **设备标识要用服务器发的真 buvid**：应用启动时访问一次 `bilibili.com`，服务器回的 `Set-Cookie` 里有 `buvid3`/`b_nut`。之前应用是自己随机生成一套 buvid 发出去的，风控不认 —— 空间动态接口直接 `-412 request was banned`。现在 `getBuvid()` 每次都先从 cookie jar 里读**真实的** buvid，读不到才自己生成。
+
 ## 按键导航框架
 
 `src/lib/keyboard/` 是全应用**唯一**的按键入口。视图不再各自监听 `window`，而是注册"按键作用域"（scope），由总线统一分发。
@@ -647,7 +679,7 @@ node scripts/test-keyboard.js
 
 ## 致谢
 
-- [bili-apis](https://github.com/realysy/bili-apis) — B站 API 参考
+- [bilibili-api-collect (镜像)](https://github.com/alittlehuaji/bilibili-api-collect-mirror) — B站 API 文档参考
 - [KaiUI](https://github.com/AdrianMachado/KaiUI) — KaiOS 组件库（软键栏的设计参考）
 - [Svelte](https://svelte.dev/) — UI 框架
 - [Rollup](https://rollupjs.org/) — 模块打包

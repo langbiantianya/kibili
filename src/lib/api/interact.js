@@ -1,7 +1,7 @@
 // 视频互动 (Like / Coin / Fav / Triple) + 评论 + 观看进度上报
-// 端点参考: SocialSisterYi/bilibili-API-collect/docs/video/action.md
-//           SocialSisterYi/bilibili-API-collect/docs/comment/
-//           SocialSisterYi/bilibili-API-collect/docs/video/report.md
+// 端点参考: alittlehuaji/bilibili-api-collect-mirror/docs/video/action.md
+//           alittlehuaji/bilibili-api-collect-mirror/docs/comment/
+//           alittlehuaji/bilibili-api-collect-mirror/docs/video/report.md
 
 import { get, post } from './bili.js';
 import { get as getStore } from 'svelte/store';
@@ -62,7 +62,7 @@ export async function likeReply(oid, rpid, action = 1) {
 }
 
 // ============ 互动 (点赞 / 投币 / 收藏 / 三连) ============
-// 端点参考: SocialSisterYi/bilibili-API-collect/docs/video/action.md
+// 端点参考: alittlehuaji/bilibili-api-collect-mirror/docs/video/action.md
 
 // 点赞视频 (like: 1=点赞 / 2=取消)
 // 端点: POST /x/web-interface/archive/like
@@ -195,7 +195,7 @@ export async function shareVideo(bvid) {
 
 // ============ 观看进度上报 ============
 // 端点: POST /x/v2/history/report
-// 参考: SocialSisterYi/bilibili-API-collect/docs/video/report.md
+// 参考: alittlehuaji/bilibili-api-collect-mirror/docs/video/report.md
 // aid: 稿件avid, cid: 视频cid, progress: 观看进度(秒)
 export async function reportProgress(/** @type {number} */ aid, /** @type {number} */ cid, /** @type {number} */ progress) {
   const u = getStore(user);

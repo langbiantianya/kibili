@@ -85,7 +85,8 @@
 
   function onUserCardClick() {
     if ($isLogin) {
-      showToast("用户主页开发中");
+      // 进自己的主页 (和个人主页同一套页面, 路由带 uid)
+      navigate('/user?uid=' + $user.mid);
       return;
     }
     navigate("/login");

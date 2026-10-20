@@ -21,7 +21,7 @@
     { name: "Rollup", url: "https://github.com/rollup/rollup", desc: "打包工具" },
     { name: "Babel", url: "https://github.com/babel/babel", desc: "JS 编译" },
     { name: "PostCSS", url: "https://github.com/postcss/postcss", desc: "CSS 处理" },
-    { name: "bili-apis", url: "https://github.com/realysy/bili-apis", desc: "B站 API 封装" },
+    { name: "bilibili-api-collect", url: "https://github.com/alittlehuaji/bilibili-api-collect-mirror", desc: "B站 API 文档" },
   ];
 
   function openUrl(/** @type {string} */ url) {

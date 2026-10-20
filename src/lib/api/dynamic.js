@@ -1,5 +1,5 @@
 // 关注动态 (web 端)
-// 端点参考: SocialSisterYi/bilibili-API-collect/docs/dynamic/
+// 端点参考: alittlehuaji/bilibili-api-collect-mirror/docs/dynamic/
 
 import { get } from './bili.js';
 
@@ -19,10 +19,11 @@ export async function getDynamicAll({ type = 'all', offset = '', page = 1 } = {}
 
 // 用户空间动态
 // 端点: GET /x/polymer/web-dynamic/v1/feed/space
+// needCookie: 这个接口风控比较严, 带上登录态 (和设备 buvid) 才稳定返回
 export async function getDynamicSpace(hostMid, { offset = '', features = 'itemOpusStyle' } = {}) {
   const query = { host_mid: hostMid, features };
   if (offset) query.offset = offset;
-  return get('/x/polymer/web-dynamic/v1/feed/space', { query });
+  return get('/x/polymer/web-dynamic/v1/feed/space', { query, needCookie: true });
 }
 
 // 动态详情
