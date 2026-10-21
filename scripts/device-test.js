@@ -105,6 +105,16 @@ let buf = Buffer.alloc(0);
 let waiters = [];
 const pageErrors = [];
 
+// 设备调试 socket 偶发不返回 (页面卡死 / USB 掉线), 没有超时保护的话整个脚本会永久挂住。
+// 所有请求都带超时, 超时后当成失败项继续往下跑, 而不是把进程挂在这里。
+const DEFAULT_TIMEOUT = 20000;
+const OVERALL_TIMEOUT = 20 * 60 * 1000;
+const overallTimer = setTimeout(() => {
+  console.error(`\n✗ 全量回归超过 ${Math.round(OVERALL_TIMEOUT / 1000)}s 仍未结束, 强制退出`);
+  process.exit(1);
+}, OVERALL_TIMEOUT);
+overallTimer.unref?.();
+
 sock.on('data', chunk => {
   buf = Buffer.concat([buf, chunk]);
   for (;;) {
@@ -118,6 +128,17 @@ sock.on('data', chunk => {
   }
 });
 
+function failAll(err) {
+  const list = waiters.splice(0, waiters.length);
+  for (const w of list) {
+    clearTimeout(w.timer);
+    w.reject(err);
+  }
+}
+
+sock.on('error', e => failAll(new Error('设备调试连接出错: ' + (e && e.message))));
+sock.on('close', () => failAll(new Error('设备调试连接已断开')));
+
 function deliver(msg) {
   if (msg && msg.applicationType) return;
   if (msg.type === 'pageError') {
@@ -128,6 +149,7 @@ function deliver(msg) {
     const w = waiters[i];
     if (msg.from === w.to || msg.error) {
       waiters.splice(i, 1);
+      clearTimeout(w.timer);
       if (msg.error) w.reject(new Error(msg.message || JSON.stringify(msg)));
       else w.resolve(msg);
       return;
@@ -135,12 +157,25 @@ function deliver(msg) {
   }
 }
 
-function req(to, type, extra = {}) {
+function req(to, type, extra = {}, timeoutMs = DEFAULT_TIMEOUT) {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify({ to, type, ...extra });
     const b = Buffer.from(payload, 'utf8');
-    waiters.push({ to, resolve, reject });
-    sock.write(Buffer.byteLength(payload) + ':' + b);
+    const waiter = { to, resolve, reject, timer: null };
+    waiter.timer = setTimeout(() => {
+      const i = waiters.indexOf(waiter);
+      if (i >= 0) waiters.splice(i, 1);
+      reject(new Error(`请求超时 ${timeoutMs}ms: ${type} → ${to}`));
+    }, timeoutMs);
+    waiters.push(waiter);
+    try {
+      sock.write(Buffer.byteLength(payload) + ':' + b);
+    } catch (e) {
+      const i = waiters.indexOf(waiter);
+      if (i >= 0) waiters.splice(i, 1);
+      clearTimeout(waiter.timer);
+      reject(new Error('写入设备调试端口失败: ' + (e && e.message)));
+    }
   });
 }
 
@@ -184,10 +219,10 @@ if (!consoleActor) {
 if (!consoleActor) { console.error('✗ 拿不到应用 console actor (确认应用已安装并在运行)'); process.exit(1); }
 await req(consoleActor, 'startListeners', { listeners: ['PageError'] });
 
-async function probe() {
+async function probe(timeoutMs = DEFAULT_TIMEOUT) {
   // evaluateJS 按语句执行, 顶层不能写 return, 所以整体包一层 IIFE
   const text = '(function(){return (\n' + PROBE + '\n);})()';
-  const r = await withActor(a => req(a, 'evaluateJS', { text }));
+  const r = await withActor(a => req(a, 'evaluateJS', { text }, timeoutMs));
   if (r.exception) throw new Error('UI 探针异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 300));
   return JSON.parse(r.result);
 }
@@ -200,7 +235,9 @@ async function withActor(fn) {
       return await fn(consoleActor);
     } catch (e) {
       lastErr = e;
-      if (!/No such actor/.test(String(e && e.message))) throw e;
+      const msg = String(e && e.message);
+      // actor 失效要重新拿; 超时也重试一次, 设备偶尔会漏回包
+      if (!/No such actor/.test(msg) && !/请求超时/.test(msg)) throw e;
       const again = await appActor();
       if (!again) throw e;
       consoleActor = again;
@@ -211,10 +248,14 @@ async function withActor(fn) {
 }
 
 async function goto(hash) {
-  await withActor(a => req(a, 'evaluateJS', { text: `(location.hash = ${JSON.stringify(hash)}, 1)` }));
+  await withActor(a => req(a, 'evaluateJS', { text: `(location.hash = ${JSON.stringify(hash)}, 1)` }, 10000));
 }
 
-console.log('设备: ' + manifestURL + '  视口 ' + (await probe()).viewport.join('x'));
+try {
+  console.log('设备: ' + manifestURL + '  视口 ' + (await probe()).viewport.join('x'));
+} catch (e) {
+  console.log('设备: ' + manifestURL + '  (初始探针失败: ' + e.message + ')');
+}
 console.log('');
 
 for (const page of PAGES) {
@@ -269,17 +310,22 @@ for (const page of PAGES) {
 // 这样能抓住"首页残留的搜索处理器把返回键劫持到 /search"这类回归 (旧断言只看
 // before !== after, 被劫持到 /search 也算通过)。
 if (!only.length || only.indexOf('back-key') >= 0) {
-  await goto('#/profile');
-  await delay(2000);
-  await goto('#/settings');
-  await delay(3000);
-  const before = (await probe()).route;
-  const key = press(14);   // 退格键 = 返回键
-  await delay(2500);
-  const after = (await probe()).route;
-  const ok = after === '#/profile';
-  results.push({ page: 'back-key', fails: ok ? [] : [`按 ${key} 未返回上一级: 期望 #/profile 实际 ${after}`] });
-  console.log((ok ? '✓' : '✗') + ' ' + 'back-key'.padEnd(16) + (ok ? `返回键 ${before} → ${after}` : `返回键未返回上一级, ${before} → ${after}`));
+  try {
+    await goto('#/profile');
+    await delay(2000);
+    await goto('#/settings');
+    await delay(3000);
+    const before = (await probe()).route;
+    const key = press(14);   // 退格键 = 返回键
+    await delay(2500);
+    const after = (await probe()).route;
+    const ok = after === '#/profile';
+    results.push({ page: 'back-key', fails: ok ? [] : [`按 ${key} 未返回上一级: 期望 #/profile 实际 ${after}`] });
+    console.log((ok ? '✓' : '✗') + ' ' + 'back-key'.padEnd(16) + (ok ? `返回键 ${before} → ${after}` : `返回键未返回上一级, ${before} → ${after}`));
+  } catch (e) {
+    results.push({ page: 'back-key', fails: [String(e.message)] });
+    console.log('✗ ' + 'back-key'.padEnd(16) + String(e.message));
+  }
 }
 
 if (pageErrors.length) {
