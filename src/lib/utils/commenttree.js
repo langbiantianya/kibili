@@ -69,7 +69,7 @@ export function buildCommentTree(nodes, rootRpid, rootAuthor) {
     const n = flat[i];
     // 根评论本身不该出现在回复列表里 (接口把它放在 data.root),
     // 万一混进来了也不能重复渲染一遍
-    if (n.rpid === root) continue;
+    if (Number(n.rpid) === root) continue;
     const parent = Number(n.parent) || 0;
     if (!parent || parent === root || !byRpid[parent]) {
       tops.push(n);
@@ -109,14 +109,4 @@ export function buildCommentTree(nodes, rootRpid, rootAuthor) {
   for (let i = 0; i < tops.length; i++) walk(tops[i], 0);
 
   return out;
-}
-
-/**
- * 统计一棵对话树里的评论条数 (不含根评论)
- *
- * @param {Array<{node: any}>} tree buildCommentTree 的结果
- * @returns {number}
- */
-export function countTreeNodes(tree) {
-  return tree && tree.length ? tree.length : 0;
 }
