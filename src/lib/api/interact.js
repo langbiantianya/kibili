@@ -21,30 +21,33 @@ function requireLogin() {
 // ============ 评论 ============
 // 获取评论列表
 // 端点: GET /x/v2/reply
-// type=1 = 视频; sort: 0=时间 / 1=点赞 / 2=回复(热门) / 3=按回复
-export async function getReplies(oid, { pn = 1, ps = 20, sort = 2, nohot = 0 } = {}) {
+//
+// type: 评论对象类型 —— 1=视频(默认) / 11=相册 / 12=专栏 / 14=音频 / 17=动态 / 19=收藏夹
+//       动态详情页的评论对象随动态类型变 (见 api/dynamic.js 的 DYNAMIC_COMMENT_TYPE)
+// sort: 0=时间 / 1=点赞 / 2=回复(热门) / 3=按回复
+export async function getReplies(oid, { pn = 1, ps = 20, sort = 2, nohot = 0, type = 1 } = {}) {
   return get('/x/v2/reply', {
-    query: { type: 1, oid, pn, ps, sort, nohot },
+    query: { type, oid, pn, ps, sort, nohot },
     needCookie: true
   });
 }
 
 // 获取指定评论的回复（子评论）
 // 端点: GET /x/v2/reply/reply
-// root: 根评论 rpid; type=1 = 视频
-export async function getSubReplies(oid, root, { pn = 1, ps = 20 } = {}) {
+// root: 根评论 rpid; type 同上 (默认 1 = 视频)
+export async function getSubReplies(oid, root, { pn = 1, ps = 20, type = 1 } = {}) {
   return get('/x/v2/reply/reply', {
-    query: { type: 1, oid, root, pn, ps },
+    query: { type, oid, root, pn, ps },
     needCookie: true
   });
 }
 
 // 发表评论 (需登录 + bili_jct)
 // 端点: POST /x/v2/reply/add
-export async function addReply(oid, message, { root = 0, parent = 0, plat = 1 } = {}) {
+export async function addReply(oid, message, { root = 0, parent = 0, plat = 1, type = 1 } = {}) {
   const u = requireLogin();
   const body = 'oid=' + oid +
-               '&type=1' +
+               '&type=' + type +
                '&root=' + root +
                '&parent=' + parent +
                '&message=' + encodeURIComponent(message) +

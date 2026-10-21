@@ -15,6 +15,12 @@
   export let commentHasMore = true;
   /** @type {string|number} */
   export let oid = ''; // 评论对象ID (bvid 或 aid)
+  /**
+   * 评论对象类型 (对应 /x/v2/reply 的 type)
+   * 1=视频(默认) / 11=相册 / 12=专栏 / 14=音频 / 17=动态 / 19=收藏夹
+   * 动态详情页的评论对象随动态类型变, 见 api/dynamic.js 的 DYNAMIC_COMMENT_TYPE
+   */
+  export let commentType = 1;
   /** @type {string} */
   export let emptyMessage = '暂无评论';
 
@@ -69,7 +75,7 @@
     subRepliesMap[rpid] = { expanded: false, loading: true, replies: [] };
     subRepliesMap = subRepliesMap;
     try {
-      const data = await getSubReplies(oid, rpid);
+      const data = await getSubReplies(oid, rpid, { type: commentType });
       const replies = (data && data.replies) ? data.replies : [];
       subRepliesMap[rpid] = { expanded: true, loading: false, replies };
       subRepliesMap = subRepliesMap;

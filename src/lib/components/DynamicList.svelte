@@ -8,7 +8,7 @@
   // 之前整条动态是一个焦点, 点哪儿都是打开详情; 现在头部单独一个焦点,
   // 是进入其他用户主页的入口 (关注页的动态作者、用户主页的动态作者)。
   import { createEventDispatcher } from 'svelte';
-  import { extractArchive } from '../api/dynamic.js';
+  import { parseDynamicItem } from '../api/dynamic.js';
   import { stripHtml, relativeTime, formatCount } from '../utils/format.js';
   import { biliImg } from '../utils/platform.js';
   import Loading from './Loading.svelte';
@@ -36,29 +36,44 @@
     return s;
   }
 
-  // 动态文字 (兼容新旧协议)
-  // 新协议文字来源优先级:
-  // 1. module_dynamic.desc.text (UP主配文)
-  // 2. module_dynamic.major.opus.summary.text (图文动态)
-  // 3. module_dynamic.major.archive.desc (视频简介)
-  // 4. module_dynamic.major.article.desc (专栏摘要)
-  // 5. 旧协议 card
+  // 动态条目 → 统一结构 (api/dynamic.js 的 parseDynamicItem)
+  //
+  // 关注页和用户主页的动态都是 web 端协议 (feed/all / feed/space),
+  // 字段位置跟动态类型有关 —— 统一解析在 api 层做, 这里只管渲染。
+  // 旧协议 (api.vc.bilibili.com 的 card) 只在队列里用, 这里保留兜底。
+  function parsed(d) {
+    if (d && d.modules) return parseDynamicItem(d);
+    return null;
+  }
+
+  // 动态正文 (正文区显示的那段)
+  //
+  // 图文动态 (opus) 的正文在主体区显示 (v.title || v.text), 这里不再重复一遍。
+  // 视频/专栏动态的正文区放简介, 主体区放标题。
   function dynText(d) {
+    const p = parsed(d);
+    if (p) {
+      // 转发的占位符正文 ("转发动态") 在 api 层已经清掉了
+      if (p.content) return stripHtml(p.content);
+      if (p.major) {
+        if (p.major.kind === 'video' && p.major.desc) return stripHtml(p.major.desc);
+        if (p.major.kind === 'article' && p.major.desc) return stripHtml(p.major.desc);
+      }
+      return '';
+    }
+
     const md = d.modules && d.modules.module_dynamic;
-    if (!md) return '';
-
-    if (md.desc && md.desc.text) return stripHtml(md.desc.text);
-
-    if (md.major && md.major.opus && md.major.opus.summary && md.major.opus.summary.text) {
-      return stripHtml(md.major.opus.summary.text);
-    }
-
-    if (md.major && md.major.archive && md.major.archive.desc) {
-      return stripHtml(md.major.archive.desc);
-    }
-
-    if (md.major && md.major.article && md.major.article.desc) {
-      return stripHtml(md.major.article.desc);
+    if (md) {
+      if (md.desc && md.desc.text) return stripHtml(md.desc.text);
+      if (md.major && md.major.opus && md.major.opus.summary && md.major.opus.summary.text) {
+        return stripHtml(md.major.opus.summary.text);
+      }
+      if (md.major && md.major.archive && md.major.archive.desc) {
+        return stripHtml(md.major.archive.desc);
+      }
+      if (md.major && md.major.article && md.major.article.desc) {
+        return stripHtml(md.major.article.desc);
+      }
     }
 
     const card = parseCard(d.card);
@@ -112,9 +127,8 @@
     return '';
   }
 
-  function dynVideo(d) {
-    return extractArchive(d);
-  }
+  // 统一的主体解析 (api/dynamic.js 的 parseDynamicItem):
+  // 视频/图片/图文/专栏/合集/剧集/转发/直播/一般类型/失效 都能拿到
 </script>
 
 {#if loading && items.length === 0}
@@ -126,7 +140,7 @@
 {:else}
   <div class="dyn-list scroll-y" data-nav-root>
     {#each items as d (d.id_str)}
-      {#each [dynVideo(d)] as v}
+      {#each [parsed(d)] as p}
         <div class="dyn-item">
           <!-- 头部: 打开作者主页 -->
           <!-- 中键由框架默认行为触发 (activateFocused → click), 不再单独监听 keydown -->
@@ -140,31 +154,51 @@
           <div class="body" data-navable tabindex="0"
                on:click={() => dispatch('open', d)}>
             {#if dynText(d)}<div class="text">{dynText(d)}</div>{/if}
-            {#if v}
+            {#if p && p.major}
+              {#each [p.major] as v}
               <div class="archive">
-                {#if v.type === 'archive' || v.type === 'ugc_season'}
+                {#if v.kind === 'video' || v.kind === 'season'}
                   <!-- 视频/合集 -->
                   <div class="atitle">{v.title}</div>
                   <div class="astat">▶ {formatCount((v.stat && (v.stat.play || v.stat.view)) || 0)}</div>
-                {:else if v.type === 'article'}
+                {:else if v.kind === 'article'}
                   <!-- 专栏 -->
                   <div class="atitle">▤ {v.title}</div>
                   <div class="astat">{v.label || ''}</div>
-                {:else if v.type === 'draw'}
+                {:else if v.kind === 'images'}
                   <!-- 图片 -->
                   <div class="draw-preview">
-                    {#each v.items.slice(0, 3) as imgSrc}
-                      <img src={biliImg(imgSrc, 60, 60)} alt="" />
+                    {#each v.images.slice(0, 3) as img}
+                      <img src={biliImg(img.src, 60, 60)} alt="" />
                     {/each}
                   </div>
-                {:else if v.type === 'opus'}
+                {:else if v.kind === 'opus'}
                   <!-- 图文 -->
-                  <div class="atitle">{v.title || v.desc}</div>
-                {:else if v.type === 'live'}
+                  <div class="atitle">{v.title || v.text}</div>
+                {:else if v.kind === 'forward'}
+                  <!-- 转发: 显示原动态的作者和内容 -->
+                  {#if p.orig}
+                    <div class="atitle">↪ {p.orig.author.name || '转发动态'}</div>
+                    {#if p.orig.major && p.orig.major.kind === 'video'}
+                      <div class="astat">{p.orig.major.title}</div>
+                    {:else if p.orig.major && p.orig.major.kind === 'opus'}
+                      <div class="astat">{p.orig.major.title || ''}</div>
+                    {:else if p.orig.content}
+                      <div class="astat">{p.orig.content.slice(0, 40)}</div>
+                    {/if}
+                  {:else}
+                    <div class="atitle">↪ 转发动态</div>
+                  {/if}
+                {:else if v.kind === 'live'}
                   <!-- 直播 -->
                   <div class="atitle">● {v.title}</div>
+                {:else if v.kind === 'invalid'}
+                  <div class="atitle">该动态已失效</div>
+                {:else if v.kind === 'unknown'}
+                  <div class="atitle">({v.type})</div>
                 {/if}
               </div>
+              {/each}
             {/if}
             <!-- 点赞/转发/评论统计 -->
             {#if d.modules && d.modules.module_stat}

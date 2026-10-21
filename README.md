@@ -453,6 +453,41 @@ node scripts/device-test.js --only back-key          # 只验证右软键返回
 
 按键：上下键在列表里漫游（到底了自动加载下一页），**左右方向键切 tab**，左软键刷新当前 tab，中键打开当前选中的视频/动态。右软键在这一页不派活（没绑就不显示文案）。
 
+## 动态详情（各种动态类型都支持）
+
+B 站的动态不止"视频动态"一种，光主体（major）就有十几种类型，字段位置各不相同。之前只实现了有限几种，其余点进详情就加载失败。现在统一在 `src/lib/api/dynamic.js` 里解析成一种结构，视图层只认这一种。
+
+**两个容易踩的坑**（都是真机实测出来的）：
+
+1. **必须按 `major.type` 分派，不能靠"哪个字段存在"判断。** 接口返回的 major 对象里 `archive` / `pgc` / `draw` / `article` / `opus` / … **所有键都在**，不匹配的类型对应的值才是 `null`。而且 `DYNAMIC_TYPE_DRAW`（带图）和 `DYNAMIC_TYPE_ARTICLE`（专栏）现在的主体现在**都是 `MAJOR_TYPE_OPUS`**。
+
+2. **转发动态的 major 是 `null`，原动态在 `item.orig`。** `item.orig` 是一个完整的动态 item（带自己的 modules / author / major），不在 major 里面。转发动态自己的 `desc.text` 只在转发者写了评论时才有内容，否则是"转发动态"这四个字。
+
+支持的类型和取法：
+
+| 动态主体类型 | 内容 | 取自 |
+| --- | --- | --- |
+| `MAJOR_TYPE_ARCHIVE` | 视频 | `major.archive` |
+| `MAJOR_TYPE_OPUS` / `MAJOR_TYPE_DRAW` | 图文（标题 + 正文 + 图片） | `major.opus`（`pics`）/ `major.draw`（`items`） |
+| `MAJOR_TYPE_ARTICLE` | 专栏 | `major.article` |
+| `MAJOR_TYPE_UGC_SEASON` | 合集 | `major.ugc_season` |
+| `MAJOR_TYPE_PGC` | 剧集（番剧/电影） | `major.pgc` |
+| `MAJOR_TYPE_COURSES` | 课程 | `major.courses` |
+| `MAJOR_TYPE_COMMON` | 一般类型（装扮/点评/分享） | `major.common` |
+| `MAJOR_TYPE_UPOWER_COMMON` | 充电相关 | `major.upower_common` |
+| `MAJOR_TYPE_LIVE` / `MAJOR_TYPE_LIVE_RCMD` | 直播间 | `major.live` / `major.live_rcmd`（content 是 JSON 串，标题在 `live_play_info` 里） |
+| `MAJOR_TYPE_MUSIC` | 音频 | `major.music` |
+| `MAJOR_TYPE_NONE` | 动态失效 | `major.none.tips` |
+| 转发动态 | 原作者 + 原内容 + 原主体 | `item.orig` |
+
+另外 `module_dynamic.additional` 是"相关内容卡片"（游戏/商品/预约/投票/视频跳转），也一并解析出来显示。
+
+**列表接口的 `features` 必须带 `itemOpusStyle`**：不带的话图文动态只返回老式的 `MAJOR_TYPE_DRAW`（只有图片，没有正文），带上才返回 `MAJOR_TYPE_OPUS`（标题 + 正文 + 图片）。真机实测：同一条动态，带 features 返回 OPUS + 完整 summary，不带返回 DRAW + 只有 items 数组。
+
+**评论对象随动态类型变**：评论挂在哪个对象上取决于动态类型 —— 视频 → 视频 aid（type=1）、带图 → 相册 id（type=11）、专栏 → cv 号（type=12）、音频 → au 号（type=14）、转发/纯文字 → 动态本身 id（type=17）、收藏夹 → 收藏夹 id（type=19）。接口在 `basic.comment_id_str` + `basic.comment_type` 里直接给了，拿不到时按动态类型兜底。之前这里固定用视频 bvid，非视频动态一律报"该动态没有可评论的视频"。
+
+详情接口 `GET /x/polymer/web-dynamic/v1/detail` 的 `features` 参数是**必填**（文档标注），少了会 `4101139` 加载失败，所以带的是 web 端默认的一整套开关。
+
 ## 视频卡片的统计（几个列表统一）
 
 首页推荐流 / 关注页动态流 / 用户主页投稿列表，卡片底部都只显示**播放量**和**点赞量**两项，用的是同一个组件（`components/FeedCard.svelte`，列表层是 `components/FeedList.svelte`）。

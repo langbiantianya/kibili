@@ -1199,6 +1199,327 @@ check('卡片形状: 投稿列表没有点赞数 (留 null, 由列表层按需�
   eq(c.owner.name, '影视飓风', 'UP 主名字用 author');
 });
 
+// ── 10. 动态详情: 各类型动态的统一解析 ──────────────────────────────────
+// 动态类型有十几种, 字段位置各不相同。api/dynamic.js 的 parseDynamicMajor
+// 按 major.type 分派, parseDynamicItem 处理转发 (item.orig) 和评论对象。
+// 这里用真机抓到的真实响应做回归。
+check('动态解析: 视频动态 (MAJOR_TYPE_ARCHIVE)', async () => {
+  const { parseDynamicMajor } = await import('../src/lib/api/dynamic.js');
+  const m = parseDynamicMajor({
+    type: 'MAJOR_TYPE_ARCHIVE',
+    archive: {
+      aid: '117476029435376', bvid: 'BV1xx411c7mD', title: '测试视频',
+      cover: 'http://cover.jpg', desc: '视频简介', duration_text: '10:30',
+      jump_url: '//b23.tv/xxx', stat: { play: '1.2万', danmaku: '300' }
+    }
+  });
+  eq(m.kind, 'video', '视频动态 kind 应该是 video');
+  eq(m.title, '测试视频', '标题');
+  eq(m.bvid, 'BV1xx411c7mD', 'bvid');
+  eq(m.duration, '10:30', '时长');
+  eq(m.cover, 'http://cover.jpg', '封面');
+});
+
+check('动态解析: 图文动态 (MAJOR_TYPE_OPUS) — 标题 + 正文 + 图片', async () => {
+  const { parseDynamicMajor } = await import('../src/lib/api/dynamic.js');
+  const m = parseDynamicMajor({
+    type: 'MAJOR_TYPE_OPUS',
+    opus: {
+      title: '明音凛时装', jump_url: '//www.bilibili.com/opus/123',
+      pics: [{ url: 'http://p1.jpg', width: 1080, height: 1920 }],
+      summary: { text: '正文内容', rich_text_nodes: [{ text: '正文内容', type: 'RICH_TEXT_NODE_TYPE_TEXT' }] }
+    }
+  });
+  eq(m.kind, 'opus', '图文动态 kind 应该是 opus');
+  eq(m.title, '明音凛时装', '标题');
+  eq(m.text, '正文内容', '正文取 summary.text');
+  eq(m.images.length, 1, '图片数量');
+  eq(m.images[0].src, 'http://p1.jpg', '图片地址');
+  eq(m.cover, 'http://p1.jpg', '封面取第一张图');
+});
+
+check('动态解析: 图文动态正文为空时用富文本节点兜底', async () => {
+  const { parseDynamicMajor } = await import('../src/lib/api/dynamic.js');
+  const m = parseDynamicMajor({
+    type: 'MAJOR_TYPE_OPUS',
+    opus: {
+      title: '', summary: {
+        text: '',
+        rich_text_nodes: [
+          { text: '#话题#', type: 'RICH_TEXT_NODE_TYPE_TOPIC' },
+          { text: '正文', type: 'RICH_TEXT_NODE_TYPE_TEXT' }
+        ]
+      }
+    }
+  });
+  eq(m.text, '#话题#正文', '富文本节点应该拼成纯文本');
+});
+
+check('动态解析: 专栏 / 合集 / 剧集 / 一般类型', async () => {
+  const { parseDynamicMajor } = await import('../src/lib/api/dynamic.js');
+  const a = parseDynamicMajor({
+    type: 'MAJOR_TYPE_ARTICLE',
+    article: { title: '专栏标题', desc: '专栏摘要', covers: ['http://c1.jpg'], label: '1.2万阅读' }
+  });
+  eq(a.kind, 'article', '专栏 kind');
+  eq(a.title, '专栏标题', '专栏标题');
+  eq(a.cover, 'http://c1.jpg', '专栏封面取 covers[0]');
+  eq(a.label, '1.2万阅读', '专栏 label');
+
+  const s = parseDynamicMajor({
+    type: 'MAJOR_TYPE_UGC_SEASON',
+    ugc_season: { title: '合集名', cover: 'http://s.jpg', desc: '合集简介', duration_text: '05:00' }
+  });
+  eq(s.kind, 'season', '合集 kind');
+  eq(s.title, '合集名', '合集标题');
+
+  const p = parseDynamicMajor({
+    type: 'MAJOR_TYPE_PGC',
+    pgc: { title: '番剧名', cover: 'http://p.jpg', badge: { text: '第1季' } }
+  });
+  eq(p.kind, 'pgc', '剧集 kind');
+  eq(p.badge, '第1季', '角标文案');
+
+  const c = parseDynamicMajor({
+    type: 'MAJOR_TYPE_COMMON',
+    common: { title: '装扮', desc: '装扮描述', cover: 'http://d.jpg' }
+  });
+  eq(c.kind, 'common', '一般类型 kind');
+  eq(c.title, '装扮', '一般类型标题');
+});
+
+check('动态解析: 失效动态 (MAJOR_TYPE_NONE)', async () => {
+  const { parseDynamicMajor } = await import('../src/lib/api/dynamic.js');
+  const m = parseDynamicMajor({ type: 'MAJOR_TYPE_NONE', none: { tips: '该动态已失效' } });
+  eq(m.kind, 'invalid', '失效动态 kind 应该是 invalid');
+  eq(m.desc, '该动态已失效', '失效文案');
+});
+
+check('动态解析: 转发动态从 item.orig 取原内容', async () => {
+  const { parseDynamicItem } = await import('../src/lib/api/dynamic.js');
+  // 真机实测: 转发动态的 major 是 null, 原动态在 item.orig
+  const item = {
+    id_str: '1261496426755522577',
+    type: 'DYNAMIC_TYPE_FORWARD',
+    basic: { comment_id_str: '1261496426755522577', comment_type: 17, rid_str: '1261496336551772169' },
+    modules: {
+      module_author: { mid: 111, name: '转发者', face: 'http://f.jpg' },
+      module_dynamic: {
+        desc: { text: '转发动态' },
+        major: null
+      },
+      module_stat: { like: { count: 13 }, comment: { count: 2 }, forward: { count: 0 } }
+    },
+    orig: {
+      id_str: '1261496336551772169',
+      type: 'DYNAMIC_TYPE_AV',
+      modules: {
+        module_author: { mid: 222, name: '原作者', face: 'http://o.jpg' },
+        module_dynamic: {
+          desc: { text: '原动态正文' },
+          major: {
+            type: 'MAJOR_TYPE_ARCHIVE',
+            archive: { bvid: 'BV1orig411c7mD', title: '原视频', cover: 'http://v.jpg', duration_text: '03:00' }
+          }
+        }
+      }
+    }
+  };
+  const p = parseDynamicItem(item);
+  eq(p.isForward, true, '应该识别为转发');
+  eq(p.major.kind, 'forward', '转发 kind');
+  ok(p.orig, 'orig 应该解析出来');
+  eq(p.orig.author.name, '原作者', '原作者名字');
+  eq(p.orig.content, '原动态正文', '原动态正文');
+  eq(p.orig.major.kind, 'video', '原动态主体是视频');
+  eq(p.orig.major.bvid, 'BV1orig411c7mD', '原视频 bvid');
+  // 评论对象: 转发评论挂在动态本身 (type=17)
+  eq(p.comment.oid, '1261496426755522577', '转发评论 oid 是动态本身 id');
+  eq(p.comment.type, 17, '转发评论 type=17');
+});
+
+check('动态解析: 转发原动态是图文时也能拿到图片', async () => {
+  const { parseDynamicItem } = await import('../src/lib/api/dynamic.js');
+  const item = {
+    id_str: '9', type: 'DYNAMIC_TYPE_FORWARD',
+    modules: { module_author: { name: 'a' }, module_dynamic: { desc: { text: '转发动态' }, major: null } },
+    orig: {
+      id_str: '8', type: 'DYNAMIC_TYPE_DRAW',
+      modules: {
+        module_author: { name: '影视飓风' },
+        module_dynamic: {
+          desc: null,
+          major: {
+            type: 'MAJOR_TYPE_OPUS',
+            opus: { title: '原图文', summary: { text: '原正文' }, pics: [{ url: 'http://x.jpg' }] }
+          }
+        }
+      }
+    }
+  };
+  const p = parseDynamicItem(item);
+  eq(p.orig.major.kind, 'opus', '原动态主体是图文');
+  eq(p.orig.major.title, '原图文', '原图文标题');
+  eq(p.orig.major.images.length, 1, '原图文图片');
+  // desc 为 null 时正文退回 summary.text
+  eq(p.orig.content, '原正文', '原动态正文退回 opus.summary.text');
+});
+
+check('动态解析: 视频动态的评论对象是视频 aid (type=1)', async () => {
+  const { parseDynamicItem } = await import('../src/lib/api/dynamic.js');
+  const p = parseDynamicItem({
+    id_str: '1', type: 'DYNAMIC_TYPE_AV',
+    basic: { comment_id_str: '117476029435376', comment_type: 1, rid_str: '117476029435376' },
+    modules: {
+      module_author: { name: 'up' },
+      module_dynamic: { desc: null, major: { type: 'MAJOR_TYPE_ARCHIVE', archive: { bvid: 'BV1', title: 't' } } }
+    }
+  });
+  eq(p.comment.oid, '117476029435376', '评论 oid 用 basic.comment_id_str');
+  eq(p.comment.type, 1, '评论 type 用 basic.comment_type');
+});
+
+check('动态解析: basic 缺字段时按动态类型兜底评论对象', async () => {
+  const { parseDynamicItem } = await import('../src/lib/api/dynamic.js');
+  const art = parseDynamicItem({
+    id_str: '2', type: 'DYNAMIC_TYPE_ARTICLE',
+    modules: { module_author: { name: 'up' }, module_dynamic: { major: { type: 'MAJOR_TYPE_OPUS', opus: {} } } }
+  });
+  eq(art.comment.type, 12, '专栏兜底 type=12');
+  const av = parseDynamicItem({
+    id_str: '3', type: 'DYNAMIC_TYPE_AV',
+    modules: { module_author: { name: 'up' }, module_dynamic: { major: { type: 'MAJOR_TYPE_ARCHIVE', archive: {} } } }
+  });
+  eq(av.comment.type, 1, '视频兜底 type=1');
+});
+
+check('动态解析: 相关内容卡片 (游戏/商品/预约/投票)', async () => {
+  const { parseDynamicItem } = await import('../src/lib/api/dynamic.js');
+  const p = parseDynamicItem({
+    id_str: '4', type: 'DYNAMIC_TYPE_DRAW',
+    modules: {
+      module_author: { name: 'up' },
+      module_dynamic: {
+        major: { type: 'MAJOR_TYPE_OPUS', opus: {} },
+        additional: {
+          type: 'ADDITIONAL_TYPE_COMMON',
+          common: {
+            title: '异环', cover: 'http://g.png', head_text: '相关游戏',
+            desc1: '角色扮演/开放世界', desc2: '异环1.4版本现已开启！'
+          }
+        }
+      }
+    }
+  });
+  ok(p.additional, 'additional 应该解析出来');
+  eq(p.additional.type, 'ADDITIONAL_TYPE_COMMON', '卡片类型');
+  eq(p.additional.title, '异环', '卡片标题');
+  eq(p.additional.label, '相关游戏', '卡片头文案');
+  eq(p.additional.desc, '角色扮演/开放世界 · 异环1.4版本现已开启！', '两行描述合并');
+});
+
+check('动态解析: 空 major (转发) 不崩, 返回 null', async () => {
+  const { parseDynamicMajor } = await import('../src/lib/api/dynamic.js');
+  eq(parseDynamicMajor(null), null, 'null 应该返回 null');
+});
+
+check('动态解析: 列表里带 opus 的 DRAW 动态按 major.type 走图文分支', async () => {
+  const { parseDynamicMajor } = await import('../src/lib/api/dynamic.js');
+  // 真机实测: DYNAMIC_TYPE_DRAW 的 major.type 是 MAJOR_TYPE_OPUS,
+  // 不能靠"哪个字段存在"来判断类型
+  const m = parseDynamicMajor({
+    type: 'MAJOR_TYPE_OPUS',
+    opus: { title: 't', summary: { text: 'x' }, pics: [{ url: 'http://a.jpg' }] },
+    archive: null, draw: null, article: null, common: null
+  });
+  eq(m.kind, 'opus', '应该按 major.type 走图文');
+  eq(m.images.length, 1, '图片');
+});
+
+check('动态解析: 转发者没写评论时 "转发动态" 是占位符, 不当正文', async () => {
+  const { parseDynamicItem } = await import('../src/lib/api/dynamic.js');
+  const p = parseDynamicItem({
+    id_str: '9', type: 'DYNAMIC_TYPE_FORWARD',
+    modules: {
+      module_author: { name: '转发者' },
+      module_dynamic: { desc: { text: '转发动态' }, major: null }
+    },
+    orig: {
+      id_str: '8', type: 'DYNAMIC_TYPE_AV',
+      modules: {
+        module_author: { name: '原作者' },
+        module_dynamic: { desc: { text: '原正文' }, major: { type: 'MAJOR_TYPE_ARCHIVE', archive: { bvid: 'BV1', title: 't' } } }
+      }
+    }
+  });
+  eq(p.content, '', '"转发动态"占位符应该被清掉');
+  eq(p.orig.content, '原正文', '原动态正文不受影响');
+});
+
+check('动态解析: 转发者写了评论时正文保留', async () => {
+  const { parseDynamicItem } = await import('../src/lib/api/dynamic.js');
+  const p = parseDynamicItem({
+    id_str: '9', type: 'DYNAMIC_TYPE_FORWARD',
+    modules: {
+      module_author: { name: '转发者' },
+      module_dynamic: { desc: { text: '卡池开了卡池开了！' }, major: null }
+    },
+    orig: {
+      id_str: '8', type: 'DYNAMIC_TYPE_AV',
+      modules: {
+        module_author: { name: '原作者' },
+        module_dynamic: { desc: { text: '原正文' }, major: { type: 'MAJOR_TYPE_ARCHIVE', archive: { bvid: 'BV1' } } }
+      }
+    }
+  });
+  eq(p.content, '卡池开了卡池开了！', '转发者的评论要保留');
+});
+
+check('动态解析: 老式 DRAW 主体只有图片没有正文 (不带 features 时接口返回这种)', async () => {
+  const { parseDynamicMajor } = await import('../src/lib/api/dynamic.js');
+  const m = parseDynamicMajor({
+    type: 'MAJOR_TYPE_DRAW',
+    draw: { id: 412793826, items: [{ src: 'http://a.jpg', width: 2500, height: 1000 }] }
+  });
+  eq(m.kind, 'images', 'DRAW 类型 kind 应该是 images');
+  eq(m.images.length, 1, '图片数量');
+  eq(m.images[0].src, 'http://a.jpg', '图片地址');
+  eq(m.text, '', 'DRAW 形态没有正文');
+});
+
+check('动态解析: OPUS 形态有正文也有图片 (带 features 时接口返回这种)', async () => {
+  const { parseDynamicMajor } = await import('../src/lib/api/dynamic.js');
+  const m = parseDynamicMajor({
+    type: 'MAJOR_TYPE_OPUS',
+    opus: {
+      title: '', jump_url: 'opus/1',
+      summary: { text: '正文内容', rich_text_nodes: [{ text: '正文内容', type: 'RICH_TEXT_NODE_TYPE_TEXT' }] },
+      pics: [{ url: 'http://b.jpg', width: 1080, height: 1920 }]
+    }
+  });
+  eq(m.kind, 'opus', 'OPUS 类型 kind 应该是 opus');
+  eq(m.text, '正文内容', '正文');
+  eq(m.images.length, 1, '图片数量');
+});
+
+check('动态解析: 直播推荐 (LIVE_RCMD) 的标题在 live_play_info 里', async () => {
+  const { parseDynamicMajor } = await import('../src/lib/api/dynamic.js');
+  const m = parseDynamicMajor({
+    type: 'MAJOR_TYPE_LIVE_RCMD',
+    live_rcmd: {
+      reserve_type: 0,
+      content: JSON.stringify({
+        type: 1,
+        live_play_info: { room_id: 21685249, title: '重播：新长征路上从遵义出发', cover: 'http://c.jpg', uname: '某主播' }
+      })
+    }
+  });
+  eq(m.kind, 'live', '直播推荐 kind');
+  eq(m.title, '重播：新长征路上从遵义出发', '标题取 live_play_info.title');
+  eq(m.cover, 'http://c.jpg', '封面取 live_play_info.cover');
+  eq(m.desc, '主播 某主播', '描述带主播名');
+});
+
 // ── 运行 ────────────────────────────────────────────────────────────────
 // 顺序执行 (测试之间共用全局的按键总线, 并发/交叠会互相污染)
 for (const t of tests) {

@@ -5,7 +5,7 @@
   import Loading from '../components/Loading.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import CommentSection from '../components/CommentSection.svelte';
-  import { getDynamicDetail } from '../api/dynamic.js';
+  import { getDynamicDetail, parseDynamicItem } from '../api/dynamic.js';
   import { getReplies, addReply } from '../api/interact.js';
   import { formatCount, stripHtml } from '../utils/format.js';
   import { biliImg } from '../utils/platform.js';
@@ -45,64 +45,13 @@
   // 评论回复
 
   // 解析动态详情数据
+  //
+  // 动态类型有十几种 (视频/图片/图文/专栏/合集/剧集/转发/直播/一般类型/失效…),
+  // 字段位置各不相同 —— 统一解析在 api/dynamic.js 的 parseDynamicItem 里做,
+  // 这里只管渲染。
   function parseDetail(data) {
     if (!data || !data.item) return null;
-    const item = data.item;
-    const modules = item.modules || {};
-    const author = modules.module_author || {};
-    const moduleDynamic = modules.module_dynamic || {};
-    const moduleStat = modules.module_stat || {};
-
-    return {
-      id: item.id_str || '',
-      type: item.type || '',
-      // 作者信息
-      author: {
-        mid: author.mid || 0,
-        name: author.name || '',
-        face: author.face || '',
-        pub_time: author.pub_time || '',
-        pub_action: author.pub_action || ''
-      },
-      // 动态内容
-      content: moduleDynamic.desc ? moduleDynamic.desc.text : '',
-      // 统计数据
-      stat: {
-        like: moduleStat.like ? moduleStat.like.count : 0,
-        forward: moduleStat.forward ? moduleStat.forward.count : 0,
-        comment: moduleStat.comment ? moduleStat.comment.count : 0,
-        view: moduleStat.view ? moduleStat.view.count : 0
-      },
-      // 附件（视频/图片等）
-      archive: extractArchive(moduleDynamic)
-    };
-  }
-
-  function extractArchive(moduleDynamic) {
-    if (!moduleDynamic.major) return null;
-    const major = moduleDynamic.major;
-    if (major.type === 'MAJOR_TYPE_ARCHIVE' && major.archive) {
-      return {
-        type: 'video',
-        title: major.archive.title || '',
-        cover: major.archive.cover || '',
-        bvid: major.archive.bvid || '',
-        duration: major.archive.duration_text || ''
-      };
-    }
-    if (major.type === 'MAJOR_TYPE_DRAW' && major.draw) {
-      return {
-        type: 'draw',
-        items: major.draw.items || []
-      };
-    }
-    if (major.type === 'MAJOR_TYPE_OPUS' && major.opus) {
-      return {
-        type: 'opus',
-        summary: major.opus.summary ? major.opus.summary.text : ''
-      };
-    }
-    return null;
+    return parseDynamicItem(data.item);
   }
 
   async function loadDetail() {
@@ -117,6 +66,9 @@
     try {
       const data = await getDynamicDetail(id);
       detail = parseDetail(data);
+      if (!detail) {
+        detailError = '动态不存在或已失效';
+      }
     } catch (e) {
       console.error('[DynamicDetail] getDynamicDetail error:', e);
       detailError = e.message || '加载失败';
@@ -125,9 +77,20 @@
     }
   }
 
+  /**
+   * 评论对象 (oid/type)
+   *
+   * 评论挂在哪个对象上取决于动态类型:
+   *   视频 → 视频 aid, 图片 → 相册 id, 图文/转发/纯文字 → 动态本身 id,
+   *   专栏 → cv 号, 音频 → au 号, 收藏夹 → 收藏夹 id
+   * 以前这里固定用视频 bvid, 非视频动态一律报"没有可评论的视频"。
+   */
+  $: commentOid = detail && detail.comment ? detail.comment.oid : '';
+  $: commentType = detail && detail.comment ? detail.comment.type : 0;
+
   async function loadComments(isLoadMore = false) {
-    if (!detail || !detail.archive || !detail.archive.bvid) {
-      commentsError = '该动态没有可评论的视频';
+    if (!commentOid) {
+      commentsError = '该动态暂不支持评论';
       return;
     }
     if (commentsLoading || !commentHasMore) return;
@@ -142,10 +105,7 @@
     commentsError = '';
 
     try {
-      // 通过 bvid 获取评论, oid 需要是 aid (数字)
-      // 但 getReplies 接口接受 bvid 作为 oid, 所以直接用 bvid
-      const oid = detail.archive.bvid;
-      const data = await getReplies(oid, { pn: commentPage, ps: 20, sort: 2 });
+      const data = await getReplies(commentOid, { pn: commentPage, ps: 20, sort: 2, type: commentType });
       const newComments = (data && data.replies) ? data.replies : [];
       if (isLoadMore) {
         comments = comments.concat(newComments);
@@ -170,8 +130,15 @@
   }
 
   function openArchiveVideo() {
-    if (detail && detail.archive && detail.archive.bvid) {
-      navigate('/player?bvid=' + detail.archive.bvid);
+    if (detail && detail.major && detail.major.bvid) {
+      navigate('/player?bvid=' + detail.major.bvid);
+    }
+  }
+
+  // 转发动态里原动态是视频时, 点原视频卡片也能播
+  function openOrigVideo() {
+    if (detail && detail.orig && detail.orig.major && detail.orig.major.bvid) {
+      navigate('/player?bvid=' + detail.orig.major.bvid);
     }
   }
 
@@ -191,12 +158,9 @@
   // 发送评论
   async function sendReply(text, root, parent) {
     if (!text.trim()) return;
-    if (!detail || !detail.archive || !detail.archive.bvid) {
-      return;
-    }
+    if (!commentOid) return;
     try {
-      const oid = detail.archive.bvid;
-      await addReply(oid, text.trim(), { root, parent });
+      await addReply(commentOid, text.trim(), { root, parent, type: commentType });
       // 刷新评论列表
       commentPage = 1;
       comments = [];
@@ -315,24 +279,115 @@
             <div class="content-text">{stripHtml(detail.content)}</div>
           {/if}
 
-          <!-- 附件（视频/图片） -->
-          {#if detail.archive}
-            {#if detail.archive.type === 'video'}
+          <!-- 主体 (按动态类型渲染) -->
+          {#if detail.major}
+            {#if detail.major.kind === 'video'}
+              <!-- 视频: 点一下去播放器 -->
               <div class="archive-card" data-navable tabindex="0"
                    on:click={() => openArchiveVideo()}>
-                <img class="archive-cover" src={biliImg(detail.archive.cover, 120, 80)} alt="" />
+                <img class="archive-cover" src={biliImg(detail.major.cover, 120, 80)} alt="" />
                 <div class="archive-info">
-                  <div class="archive-title">{detail.archive.title}</div>
-                  {#if detail.archive.duration}<span class="archive-dur">{detail.archive.duration}</span>{/if}
+                  <div class="archive-title">{detail.major.title}</div>
+                  {#if detail.major.duration}<span class="archive-dur">{detail.major.duration}</span>{/if}
                 </div>
               </div>
-            {:else if detail.archive.type === 'draw'}
-              <div class="draw-list">
-                {#each detail.archive.items as img}
+            {:else if detail.major.kind === 'images'}
+              <!-- 带图动态 -->
+              <div class="image-list">
+                {#each detail.major.images as img}
                   <img src={biliImg(img.src, 100, 100)} alt="" />
                 {/each}
               </div>
+            {:else if detail.major.kind === 'opus'}
+              <!-- 图文动态: 标题 + 正文 + 图片 -->
+              {#if detail.major.title}<div class="major-title">{detail.major.title}</div>{/if}
+              {#if detail.major.text}<div class="content-text">{stripHtml(detail.major.text)}</div>{/if}
+              {#if detail.major.images.length}
+                <div class="image-list">
+                  {#each detail.major.images as img}
+                    <img src={biliImg(img.src, 100, 100)} alt="" />
+                  {/each}
+                </div>
+              {/if}
+            {:else if detail.major.kind === 'forward'}
+              <!-- 转发: 原作者 + 原文本 + 原主体 -->
+              <div class="forward-box">
+                <div class="forward-label">转发动态</div>
+                {#if detail.orig}
+                  {#if detail.orig.author.name}
+                    <div class="forward-author">{detail.orig.author.name}</div>
+                  {/if}
+                  {#if detail.orig.content}
+                    <div class="forward-text">{stripHtml(detail.orig.content)}</div>
+                  {/if}
+                  {#if detail.orig.major}
+                    {#if detail.orig.major.kind === 'video'}
+                      <!-- 原动态是视频: 也能点进去播 -->
+                      <div class="archive-card" data-navable tabindex="0"
+                           on:click={() => openOrigVideo()}>
+                        <img class="archive-cover" src={biliImg(detail.orig.major.cover, 120, 80)} alt="" />
+                        <div class="archive-info">
+                          <div class="archive-title">{detail.orig.major.title}</div>
+                          {#if detail.orig.major.duration}<span class="archive-dur">{detail.orig.major.duration}</span>{/if}
+                        </div>
+                      </div>
+                    {:else if detail.orig.major.kind === 'opus'}
+                      {#if detail.orig.major.title}<div class="major-title">{detail.orig.major.title}</div>{/if}
+                      {#if detail.orig.major.text}<div class="content-text">{stripHtml(detail.orig.major.text)}</div>{/if}
+                      {#if detail.orig.major.images.length}
+                        <div class="image-list">
+                          {#each detail.orig.major.images as img}
+                            <img src={biliImg(img.src, 100, 100)} alt="" />
+                          {/each}
+                        </div>
+                      {/if}
+                    {:else if detail.orig.major.kind === 'images'}
+                      <div class="image-list">
+                        {#each detail.orig.major.images as img}
+                          <img src={biliImg(img.src, 100, 100)} alt="" />
+                        {/each}
+                      </div>
+                    {:else if detail.orig.major.kind === 'invalid'}
+                      <div class="tip-box">原动态已失效</div>
+                    {:else}
+                      {#if detail.orig.major.title}<div class="major-title">{detail.orig.major.title}</div>{/if}
+                      {#if detail.orig.major.cover}
+                        <img class="major-cover" src={biliImg(detail.orig.major.cover, 160, 100)} alt="" />
+                      {/if}
+                    {/if}
+                  {/if}
+                {:else}
+                  <div class="tip-box">原动态不可见</div>
+                {/if}
+              </div>
+            {:else if detail.major.kind === 'invalid'}
+              <div class="tip-box">{detail.major.desc || '该动态已失效'}</div>
+            {:else if detail.major.kind === 'unknown'}
+              <div class="tip-box">暂不支持的动态类型 ({detail.major.type})</div>
+            {:else}
+              <!-- 专栏 / 合集 / 剧集 / 一般类型 / 直播 / 音频 / 课程 -->
+              {#if detail.major.title}<div class="major-title">{detail.major.title}</div>{/if}
+              {#if detail.major.badge}<div class="major-badge">{detail.major.badge}</div>{/if}
+              {#if detail.major.text}<div class="content-text">{stripHtml(detail.major.text)}</div>{/if}
+              {#if detail.major.cover}
+                <img class="major-cover" src={biliImg(detail.major.cover, 160, 100)} alt="" />
+              {/if}
+              {#if detail.major.label}<div class="major-label">{detail.major.label}</div>{/if}
             {/if}
+          {/if}
+
+          <!-- 相关内容卡片 (游戏 / 商品 / 预约 / 投票 / 视频跳转) -->
+          {#if detail.additional && (detail.additional.title || detail.additional.desc)}
+            <div class="additional-card">
+              {#if detail.additional.cover}
+                <img class="additional-cover" src={biliImg(detail.additional.cover, 60, 60)} alt="" />
+              {/if}
+              <div class="additional-info">
+                {#if detail.additional.label}<div class="additional-label">{detail.additional.label}</div>{/if}
+                {#if detail.additional.title}<div class="additional-title">{detail.additional.title}</div>{/if}
+                {#if detail.additional.desc}<div class="additional-desc">{detail.additional.desc}</div>{/if}
+              </div>
+            </div>
           {/if}
 
           <!-- 统计数据 -->
@@ -354,7 +409,8 @@
         commentsLoading={commentsLoading}
         commentsError={commentsError}
         commentHasMore={commentHasMore}
-        oid={detail && detail.archive ? detail.archive.bvid : ''}
+        oid={commentOid}
+        commentType={commentType}
         on:send={onCommentSend}
         on:loadMore={() => loadComments(true)}
       />
@@ -503,6 +559,123 @@
     width: 100px;
     height: 100px;
     object-fit: cover;
+    border-radius: var(--md-sys-shape-corner-small);
+  }
+
+  /* ---- 各种动态主体的通用样式 ---- */
+
+  /* 图片列表 (带图动态 / 图文动态) */
+  .image-list {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .image-list img {
+    width: 100px;
+    height: 100px;
+    object-fit: cover;
+    border-radius: var(--md-sys-shape-corner-small);
+    margin-right: 4px;
+    margin-bottom: 4px;
+  }
+
+  /* 标题 (图文/专栏/合集/剧集…) */
+  .major-title {
+    font-size: var(--md-sys-typescale-body-large-size);
+    font-weight: var(--md-sys-typescale-label-medium-weight);
+    color: var(--md-sys-color-on-surface);
+    line-height: 1.35;
+  }
+
+  /* 角标 (番剧/合集的角标文案) */
+  .major-badge {
+    font-size: var(--md-sys-typescale-body-small-size);
+    color: var(--md-sys-color-primary);
+  }
+
+  /* 副标题 (专栏阅读量等) */
+  .major-label {
+    font-size: var(--md-sys-typescale-body-small-size);
+    color: var(--md-sys-color-on-surface-variant);
+  }
+
+  /* 相关内容卡片 (游戏/商品/预约/投票) */
+  .additional-card {
+    display: flex;
+    padding: 6px;
+    background: var(--md-sys-color-surface-container-low);
+    border-radius: var(--md-sys-shape-corner-small);
+  }
+  .additional-card .additional-cover {
+    margin-right: 6px;
+  }
+  .additional-cover {
+    width: 40px;
+    height: 40px;
+    object-fit: cover;
+    border-radius: var(--md-sys-shape-corner-small);
+    flex-shrink: 0;
+  }
+  .additional-info {
+    flex: 1;
+    min-width: 0;
+  }
+  .additional-label {
+    font-size: var(--md-sys-typescale-body-small-size);
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  .additional-title {
+    font-size: var(--md-sys-typescale-body-medium-size);
+    color: var(--md-sys-color-on-surface);
+    font-weight: var(--md-sys-typescale-label-medium-weight);
+  }
+  .additional-desc {
+    font-size: var(--md-sys-typescale-body-small-size);
+    color: var(--md-sys-color-on-surface-variant);
+    line-height: 1.3;
+  }
+
+  /* 封面 (专栏/合集/剧集/一般类型) */
+  .major-cover {
+    width: 160px;
+    height: 100px;
+    object-fit: cover;
+    border-radius: var(--md-sys-shape-corner-small);
+    align-self: flex-start;
+  }
+
+  /* 转发 */
+  .forward-box {
+    padding: 8px;
+    background: var(--md-sys-color-surface-container-low);
+    border-radius: var(--md-sys-shape-corner-small);
+    border-left: 2px solid var(--md-sys-color-outline);
+  }
+  .forward-label {
+    font-size: var(--md-sys-typescale-body-small-size);
+    color: var(--md-sys-color-on-surface-variant);
+    margin-bottom: 4px;
+  }
+  .forward-author {
+    font-size: var(--md-sys-typescale-body-small-size);
+    color: var(--md-sys-color-primary);
+    margin-bottom: 2px;
+  }
+  .forward-text {
+    font-size: var(--md-sys-typescale-body-small-size);
+    color: var(--md-sys-color-on-surface);
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin-bottom: 4px;
+  }
+
+  /* 提示 (失效/不支持) */
+  .tip-box {
+    padding: 10px;
+    text-align: center;
+    font-size: var(--md-sys-typescale-body-small-size);
+    color: var(--md-sys-color-on-surface-variant);
+    background: var(--md-sys-color-surface-container-low);
     border-radius: var(--md-sys-shape-corner-small);
   }
   .stat-row {
