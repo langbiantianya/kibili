@@ -39,6 +39,24 @@
   // 从普通播放器传入的初始播放位置（秒）
   let startAt = 0;
 
+  /*
+    屏幕方向: 竖屏 (240x320) 时视频要转 90° 横着放, 用户把手机横过来看。
+    屏幕本来就是横的 (少见, 但不能写死) → 不转, 直接铺满。
+  */
+  let isLandscape = false;
+  // 封面按"横屏"尺寸要: 宽 = 视口长边, 高按 16:9
+  let posterW = 320;
+  let posterH = 180;
+
+  function updateOrientation() {
+    const vw = window.innerWidth || 0;
+    const vh = window.innerHeight || 0;
+    isLandscape = vw > vh;
+    const w = Math.max(vw, vh) || 320;
+    posterW = w;
+    posterH = Math.round(w * 9 / 16);
+  }
+
   // 静音状态: 与普通播放器共用 settings.muted
   // (系统音量接口在 KaiOS 2.4 上没有静音方法, 静音只能由应用把媒体元素 muted 置位)
   $: muted = $settings.muted;
@@ -282,7 +300,9 @@
   onMount(() => {
     // 左软键 = 播放/暂停; 返回走退格键 (全局 app-back), 右软键不声明
     loadVideo();
-    return onKey('fullscreen-player', {
+    updateOrientation();
+    window.addEventListener('resize', updateOrientation);
+    const off = onKey('fullscreen-player', {
       // 中键用 { press } 形式: 松手时触发一次, 按住不放不会连发
       Enter: { press: () => togglePlay() },
       SoftLeft: () => togglePlay(),
@@ -301,10 +321,17 @@
       VolumeUp: () => bumpVolume(+1),
       VolumeDown: () => bumpVolume(-1)
     }, { priority: 10, softkeys: true });
+    return () => {
+      window.removeEventListener('resize', updateOrientation);
+      off();
+    };
   });
 
   // 软键文案跟着状态走: 还没加载视频时左软键 = 播放 (去加载), 加载后 = 播放/暂停
   $: setSoftkeys(videoSrc ? '播放/暂停' : '播放', '', '');
+
+  // 封面地址跟着屏幕尺寸走 (横屏宽度 = 视口长边)
+  $: posterUrl = poster ? biliImg(poster, posterW, posterH, 'jpg') : '';
 
   onDestroy(() => {
     if (dashAudio) {
@@ -314,7 +341,7 @@
   });
 </script>
 
-<div class="fullscreen-player">
+<div class="fullscreen-player" class:landscape={isLandscape}>
   {#if loading}
     <div class="loading">加载中...</div>
   {:else if error}
@@ -343,7 +370,7 @@
       播放地址还没拉到 (设置里关了"打开视频立刻播放"):
       不建 <video> 元素 = 一个字节的视频数据都不下, 只显示封面
     -->
-    <img class="cover" src={biliImg(poster, 320, 180, 'jpg')} alt="" />
+    <img class="cover" src={posterUrl} alt="" />
     <div class="cover-hint">
       {#if streamLoading}
         加载中...
@@ -373,38 +400,54 @@
     position: fixed;
     top: 0;
     left: 0;
-    width: 100%;
-    height: 100%;
+    right: 0;
+    bottom: 0;
     background: #000;
     z-index: 100;
+    overflow: hidden;
+    /* 加载中 / 出错文案直接居中, 不用 padding-top 去顶 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
-  video {
-    width: 320px;
-    height: 240px;
-    position: fixed;
-    transform: rotate(90deg);
-    top: 40px;
-    left: -40px;
-    background: #000;
-  }
+  /*
+    视频横着放:
+      竖屏设备 (240x320) 上把内容转 90°, 用户把手机横过来看才是正的。
+      元素盒子按"横屏"尺寸摆 —— 宽 = 屏高 (100vh), 高 = 屏宽 (100vw) —— 再整体转 90°,
+      转完正好是 屏宽 x 屏高, 铺满整屏。
+      盒子中心先 translate(-50%,-50%) 对到屏幕中心, rotate 绕自己的中心转, 转完仍然居中。
+      尺寸全部按视口算, 不写死 320/240 —— 换屏幕尺寸 (或横竖屏) 都对。
 
-  /* 还没加载视频时显示的封面 (和 <video> 同样的摆放方式) */
+    max-width:none 要显式写: 全局 img { max-width:100% } 会把宽度夹到父容器宽 (240),
+    盒子变成 240x240 的正方形, 转完就不居中了 (右边会空掉一条)。
+    object-fit:contain: 保持视频原始比例, 不拉伸成 4:3。
+  */
+  video,
   .cover {
-    width: 320px;
-    height: 240px;
-    position: fixed;
-    transform: rotate(90deg);
-    top: 40px;
-    left: -40px;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 100vh;
+    height: 100vw;
+    max-width: none;
+    transform: translate(-50%, -50%) rotate(90deg);
     object-fit: contain;
     background: #000;
+  }
+
+  /* 屏幕本来就是横的: 不转, 直接铺满 */
+  .fullscreen-player.landscape video,
+  .fullscreen-player.landscape .cover {
+    width: 100%;
+    height: 100%;
+    transform: translate(-50%, -50%);
   }
 
   /* 封面上的提示: 按中键才去加载播放 (压在封面上, 所以给个深底才看得清) */
   .cover-hint {
     position: fixed;
-    top: 140px;
+    top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
     padding: 4px 10px;
@@ -420,28 +463,30 @@
   .error {
     color: #fff;
     text-align: center;
-    padding-top: 100px;
     font-size: 14px;
   }
 
   /* 播放失败提示: 盖在黑屏视频之上, 不至于只有一个黑屏 */
   .play-error {
     position: fixed;
-    top: 120px;
+    top: 50%;
     left: 0;
     width: 100%;
+    transform: translateY(-50%);
     padding: 8px 12px;
     z-index: 102;
     box-sizing: border-box;
   }
 
-  /* ========== 播放进度条 ========== */
+  /* ========== 播放进度条 ==========
+     进度条竖着贴在屏幕左边 —— 手机横过来看时它就是横屏的底部进度条。
+     时间字符每个转 90°, 横过来看才是正的。 */
   .progress-bar {
     position: fixed;
     top: 0;
     left: 0;
-    width: 320px;
-    height: 320px;
+    width: 100vw;
+    height: 100vh;
     z-index: 101;
     display: flex;
     align-items: flex-start;
