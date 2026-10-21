@@ -155,6 +155,10 @@
     if (i !== 0) {
       focusKind = '';
       focusHint = '';
+    } else {
+      // 切回详情 tab: 评论列表被销毁, 焦点没了 —— 重新落到第一张图上,
+      // 不然中键既没提示也没反应 (图片的点击要靠焦点触发)
+      focusFirstImage();
     }
     if (i === 1 && comments.length === 0 && !commentsLoading) {
       loadComments();
@@ -391,7 +395,7 @@
                   <div class="image-item" data-navable tabindex="0"
                        on:click={() => openImages(detail.major.images, i)}
                        on:focus={() => onFocusChange('image', '查看')}>
-                    <img src={biliImg(img.src, 100, 100)} alt="" />
+                    <img src={biliImg(img.src, 240, 0)} alt="" />
                   </div>
                 {/each}
               </div>
@@ -405,7 +409,7 @@
                     <div class="image-item" data-navable tabindex="0"
                          on:click={() => openImages(detail.major.images, i)}
                          on:focus={() => onFocusChange('image', '查看')}>
-                      <img src={biliImg(img.src, 100, 100)} alt="" />
+                      <img src={biliImg(img.src, 240, 0)} alt="" />
                     </div>
                   {/each}
                 </div>
@@ -442,7 +446,7 @@
                             <div class="image-item" data-navable tabindex="0"
                                  on:click={() => openImages(detail.orig.major.images, i)}
                                  on:focus={() => onFocusChange('image', '查看')}>
-                              <img src={biliImg(img.src, 100, 100)} alt="" />
+                              <img src={biliImg(img.src, 240, 0)} alt="" />
                             </div>
                           {/each}
                         </div>
@@ -453,7 +457,7 @@
                           <div class="image-item" data-navable tabindex="0"
                                on:click={() => openImages(detail.orig.major.images, i)}
                                on:focus={() => onFocusChange('image', '查看')}>
-                            <img src={biliImg(img.src, 100, 100)} alt="" />
+                            <img src={biliImg(img.src, 240, 0)} alt="" />
                           </div>
                         {/each}
                       </div>
@@ -673,29 +677,30 @@
 
   /* ---- 各种动态主体的通用样式 ---- */
 
-  /* 图片列表 (带图动态 / 图文动态) */
+  /*
+    图片列表 (带图动态 / 图文动态): 一行一张
+    高度要**限住** —— 屏幕只有 240x320, 详情页去掉软键栏(28)和 tab 栏(32)
+    只剩 260 高, 满宽的竖图 (2:3) 有 336 高, 一屏放不下, 看着像被截断了。
+    限高之后整张图一屏能看全, 想看细节按中键进大图。
+  */
   .image-list {
-    display: flex;
-    flex-wrap: wrap;
+    display: block;
   }
   .image-list img {
-    width: 100px;
-    height: 100px;
-    object-fit: cover;
+    max-width: 100%;
+    max-height: 250px;
+    width: auto;
+    height: auto;
+    display: inline-block;
+    vertical-align: top;
     border-radius: var(--md-sys-shape-corner-small);
-    margin-right: 4px;
-    margin-bottom: 4px;
   }
   /* 图片外面那层: 可聚焦, 中键进大图看 */
   .image-item {
-    margin-right: 4px;
     margin-bottom: 4px;
+    text-align: center;
     cursor: pointer;
     outline: none;
-  }
-  .image-item img {
-    margin-right: 0;
-    margin-bottom: 0;
   }
   .image-item:focus img {
     outline: 2px solid var(--md-sys-color-primary);

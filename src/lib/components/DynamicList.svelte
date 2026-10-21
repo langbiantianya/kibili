@@ -165,16 +165,18 @@
                   <!-- 专栏 -->
                   <div class="atitle">▤ {v.title}</div>
                   <div class="astat">{v.label || ''}</div>
-                {:else if v.kind === 'images'}
-                  <!-- 图片 -->
-                  <div class="draw-preview">
-                    {#each v.images.slice(0, 3) as img}
-                      <img src={biliImg(img.src, 60, 60)} alt="" />
-                    {/each}
-                  </div>
-                {:else if v.kind === 'opus'}
-                  <!-- 图文 -->
-                  <div class="atitle">{v.title || v.text}</div>
+                {:else if v.kind === 'images' || v.kind === 'opus'}
+                  <!-- 带图 / 图文: 缩略图九宫格 -->
+                  {#if v.kind === 'opus' && v.title}<div class="atitle">{v.title}</div>{/if}
+                  {#if v.images && v.images.length}
+                    <div class="draw-preview">
+                      <!-- 列表里只给 3 张缩略图, 全套去动态详情看 -->
+                      {#each v.images.slice(0, 3) as img}
+                        <img src={biliImg(img.src, 50, 50)} alt="" />
+                      {/each}
+                    </div>
+                  {/if}
+                  {#if v.kind === 'opus' && v.text && !v.title}<div class="atitle">{v.text}</div>{/if}
                 {:else if v.kind === 'forward'}
                   <!-- 转发: 显示原动态的作者和内容 -->
                   {#if p.orig}
@@ -291,18 +293,17 @@
     margin-top: 1px;
   }
 
+  /* 卡片里的图: 九宫格风格 —— 一行几张小缩略图 */
   .draw-preview {
     display: flex;
-    /* gap: 4px; Firefox 48 不支持 flex gap */
     margin-top: 4px;
   }
   .draw-preview img {
-    margin-right: 4px;
-  }
-  .draw-preview img {
-    width: 60px;
-    height: 60px;
+    width: 50px;
+    height: 50px;
     object-fit: cover;
+    margin-right: 4px;
+    margin-bottom: 4px;
     border-radius: var(--md-sys-shape-corner-small);
   }
 
