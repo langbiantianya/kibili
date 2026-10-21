@@ -436,6 +436,24 @@ video, .cover {
 
 进度条是竖着贴在屏幕左边的 —— 手机横过来看时它就是横屏的底部进度条；时间字符每个转 90°，横过来看才是正的。
 
+## 普通播放页（16:9 播放区，尺寸不写死）
+
+`lib/player/VideoPlayer.svelte` 里的播放区之前写死 `height: 135px`（= 240 × 9/16），换屏幕宽度就拉变形了。现在按**视口宽度**算：
+
+```css
+.player-area {
+  width: 100%;
+  height: 56.25vw;   /* 16:9 */
+  max-height: 45vh;  /* 屏幕太矮时别把播放区撑太大 */
+}
+```
+
+Firefox 48 不支持 `aspect-ratio`，只能用 `vw` 换算（9 ÷ 16 = 56.25%）。前提是播放区铺满视口宽 —— `.screen` 是 `100vw`，`Player` 是顶层路由不在 `MainLayout` 里，所以 `.player-area` 的宽度就等于视口宽，换算精确。
+
+封面地址也跟着走：`biliImg(poster, 320, 180)` → 按视口宽算的 `@240w_135h.jpg`（`posterW`/`posterH` 由 `updateSize()` 算，带 `resize` 监听）。
+
+> 验证时踩的坑：`getComputedStyle().height` 返回的是**计算后的 px 值**，不管源码写的是 `135px` 还是 `56.25vw`，结果都是 `135px` —— 没法用计算样式判断"有没有写死"。要查源码得读 CSSOM（`document.styleSheets[].cssRules[].cssText`）。
+
 ## 列表页的状态记忆（首页 / 关注页）
 
 首页和关注页都会被反复进出（点一条视频 → 播放器 → 返回），所以它们需要记住三件事：**数据还在不在**、**看到第几条**、**（关注页）还在哪个 tab**。

@@ -51,6 +51,24 @@
   let error = '';
   let buffered = 0; // 缓冲进度
 
+  /*
+    播放区域宽度 = 视口宽 (.screen 是 100vw), 16:9 的高度和封面尺寸都按它算,
+    不写死 240/135 —— 换屏幕尺寸播放区不会被拉变形。
+  */
+  let posterW = 240;
+  let posterH = 135;
+
+  function updateSize() {
+    const w = window.innerWidth || 240;
+    posterW = w;
+    posterH = Math.round(w * 9 / 16);
+  }
+  // 先算一次, 免得首帧用着默认尺寸的封面闪一下
+  updateSize();
+
+  // 封面地址跟着播放区域宽度走 (16:9)
+  $: posterUrl = poster ? biliImg(poster, posterW, posterH, 'jpg') : '';
+
   // 观看进度上报定时器
   /** @type {number|null} */
   let reportTimer = null;
@@ -321,7 +339,7 @@
   }
 
   onMount(() => {
-    return onKey('video-player', {
+    const off = onKey('video-player', {
       Up: {
         press: () => shortArrow(-1),
         long: () => bumpVolume(1),
@@ -381,6 +399,14 @@
         }
       }
     }, { priority: 10, softkeys: true });
+
+    // 封面尺寸跟着视口走 (跟着播放区域宽度)
+    updateSize();
+    window.addEventListener('resize', updateSize);
+    return () => {
+      window.removeEventListener('resize', updateSize);
+      off();
+    };
   });
 
   function fmt(t) {
@@ -441,7 +467,7 @@
             播放地址还没拉到 (设置里关了"打开视频立刻播放"):
             不建 <video> 元素 = 一个字节的视频数据都不下, 只显示封面
           -->
-          <img class="cover" src={biliImg(poster, 320, 180, 'jpg')} alt="" />
+          <img class="cover" src={posterUrl} alt="" />
         {/if}
         <!-- DASH 模式下同步播放独立音频流 -->
         {#if audioSrc}
@@ -622,13 +648,15 @@
     overflow: hidden;
   }
 
-  /* ========== 视频播放区域 ========== */
+  /* ========== 视频播放区域 ==========
+     16:9 的高度按**视口宽度**算 (播放区域铺满 .screen 的 100vw),
+     不写死 135px (= 240 * 9/16) —— 换屏幕宽度时播放区不会被拉变形。
+     Firefox 48 不支持 aspect-ratio, 只能用 vw 换算。 */
   .player-area {
     flex-shrink: 0;
     width: 100%;
-    /* aspect-ratio: 16 / 9; Firefox 48 不支持 */
-    height: 135px; /* 240 * 9/16 = 135px, 固定 16:9 高度 */
-    max-height: 45vh;
+    height: 56.25vw;   /* 16:9 */
+    max-height: 45vh;  /* 屏幕太矮时别把播放区撑太大 */
     background: #000;
     position: relative;
   }
