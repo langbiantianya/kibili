@@ -678,32 +678,35 @@
   /* ---- 各种动态主体的通用样式 ---- */
 
   /*
-    图片列表 (带图动态 / 图文动态): 一行一张
-    高度要**限住** —— 屏幕只有 240x320, 详情页去掉软键栏(28)和 tab 栏(32)
-    只剩 260 高, 满宽的竖图 (2:3) 有 336 高, 一屏放不下, 看着像被截断了。
-    限高之后整张图一屏能看全, 想看细节按中键进大图。
+    图片列表 (带图动态 / 图文动态): 一行一张, **满宽**显示
+    —— 宽度撑满内容区 (240 - 左右各 8px padding = 224), 高度按原图比例自然撑开,
+       不做限高。之前用 max-height 把图缩到 167x250 塞进一屏, 两边一大片留白,
+       看着像"图没显示全"。
+    高度超过屏幕可显示范围 (320 - tab栏32 - 软键栏28 = 260) 的部分由容器裁掉,
+    完整图按中键进图片查看器看。
   */
   .image-list {
     display: block;
   }
   .image-list img {
-    max-width: 100%;
-    max-height: 250px;
-    width: auto;
+    width: 100%;
     height: auto;
-    display: inline-block;
-    vertical-align: top;
+    display: block;
     border-radius: var(--md-sys-shape-corner-small);
   }
-  /* 图片外面那层: 可聚焦, 中键进大图看 */
+  /* 图片外面那层: 可聚焦, 中键进大图看; 超高部分在这里裁掉 */
   .image-item {
     margin-bottom: 4px;
-    text-align: center;
+    max-height: calc(100vh - 60px);
+    overflow: hidden;
     cursor: pointer;
     outline: none;
   }
-  .image-item:focus img {
+  .image-item:focus {
     outline: 2px solid var(--md-sys-color-primary);
+  }
+  .image-item:focus img {
+    outline: none;
   }
 
   /* 标题 (图文/专栏/合集/剧集…) */
