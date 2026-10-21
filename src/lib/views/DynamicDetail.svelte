@@ -142,6 +142,27 @@
     }
   }
 
+  /**
+   * 这条动态能不能用中键直接播视频
+   *
+   * 两种情况:
+   *   - 视频动态本身 (major.kind === 'video')
+   *   - 转发动态, 原动态是视频 (orig.major.kind === 'video')
+   *
+   * 没有视频可播就返回空串 —— 中键不显示提示 (没绑定的键不显示文案)。
+   */
+  $: playBvid = detail
+    ? ((detail.major && detail.major.kind === 'video' && detail.major.bvid) ||
+       (detail.orig && detail.orig.major && detail.orig.major.kind === 'video' && detail.orig.major.bvid) ||
+       '')
+    : '';
+
+  // 中键: 播视频 (视频动态, 或转发的原动态是视频)
+  function playVideo() {
+    if (!playBvid) return;
+    navigate('/player?bvid=' + playBvid);
+  }
+
   // 滚动距离（像素）
   const SCROLL_STEP = 60;
 
@@ -193,6 +214,12 @@
       },
       Left: () => { if (activeTab > 0) changeTab(activeTab - 1); },
       Right: () => { if (activeTab < tabs.length - 1) changeTab(activeTab + 1); },
+      // 中键: 播视频。详情 tab 才处理 —— 评论 tab 里中键归评论项
+      // (评论项是可聚焦的, 走框架默认的"激活当前焦点"行为)
+      Enter: () => {
+        if (activeTab !== 0 || !playBvid) return false;
+        playVideo();
+      },
       SoftLeft: () => {
         // 详情 tab: 切到评论; 评论 tab: 回复
         if (activeTab === 0) {
@@ -222,10 +249,14 @@
   // 软键是唯一来源: 切 tab 时更新 (左=评论/回复; 返回走退格键, 右软键不占)
   // 初始 activeTab = 0, 这段响应式语句在首次渲染时就会跑, 所以 onMount 里
   // 不再重复设置一遍软键, 避免两处设置互相覆盖。
+  //
+  // 中键 (center) 提示:
+  //   详情 tab: 有视频可播 → "播放"; 没有 → 不显示 (没绑定的键不显示文案)
+  //   评论 tab: "回复" (中键激活当前聚焦的评论项 = 回复它)
   $: if (activeTab === 0) {
-    setSoftkeys('评论', '');
+    setSoftkeys('评论', '', playBvid ? '播放' : '');
   } else {
-    setSoftkeys('回复', '');
+    setSoftkeys('回复', '', '回复');
   }
 
   // 处理评论发送事件
