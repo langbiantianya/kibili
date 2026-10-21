@@ -1618,6 +1618,30 @@ check('评论树: 根评论混进回复列表里也不能重复渲染', async ()
   eq(tree[0].replyName, '楼主', '回复根评论的显示根评论作者');
 });
 
+check('别用「x = x」触发 Svelte 更新 (引用没变, DOM 不会重渲染)', async () => {
+  // Svelte 3 把 `x = x` 编译成 `$$invalidate(0, x)`, 引用没变就不标脏 →
+  // 界面永远不更新 (评论展开"按了没反应"就是踩了这个)。
+  // 要更新必须换引用: `x = { ...x }` 或 `x[k] = v; x = { ...x }`。
+  const { readdirSync, readFileSync, statSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const srcDir = join(process.cwd(), 'src');
+  const bad = [];
+  function walk(dir) {
+    for (const name of readdirSync(dir)) {
+      const p = join(dir, name);
+      const st = statSync(p);
+      if (st.isDirectory()) { walk(p); continue; }
+      if (!/\.(svelte|js)$/.test(name)) continue;
+      const text = readFileSync(p, 'utf8');
+      const re = /^[ \t]*([A-Za-z_$][\w$]*)[ \t]*=[ \t]*\1[ \t]*;/gm;
+      let m;
+      while ((m = re.exec(text))) bad.push(p.replace(srcDir + '/', '') + ' → ' + m[0].trim());
+    }
+  }
+  walk(srcDir);
+  eq(bad.length, 0, '源码里有自赋值写法 (Svelte 3 里不会触发更新):\n    ' + bad.join('\n    '));
+});
+
 // ── 运行 ────────────────────────────────────────────────────────────────
 // 顺序执行 (测试之间共用全局的按键总线, 并发/交叠会互相污染)
 for (const t of tests) {

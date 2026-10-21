@@ -748,6 +748,32 @@ const closeScope = openModalScope('reply', {
 
 所以绝大多数页面只需要注册软键即可。
 
+### Svelte 3 的坑：别用 `x = x` 触发更新
+
+**`x = x` 在 Svelte 3 里不会触发重新渲染。** 编译器把它变成 `$$invalidate(0, x)`，而引用没变 → Svelte 判定"值没变" → 不标脏 → 界面永远不动。
+
+```js
+let subMap = {};
+function bump() {
+  subMap[rpid] = state;
+  subMap = subMap;      // ❌ 没反应
+}
+```
+
+正确写法是**换引用**：
+
+```js
+function setSub(rpid, state) {
+  const next = { ...subMap };
+  next[rpid] = state;
+  subMap = next;        // ✅ 新对象 → 标脏 → 重新渲染
+}
+```
+
+这个坑很隐蔽：JS 层面 `subMap` 确实变了（所以读它的地方拿得到新值），但 DOM 不更新。**评论展开"按了中键没反应"就是踩了这个** —— 展开状态改了、软键提示也变了（提示是另一条链路），唯独子评论列表不渲染。
+
+`scripts/test-keyboard.js` 里有一条测试扫源码里的自赋值写法，防止再踩。
+
 ### 焦点区域
 
 列表容器加 `data-nav-root` 后，上下键只在该区域内移动，不会跳到别的区域：

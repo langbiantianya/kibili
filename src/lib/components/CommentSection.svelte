@@ -58,6 +58,23 @@
   // ========== 子评论 ==========
 
   /**
+   * 写子评论状态
+   *
+   * 必须**换引用** (新对象) 才能让 Svelte 重新渲染。
+   * `subMap[rpid] = x; subMap = subMap;` 这种写法在 Svelte 3 里是无效的 ——
+   * 编译器把 `subMap = subMap` 变成 `$$invalidate(0, subMap)`, 而引用没变,
+   * Svelte 判定"值没变"就不标脏, DOM 永远不更新 (表现: 按了中键没反应)。
+   *
+   * @param {string} rpid 根评论 rpid
+   * @param {any} state 该评论的子评论状态
+   */
+  function setSub(rpid, state) {
+    const next = { ...subMap };
+    next[rpid] = state;
+    subMap = next;
+  }
+
+  /**
    * 展开/收起某条一级评论的子评论
    *
    * @param {any} c 一级评论
@@ -69,22 +86,19 @@
 
     // 已展开 → 收起
     if (cur && cur.expanded) {
-      subMap[rpid] = { ...cur, expanded: false };
-      subMap = subMap;
+      setSub(rpid, { ...cur, expanded: false });
       notifyHint(c);
       return;
     }
     // 已经加载过 → 直接展开 (不再发请求)
     if (cur && cur.raw && cur.raw.length) {
-      subMap[rpid] = { ...cur, expanded: true };
-      subMap = subMap;
+      setSub(rpid, { ...cur, expanded: true });
       notifyHint(c);
       return;
     }
 
     // 首次加载
-    subMap[rpid] = { expanded: true, loading: true, error: '', raw: [], items: [], total: 0, page: 1 };
-    subMap = subMap;
+    setSub(rpid, { expanded: true, loading: true, error: '', raw: [], items: [], total: 0, page: 1 });
     notifyHint(c);
     await fetchSub(c, 1, true);
   }
@@ -120,7 +134,7 @@
       }
       const items = buildCommentTree(raw, c.rpid, c.member ? c.member.uname : '');
 
-      subMap[rpid] = {
+      setSub(rpid, {
         // 用当前状态里的 expanded: 加载期间用户又点了一下收起的话, 别给弹回来
         expanded: cur.expanded !== false,
         loading: false,
@@ -129,17 +143,16 @@
         items: items,
         total: total,
         page: pn
-      };
+      });
     } catch (e) {
       const cur = subMap[rpid] || {};
-      subMap[rpid] = {
+      setSub(rpid, {
         ...cur,
         expanded: false,
         loading: false,
         error: (e && e.message) ? e.message : '回复加载失败'
-      };
+      });
     }
-    subMap = subMap;
   }
 
   /**
@@ -151,8 +164,7 @@
     const rpid = String(c.rpid);
     const cur = subMap[rpid];
     if (!cur || cur.loading) return;
-    subMap[rpid] = { ...cur, loading: true, error: '' };
-    subMap = subMap;
+    setSub(rpid, { ...cur, loading: true, error: '' });
     await fetchSub(c, (cur.page || 1) + 1, false);
   }
 
@@ -235,40 +247,42 @@
               </div>
             </div>
 
-            <!-- 子评论: 按对话层级缩进打平 -->
-            {#if sub && sub.loading && !sub.items.length}
-              <div class="sub-loading">
-                <div class="spinner-small"></div>
-                <span>加载回复...</span>
-              </div>
-            {:else if sub && sub.error}
-              <div class="sub-error">回复加载失败, 再按一次中键重试</div>
-            {:else if sub && sub.items && sub.items.length}
-              {#each sub.items as row (row.node.rpid)}
-                <!-- 层级最多缩到 3 层 (240px 宽的屏幕缩太多正文就没地方了) -->
-                <div class="sub-item depth-{Math.min(row.depth, 3)}" data-navable tabindex="0"
-                     data-rpid={row.node.rpid}
-                     on:focus={() => dispatch('focuschange', { hint: '', inList: true })}>
-                  <div class="comment-head">
-                    <img class="comment-face" src={biliImg(row.node.member.face, 24, 24)} alt="" />
-                    <span class="comment-name">{row.node.member.uname}</span>
-                    {#if row.replyName}
-                      <span class="reply-to">回复 @{row.replyName}</span>
-                    {/if}
-                    <span class="comment-time">{relativeTime(row.node.ctime)}</span>
-                  </div>
-                  <div class="comment-content">{row.node.content.message}</div>
-                  <div class="comment-stat">
-                    <span>❤ {formatCount(row.node.like)}</span>
-                  </div>
+            <!-- 子评论: 按对话层级缩进打平 (收起时整块都不显示) -->
+            {#if sub && sub.expanded}
+              {#if sub.loading && !sub.items.length}
+                <div class="sub-loading">
+                  <div class="spinner-small"></div>
+                  <span>加载回复...</span>
                 </div>
-              {/each}
-              {#if hasMoreSub(sub)}
-                <div class="sub-more" data-navable tabindex="0"
-                     on:click={() => loadMoreSub(c)}
-                     on:focus={() => dispatch('focuschange', { hint: '更多', inList: true })}>
-                  {sub.loading ? '加载中...' : `还有 ${formatCount(sub.total - sub.items.length)} 条回复, 按中键继续加载`}
-                </div>
+              {:else if sub.error}
+                <div class="sub-error">回复加载失败, 再按一次中键重试</div>
+              {:else if sub.items && sub.items.length}
+                {#each sub.items as row (row.node.rpid)}
+                  <!-- 层级最多缩到 3 层 (240px 宽的屏幕缩太多正文就没地方了) -->
+                  <div class="sub-item depth-{Math.min(row.depth, 3)}" data-navable tabindex="0"
+                       data-rpid={row.node.rpid}
+                       on:focus={() => dispatch('focuschange', { hint: '', inList: true })}>
+                    <div class="comment-head">
+                      <img class="comment-face" src={biliImg(row.node.member.face, 24, 24)} alt="" />
+                      <span class="comment-name">{row.node.member.uname}</span>
+                      {#if row.replyName}
+                        <span class="reply-to">回复 @{row.replyName}</span>
+                      {/if}
+                      <span class="comment-time">{relativeTime(row.node.ctime)}</span>
+                    </div>
+                    <div class="comment-content">{row.node.content.message}</div>
+                    <div class="comment-stat">
+                      <span>❤ {formatCount(row.node.like)}</span>
+                    </div>
+                  </div>
+                {/each}
+                {#if hasMoreSub(sub)}
+                  <div class="sub-more" data-navable tabindex="0"
+                       on:click={() => loadMoreSub(c)}
+                       on:focus={() => dispatch('focuschange', { hint: '更多', inList: true })}>
+                    {sub.loading ? '加载中...' : `还有 ${formatCount(sub.total - sub.items.length)} 条回复, 按中键继续加载`}
+                  </div>
+                {/if}
               {/if}
             {/if}
           </div>
