@@ -341,9 +341,16 @@
   let lastReportedTime = 0;
 
   let activeTabKey = 'detail'; // 当前激活的 tab
+  let commentHint = '';        // 评论列表里中键的提示 (展开/收起/更多)
+  let commentInList = false;   // 焦点是不是在评论列表里
 
   function onTabChange(e) {
     activeTabKey = e.detail;
+    // 离开评论 tab 时清掉提示, 免得回来还显示上次的文案
+    if (activeTabKey !== 'comments') {
+      commentHint = '';
+      commentInList = false;
+    }
     updateSoftkeys();
   }
 
@@ -391,13 +398,29 @@
   }
 
   function updateSoftkeys() {
-    const centerLabel = isPlaying ? '暂停' : '播放';
+    const inComments = activeTabKey === 'comments';
+    // 中键提示:
+    //   焦点在评论列表里 → 跟着焦点走 (展开 / 收起 / 更多), 没有动作就不显示
+    //   焦点不在评论列表里 → 中键是播放/暂停
+    let centerLabel;
+    if (inComments && commentInList) {
+      centerLabel = commentHint;
+    } else {
+      centerLabel = isPlaying ? '暂停' : '播放';
+    }
     // 返回由退格键 (Back) 负责 —— 右软键不占返回, 它留给页面自己派活
-    // 左软键: 评论 tab = 回复, 详情 tab = 全屏
-    const leftLabel = activeTabKey === 'comments' ? '回复' : '全屏';
+    // 左软键: 评论 tab = 回复 (功能下线, 显示「待实现」), 详情 tab = 全屏
+    const leftLabel = inComments ? '待实现' : '全屏';
     // 右软键: 进 UP 主主页。作者信息还没到就不显示文案 —— 文案必须和行为一致
     const rightLabel = currentOwner && currentOwner.mid ? '主页' : '';
     setSoftkeys(leftLabel, rightLabel, centerLabel);
+  }
+
+  // 评论列表里中键的提示 (展开 / 收起 / 更多), 由 CommentSection 报上来
+  function onCommentFocusChange(e) {
+    commentHint = (e.detail && e.detail.hint) ? e.detail.hint : '';
+    commentInList = !!(e.detail && e.detail.inList);
+    updateSoftkeys();
   }
 
   // 右软键: 进 UP 主主页
@@ -451,6 +474,7 @@
         on:listenoff={onListenOff}
         on:tabchange={onTabChange}
         on:playstate={onPlayState}
+        on:focuschange={onCommentFocusChange}
         on:fullscreen={onFullscreen}
         on:author={onAuthor}
         on:loadmore={loadMoreReplies}

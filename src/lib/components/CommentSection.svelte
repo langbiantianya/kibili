@@ -1,10 +1,28 @@
 <script>
-  import { createEventDispatcher, tick } from 'svelte';
+  // 评论列表 (视频页 / 动态详情页共用)
+  //
+  // ── 评论层级 ────────────────────────────────────────────────────────
+  // B 站的评论是对话树:
+  //   一级评论 → 二级评论(回复一级) → 三级评论(回复二级) → …
+  // 一级评论列表接口 (GET /x/v2/reply) 只返回一级评论, 每条带 rcount
+  // (子评论条数) 和 parent (回复父评论 rpid, 一级为 0)。
+  //
+  // 子评论接口 (GET /x/v2/reply/reply?root=<根评论rpid>) 一次就能拿回整棵
+  // 子树 (data.replies 可能是平铺的, 也可能是嵌套的, 见 utils/commenttree.js),
+  // 这里按 parent 字段建树后按层级缩进打平渲染。
+  //
+  // 展开/收起状态**只存在这里** —— 之前播放器自己也存了一份, 两份状态
+  // 互不相通, 结果是"按了中键没反应" (状态改了但渲染的是另一份)。
+  //
+  // ── 关于回复 ────────────────────────────────────────────────────────
+  // 评论回复功能暂时下线 (软键显示「待实现」)。这里只保留评论的**浏览**:
+  // 中键 = 展开/收起当前评论的子评论。
+
+  import { createEventDispatcher } from 'svelte';
   import { getSubReplies } from '../api/interact.js';
+  import { buildCommentTree } from '../utils/commenttree.js';
   import { formatCount, relativeTime } from '../utils/format.js';
   import { biliImg } from '../utils/platform.js';
-  import { matchKey } from '../keyboard/keys.js';
-  import CommentReply from './CommentReply.svelte';
   import LoadingMore from './LoadingMore.svelte';
 
   // ========== Props ==========
@@ -14,7 +32,7 @@
   export let commentsError = '';
   export let commentHasMore = true;
   /** @type {string|number} */
-  export let oid = ''; // 评论对象ID (bvid 或 aid)
+  export let oid = ''; // 评论对象ID (视频 aid / 相册 id / 动态 id …)
   /**
    * 评论对象类型 (对应 /x/v2/reply 的 type)
    * 1=视频(默认) / 11=相册 / 12=专栏 / 14=音频 / 17=动态 / 19=收藏夹
@@ -25,141 +43,160 @@
   export let emptyMessage = '暂无评论';
 
   // ========== 内部状态 ==========
-  // 子评论展开状态: rpid -> { expanded: bool, loading: bool, replies: [] }
-  let subRepliesMap = {};
-
-  // 评论回复
-  let replyText = '';
-  let replySending = false;
-  let replyError = '';
-  /** @type {{ rpid: number, uname: string, rootRpid?: number } | null} */
-  let replyTarget = null;
-  let showReplyModal = false;
-
-  // CommentReply 组件实例引用
-  /** @type {any} */
-  let commentReplyRef;
+  // 子评论状态: 根评论 rpid → {
+  //   expanded 是否展开 / loading 是否在加载 / error 加载失败原因
+  //   raw 接口返回的原始列表 (分页时累加) / items 建好树的条目 / total 总条数
+  // }
+  /** @type {Record<string, any>} */
+  let subMap = {};
 
   const dispatch = createEventDispatcher();
 
+  // 子评论分页: 一页最多 20 条 (接口硬上限), 更多要点「更多回复」
+  const SUB_PAGE_SIZE = 20;
+
   // ========== 子评论 ==========
 
-  // 获取子评论中被回复人的名字
-  function getReplyToName(r, rootComment, siblingReplies) {
-    const msg = r.content && r.content.message || '';
-    const match = msg.match(/^回复 @(.+?)\s*:/);
-    if (match) return match[1];
-    if (r.parent === rootComment.rpid) return rootComment.member.uname;
-    const found = siblingReplies.find(s => s.rpid === r.parent);
-    if (found) return found.member.uname;
-    return '';
-  }
+  /**
+   * 展开/收起某条一级评论的子评论
+   *
+   * @param {any} c 一级评论
+   */
+  async function toggleSub(c) {
+    if (!c || !c.rcount) return;
+    const rpid = String(c.rpid);
+    const cur = subMap[rpid];
 
-  // 加载子评论，打平显示
-  async function loadSubReplies(c) {
-    if (!oid) return;
-    const rpid = c.rpid;
-    // 已展开则收起
-    if (subRepliesMap[rpid] && subRepliesMap[rpid].expanded) {
-      subRepliesMap[rpid] = { ...subRepliesMap[rpid], expanded: false };
-      subRepliesMap = subRepliesMap;
+    // 已展开 → 收起
+    if (cur && cur.expanded) {
+      subMap[rpid] = { ...cur, expanded: false };
+      subMap = subMap;
+      notifyHint(c);
       return;
     }
-    // 已加载过则直接展开
-    if (subRepliesMap[rpid] && subRepliesMap[rpid].replies.length) {
-      subRepliesMap[rpid] = { ...subRepliesMap[rpid], expanded: true };
-      subRepliesMap = subRepliesMap;
+    // 已经加载过 → 直接展开 (不再发请求)
+    if (cur && cur.raw && cur.raw.length) {
+      subMap[rpid] = { ...cur, expanded: true };
+      subMap = subMap;
+      notifyHint(c);
       return;
     }
+
     // 首次加载
-    subRepliesMap[rpid] = { expanded: false, loading: true, replies: [] };
-    subRepliesMap = subRepliesMap;
+    subMap[rpid] = { expanded: true, loading: true, error: '', raw: [], items: [], total: 0, page: 1 };
+    subMap = subMap;
+    notifyHint(c);
+    await fetchSub(c, 1, true);
+  }
+
+  /**
+   * 拉子评论
+   *
+   * @param {any} c 一级评论
+   * @param {number} pn 页码
+   * @param {boolean} reset 是否从头开始 (清掉旧数据)
+   */
+  async function fetchSub(c, pn, reset) {
+    const rpid = String(c.rpid);
     try {
-      const data = await getSubReplies(oid, rpid, { type: commentType });
-      const replies = (data && data.replies) ? data.replies : [];
-      subRepliesMap[rpid] = { expanded: true, loading: false, replies };
-      subRepliesMap = subRepliesMap;
-    } catch (e) {
-      subRepliesMap[rpid] = { expanded: false, loading: false, replies: [] };
-      subRepliesMap = subRepliesMap;
-    }
-  }
+      const data = await getSubReplies(oid, c.rpid, { pn: pn, ps: SUB_PAGE_SIZE, type: commentType });
+      const list = (data && data.replies) ? data.replies : [];
+      const page = data && data.page ? data.page : null;
+      // 总条数: 接口的 page.count 和一级评论上的 rcount 取大的那个 ——
+      // 两个字段的口径不完全一致 (一个可能只算直属回复), 取大不会漏
+      const count = (page && page.count) ? page.count : 0;
+      const total = Math.max(count, c.rcount || 0);
 
-  // ========== 评论回复 ==========
-
-  // 设置回复目标
-  /** @param {any} c */
-  /** @param {any} [sub] */
-  function setReplyTarget(c, sub) {
-    if (sub) {
-      replyTarget = { rpid: sub.rpid, uname: sub.member.uname, rootRpid: c.rpid };
-    } else if (c) {
-      replyTarget = { rpid: c.rpid, uname: c.member.uname };
-    } else {
-      replyTarget = null;
-    }
-  }
-
-  // 打开回复模态框（供外部调用）
-  /** @param {any} [c] */
-  /** @param {any} [sub] */
-  export async function openReply(c, sub) {
-    setReplyTarget(c, sub);
-    replyText = '';
-    showReplyModal = true;
-    // 回复框的软键 (取消/发送) 由 CommentReply 自己的模态作用域接管,
-    // 关闭时自动还原 —— 不用在这里手动存/还原
-    // (CommentReply 的界面由它自己的 open() 控制, 且 {#if showReplyModal} 需要先完成挂载)
-    await tick();
-    if (commentReplyRef) commentReplyRef.open();
-  }
-
-  // 关闭回复模态框
-  export function closeReply() {
-    showReplyModal = false;
-    replyText = '';
-    replyTarget = null;
-  }
-
-  // 发送评论
-  async function sendReply(text) {
-    if (!text.trim()) return;
-    replySending = true;
-    replyError = '';
-    try {
-      // replyTarget: { rpid, uname, rootRpid? }
-      // 如果是子评论，root 是根评论 rpid，parent 是当前评论 rpid
-      // 如果是根评论，root 和 parent 都是该评论 rpid
-      // 回复帖子本身：root=0, parent=0
-      let root = 0;
-      let parent = 0;
-      if (replyTarget) {
-        root = replyTarget.rootRpid || replyTarget.rpid;
-        parent = replyTarget.rpid;
+      const cur = subMap[rpid] || {};
+      // 分页时可能有重叠条目, 按 rpid 去重 (重复的 key 会让 svelte 的 each 报错)
+      const raw = [];
+      const seen = {};
+      const all = reset ? list : (cur.raw || []).concat(list);
+      for (let i = 0; i < all.length; i++) {
+        const n = all[i];
+        if (!n || !n.rpid || seen[n.rpid]) continue;
+        seen[n.rpid] = true;
+        raw.push(n);
       }
+      const items = buildCommentTree(raw, c.rpid, c.member ? c.member.uname : '');
 
-      // 通过事件让父组件处理发送（因为不同页面使用的 API 可能不同）
-      dispatch('send', { text: text.trim(), root, parent });
+      subMap[rpid] = {
+        // 用当前状态里的 expanded: 加载期间用户又点了一下收起的话, 别给弹回来
+        expanded: cur.expanded !== false,
+        loading: false,
+        error: '',
+        raw: raw,
+        items: items,
+        total: total,
+        page: pn
+      };
     } catch (e) {
-      replyError = e.message || '发送失败';
-    } finally {
-      replySending = false;
+      const cur = subMap[rpid] || {};
+      subMap[rpid] = {
+        ...cur,
+        expanded: false,
+        loading: false,
+        error: (e && e.message) ? e.message : '回复加载失败'
+      };
     }
+    subMap = subMap;
   }
 
-  // 处理发送成功（由父组件调用）
-  export function onSendSuccess() {
-    replyText = '';
-    replyTarget = null;
-    showReplyModal = false;
-    // 软键由 CommentReply 的模态作用域持有, 组件销毁时自动还原
+  /**
+   * 加载更多子评论 (接口一页最多 20 条)
+   *
+   * @param {any} c 一级评论
+   */
+  async function loadMoreSub(c) {
+    const rpid = String(c.rpid);
+    const cur = subMap[rpid];
+    if (!cur || cur.loading) return;
+    subMap[rpid] = { ...cur, loading: true, error: '' };
+    subMap = subMap;
+    await fetchSub(c, (cur.page || 1) + 1, false);
   }
 
-  // 处理发送失败（由父组件调用）
-  /** @param {string} msg */
-  export function onSendError(msg) {
-    replyError = msg || '发送失败';
-    replySending = false;
+  /**
+   * 还能不能继续加载更多子评论
+   *
+   * @param {any} sub
+   * @returns {boolean}
+   */
+  function hasMoreSub(sub) {
+    if (!sub || !sub.items) return false;
+    const total = sub.total || 0;
+    return total > sub.items.length;
+  }
+
+  // ========== 中键提示 ==========
+  // 评论列表里的中键 = 展开/收起当前评论的子评论。
+  // 提示文案跟着焦点走, 页面拿它显示软键栏中间那格 (文案必须和行为一致)。
+
+  /**
+   * @param {any} c
+   * @returns {string} 展开 / 收起 / ''
+   */
+  function hintFor(c) {
+    if (!c || !c.rcount) return '';
+    const sub = subMap[String(c.rpid)];
+    return sub && sub.expanded ? '收起' : '展开';
+  }
+
+  /**
+   * @param {any} c
+   */
+  function notifyHint(c) {
+    // inList: 焦点在评论列表里 —— 页面据此决定中键提示
+    // (列表里中键是"激活当前焦点", 不是播放/暂停)
+    dispatch('focuschange', { hint: hintFor(c), inList: true });
+  }
+
+  /**
+   * 焦点落到一条一级评论上
+   * @param {any} c
+   */
+  function onCommentFocus(c) {
+    notifyHint(c);
   }
 
   // 处理加载更多评论
@@ -176,56 +213,63 @@
   {:else}
     <div class="comment-list scroll-y" data-nav-root>
       {#each comments as c (c.rpid)}
-        {#each [subRepliesMap[c.rpid]] as sub}
-          <div class="comment-item" data-navable tabindex="0" data-rpid={c.rpid}
-               on:click={() => setReplyTarget(c)}
-               on:keydown={(e) => {
-                 // 中键展开子评论; 这里自己处理了就 stopPropagation,
-                 // 否则按键总线的默认行为 (激活当前焦点) 会再点一次卡片
-                 if (matchKey(e, 'Enter') && c.rcount > 0) {
-                   e.stopPropagation();
-                   e.preventDefault();
-                   loadSubReplies(c);
-                 }
-               }}>
-            <div class="comment-head">
-              <img class="comment-face" src={biliImg(c.member.face, 32, 32)} alt="" />
-              <span class="comment-name">{c.member.uname}</span>
-              <span class="comment-time">{relativeTime(c.ctime)}</span>
+        {#each [subMap[String(c.rpid)]] as sub}
+          <div class="comment-group">
+            <!-- 一级评论: 中键/点击 = 展开或收起它的子评论 -->
+            <div class="comment-item" data-navable tabindex="0" data-rpid={c.rpid}
+                 on:click={() => toggleSub(c)}
+                 on:focus={() => onCommentFocus(c)}>
+              <div class="comment-head">
+                <img class="comment-face" src={biliImg(c.member.face, 32, 32)} alt="" />
+                <span class="comment-name">{c.member.uname}</span>
+                <span class="comment-time">{relativeTime(c.ctime)}</span>
+              </div>
+              <div class="comment-content">{c.content.message}</div>
+              <div class="comment-stat">
+                <span>❤ {formatCount(c.like)}</span>
+                {#if c.rcount > 0}
+                  <span class="sub-toggle" class:expanded={sub && sub.expanded}>
+                    {sub && sub.expanded ? '▾' : '▸'} {formatCount(c.rcount)} 条回复
+                  </span>
+                {/if}
+              </div>
             </div>
-            <div class="comment-content">{c.content.message}</div>
-            <div class="comment-stat">
-              <span>❤ {formatCount(c.like)}</span>
-              {#if c.rcount > 0}
-                <span class="sub-toggle">❝ {formatCount(c.rcount)}{sub && sub.expanded ? ' ▼' : ' ▶'}</span>
-              {/if}
-            </div>
-            <!-- 子评论打平显示 -->
-            {#if sub && sub.loading}
+
+            <!-- 子评论: 按对话层级缩进打平 -->
+            {#if sub && sub.loading && !sub.items.length}
               <div class="sub-loading">
                 <div class="spinner-small"></div>
-                <span>加载中...</span>
+                <span>加载回复...</span>
               </div>
-            {:else if sub && sub.expanded && sub.replies.length}
-              {#each sub.replies as r (r.rpid)}
-                {#each [getReplyToName(r, c, sub.replies)] as replyName}
-                  <div class="sub-item" data-navable tabindex="0" data-rpid={r.rpid}
-                       on:click={() => setReplyTarget(c, r)}>
-                    <div class="comment-head">
-                      <img class="comment-face" src={biliImg(r.member.face, 24, 24)} alt="" />
-                      <span class="comment-name">{r.member.uname}</span>
-                      {#if replyName}
-                        <span class="reply-to">回复 @{replyName}</span>
-                      {/if}
-                      <span class="comment-time">{relativeTime(r.ctime)}</span>
-                    </div>
-                    <div class="comment-content">{r.content.message}</div>
-                    <div class="comment-stat">
-                      <span>❤ {formatCount(r.like)}</span>
-                    </div>
+            {:else if sub && sub.error}
+              <div class="sub-error">回复加载失败, 再按一次中键重试</div>
+            {:else if sub && sub.items && sub.items.length}
+              {#each sub.items as row (row.node.rpid)}
+                <!-- 层级最多缩到 3 层 (240px 宽的屏幕缩太多正文就没地方了) -->
+                <div class="sub-item depth-{Math.min(row.depth, 3)}" data-navable tabindex="0"
+                     data-rpid={row.node.rpid}
+                     on:focus={() => dispatch('focuschange', { hint: '', inList: true })}>
+                  <div class="comment-head">
+                    <img class="comment-face" src={biliImg(row.node.member.face, 24, 24)} alt="" />
+                    <span class="comment-name">{row.node.member.uname}</span>
+                    {#if row.replyName}
+                      <span class="reply-to">回复 @{row.replyName}</span>
+                    {/if}
+                    <span class="comment-time">{relativeTime(row.node.ctime)}</span>
                   </div>
-                {/each}
+                  <div class="comment-content">{row.node.content.message}</div>
+                  <div class="comment-stat">
+                    <span>❤ {formatCount(row.node.like)}</span>
+                  </div>
+                </div>
               {/each}
+              {#if hasMoreSub(sub)}
+                <div class="sub-more" data-navable tabindex="0"
+                     on:click={() => loadMoreSub(c)}
+                     on:focus={() => dispatch('focuschange', { hint: '更多', inList: true })}>
+                  {sub.loading ? '加载中...' : `还有 ${formatCount(sub.total - sub.items.length)} 条回复, 按中键继续加载`}
+                </div>
+              {/if}
             {/if}
           </div>
         {/each}
@@ -235,33 +279,13 @@
       {:else if commentHasMore}
         <div class="load-more" data-navable tabindex="0"
              on:click={() => loadMore()}
-             on:keydown={(e) => { if (matchKey(e, 'Enter')) { e.stopPropagation(); e.preventDefault(); loadMore(); } }}>
+             on:focus={() => dispatch('focuschange', { hint: '更多', inList: true })}>
           加载更多评论
         </div>
       {:else if comments.length > 0}
         <div class="no-more">没有更多评论了</div>
       {/if}
     </div>
-
-    <!-- 评论回复全屏组件 -->
-    {#if showReplyModal}
-      <CommentReply
-        bind:this={commentReplyRef}
-        placeholder={replyTarget ? `回复 @${replyTarget.uname}...` : '写评论...'}
-        disabled={replySending}
-        value={replyText}
-        on:input={(/** @type {any} */ e) => replyText = e.detail}
-        on:send={(/** @type {any} */ e) => sendReply(e.detail)}
-        on:close={() => {
-          showReplyModal = false;
-          replyText = '';
-          replyTarget = null;
-        }}
-      />
-    {/if}
-    {#if replyError}
-      <div class="reply-error">{replyError}</div>
-    {/if}
   {/if}
 </div>
 
@@ -291,9 +315,16 @@
     display: none;
   }
 
+  /* 一条评论 + 它的子评论算一组 */
+  .comment-group {
+    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  }
+  .comment-group:last-child {
+    border-bottom: none;
+  }
+
   .comment-item {
     padding: 8px 0;
-    border-bottom: 1px solid var(--md-sys-color-outline-variant);
     -webkit-transition: background 0.15s ease;
     transition: background 0.15s ease;
     cursor: pointer;
@@ -302,9 +333,6 @@
   .comment-item:focus,
   .comment-item:hover {
     background: var(--md-sys-color-surface-container-high);
-  }
-  .comment-item:last-child {
-    border-bottom: none;
   }
 
   .comment-head {
@@ -341,6 +369,8 @@
     font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
     margin-left: auto;
+    -ms-flex-negative: 0;
+    flex-shrink: 0;
   }
 
   .comment-content {
@@ -368,6 +398,9 @@
   .sub-toggle {
     cursor: pointer;
   }
+  .sub-toggle.expanded {
+    color: var(--md-sys-color-primary);
+  }
 
   /* 子评论 */
   .sub-loading {
@@ -387,10 +420,15 @@
     margin-left: 6px;
   }
 
-  .sub-item {
+  .sub-error {
     margin-left: 30px;
+    padding: 4px 0;
+    font-size: var(--md-sys-typescale-body-small-size);
+    color: var(--md-sys-color-error);
+  }
+
+  .sub-item {
     padding: 6px 0;
-    border-bottom: 1px solid var(--md-sys-color-outline-variant);
     -webkit-transition: background 0.15s ease;
     transition: background 0.15s ease;
     cursor: pointer;
@@ -401,19 +439,40 @@
     background: var(--md-sys-color-surface-container-high);
   }
 
+  /*
+    层级缩进: 每往下一层往里缩 12px, 最多缩到第 3 层。
+    240px 宽的屏幕缩太多正文就没地方了 —— 缩进用 padding-left 而不是
+    margin-left (margin 会在 flex 布局里算宽度)。
+    depth 0 = 根评论的直属回复, 1 = 回复二级, 2 = 回复三级, 3+ 统一按 3 显示。
+  */
+  .sub-item {
+    padding-left: 30px;
+  }
+  .sub-item.depth-1 {
+    padding-left: 42px;
+  }
+  .sub-item.depth-2 {
+    padding-left: 54px;
+  }
+  .sub-item.depth-3 {
+    padding-left: 54px;
+  }
+
+  .sub-more {
+    margin-left: 30px;
+    padding: 6px 0;
+    font-size: var(--md-sys-typescale-body-small-size);
+    color: var(--md-sys-color-primary);
+    cursor: pointer;
+    outline: none;
+  }
+  .sub-more:focus {
+    background: var(--md-sys-color-surface-container-high);
+  }
+
   .reply-to {
     font-size: var(--md-sys-typescale-body-small-size);
     color: var(--md-sys-color-on-surface-variant);
-  }
-
-  .reply-error {
-    padding: 4px 12px;
-    font-size: var(--md-sys-typescale-body-small-size);
-    color: var(--md-sys-color-error);
-    background: var(--md-sys-color-surface-container);
-    text-align: center;
-    -ms-flex-negative: 0;
-    flex-shrink: 0;
   }
 
   /* 空状态 / 加载 */

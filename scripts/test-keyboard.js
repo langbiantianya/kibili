@@ -1520,6 +1520,104 @@ check('动态解析: 直播推荐 (LIVE_RCMD) 的标题在 live_play_info 里', 
   eq(m.desc, '主播 某主播', '描述带主播名');
 });
 
+// ── 11. 评论对话树: 按 parent 建树, 多层级显示 ──────────────────────────
+// 子评论接口 GET /x/v2/reply/reply 的 data.replies 见过两种形态:
+//   ① 平铺: 每条带 parent, 靠 parent 串成树
+//   ② 嵌套: 每条自带 replies 数组 (递归嵌套)
+// utils/commenttree.js 两种都要能建出正确的层级, 否则多层级评论显示会错位。
+check('评论树: 平铺列表按 parent 建出层级', async () => {
+  const { buildCommentTree } = await import('../src/lib/utils/commenttree.js');
+  const tree = buildCommentTree([
+    { rpid: 2, parent: 1, member: { uname: '甲' } },
+    { rpid: 3, parent: 1, member: { uname: '乙' } },
+    { rpid: 4, parent: 2, member: { uname: '丙' } },
+    { rpid: 5, parent: 4, member: { uname: '丁' } }
+  ], 1, '楼主');
+  eq(tree.length, 4, '一共 4 条');
+  // 楼中楼的顺序: 一条评论后面紧跟它的回复
+  eq(tree[0].node.rpid, 2, '第一条是 rpid=2');
+  eq(tree[0].depth, 0, '回复根评论的是第 0 层');
+  eq(tree[1].node.rpid, 4, 'rpid=4 紧跟在它回复的 rpid=2 后面');
+  eq(tree[1].depth, 1, '回复二级评论的是第 1 层');
+  eq(tree[2].node.rpid, 5, 'rpid=5 紧跟在 rpid=4 后面');
+  eq(tree[2].depth, 2, '回复三级评论的是第 2 层');
+  eq(tree[3].node.rpid, 3, 'rpid=3 是根评论的另一条直属回复, 排最后');
+  eq(tree[3].depth, 0, '同为根评论的直属回复');
+});
+
+check('评论树: 嵌套形态 (自带 replies) 也能拍平建树', async () => {
+  const { buildCommentTree } = await import('../src/lib/utils/commenttree.js');
+  const tree = buildCommentTree([
+    {
+      rpid: 2, parent: 1, member: { uname: '甲' },
+      replies: [
+        { rpid: 4, parent: 2, member: { uname: '丙' } }
+      ]
+    },
+    { rpid: 3, parent: 1, member: { uname: '乙' } }
+  ], 1, '楼主');
+  eq(tree.length, 3, '嵌套里的也要算进来');
+  eq(tree[0].depth, 0, 'rpid=2 是直属回复');
+  eq(tree[1].node.rpid, 4, '嵌套的 rpid=4 排在它父评论后面');
+  eq(tree[1].depth, 1, '嵌套的层级是 1');
+  eq(tree[2].node.rpid, 3, 'rpid=3 排最后');
+});
+
+check('评论树: 「回复 @某某」用 parent 反查作者', async () => {
+  const { buildCommentTree } = await import('../src/lib/utils/commenttree.js');
+  const tree = buildCommentTree([
+    { rpid: 2, parent: 1, member: { uname: '甲' } },
+    { rpid: 4, parent: 2, member: { uname: '丙' } }
+  ], 1, '楼主');
+  eq(tree[0].replyName, '楼主', '回复根评论的显示根评论作者');
+  eq(tree[1].replyName, '甲', '回复二级评论的显示二级评论作者');
+});
+
+check('评论树: parent 指向列表外的 rpid 当成根评论的直属回复', async () => {
+  const { buildCommentTree } = await import('../src/lib/utils/commenttree.js');
+  const tree = buildCommentTree([
+    { rpid: 7, parent: 999, member: { uname: '甲' } }
+  ], 1, '楼主');
+  eq(tree.length, 1, '不能丢条目');
+  eq(tree[0].depth, 0, '当成第 0 层');
+  eq(tree[0].replyName, '', '找不到父评论就不显示"回复 @某某"');
+});
+
+check('评论树: 空列表返回空树', async () => {
+  const { buildCommentTree } = await import('../src/lib/utils/commenttree.js');
+  eq(buildCommentTree([], 1, '楼主').length, 0, '空列表');
+  eq(buildCommentTree(null, 1, '楼主').length, 0, 'null 列表');
+});
+
+check('评论树: 数据里有环也不能死循环', async () => {
+  const { buildCommentTree } = await import('../src/lib/utils/commenttree.js');
+  const tree = buildCommentTree([
+    { rpid: 2, parent: 3, member: { uname: '甲' } },
+    { rpid: 3, parent: 2, member: { uname: '乙' } }
+  ], 1, '楼主');
+  ok(tree.length <= 2, '环里的条目最多各出现一次');
+});
+
+check('评论树: 拍平嵌套时保留所有条目', async () => {
+  const { flattenCommentNodes } = await import('../src/lib/utils/commenttree.js');
+  const flat = flattenCommentNodes([
+    { rpid: 1, replies: [{ rpid: 2, replies: [{ rpid: 3 }] }] }
+  ]);
+  eq(flat.length, 3, '三层嵌套拍平成 3 条');
+  eq(flat[2].rpid, 3, '最里层也在');
+});
+
+check('评论树: 根评论混进回复列表里也不能重复渲染', async () => {
+  const { buildCommentTree } = await import('../src/lib/utils/commenttree.js');
+  const tree = buildCommentTree([
+    { rpid: 1, parent: 0, member: { uname: '楼主' } },
+    { rpid: 2, parent: 1, member: { uname: '甲' } }
+  ], 1, '楼主');
+  eq(tree.length, 1, '根评论自己不算一条回复');
+  eq(tree[0].node.rpid, 2, '只剩真正的那条回复');
+  eq(tree[0].replyName, '楼主', '回复根评论的显示根评论作者');
+});
+
 // ── 运行 ────────────────────────────────────────────────────────────────
 // 顺序执行 (测试之间共用全局的按键总线, 并发/交叠会互相污染)
 for (const t of tests) {

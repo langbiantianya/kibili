@@ -3,8 +3,8 @@
   import { releaseWakeLock } from './wake.js';
   import { requestSystemVolume } from './volume.js';
   import { settings } from '../stores/settings.js';
-  import { moveFocus, onKey } from '../keyboard/index.js';
-  import { addReply, reportProgress, getSubReplies } from '../api/interact.js';
+  import { moveFocus, onKey, activateFocused } from '../keyboard/index.js';
+  import { reportProgress } from '../api/interact.js';
   import { showToast } from '../stores/ui.js';
   import { formatCount } from '../utils/format.js';
   import { biliImg } from '../utils/platform.js';
@@ -37,15 +37,8 @@
   export let replyHasMore = true;
   export let replyError = '';
 
-  // 子评论展开状态: rpid -> { expanded: bool, loading: bool, replies: [] }
-  let subRepliesMap = {};
-
-  // 回复目标: { rpid, uname, rootRpid? } | null
-  let replyTarget = null;
-
-  // CommentSection 组件实例引用
-  /** @type {any} */
-  let commentSectionRef;
+  // 子评论的展开状态由 CommentSection 自己管 (播放器不再存第二份,
+  // 两份状态不同步会导致"按了中键没反应")
 
   let video;
   let audio;
@@ -292,113 +285,17 @@
     if (el) el.scrollTop += delta * SCROLL_STEP;
   }
 
-  // ========== 子评论 ==========
-  // 加载子评论，打平显示
-  async function loadSubReplies(c) {
-    if (!meta || !meta.aid) return;
-    const rpid = c.rpid;
-    // 已展开则收起
-    if (subRepliesMap[rpid] && subRepliesMap[rpid].expanded) {
-      subRepliesMap[rpid] = { ...subRepliesMap[rpid], expanded: false };
-      subRepliesMap = subRepliesMap;
-      return;
+  // ========== 评论 tab 的中键 ==========
+  // 评论列表里中键 = 激活当前焦点 (展开/收起子评论、加载更多),
+  // 焦点不在评论列表里时才是播放/暂停。
+  // 展开逻辑在 CommentSection 内部, 这里只负责把按键转成"激活焦点"。
+  function activateInComments() {
+    const el = /** @type {any} */ (document.activeElement);
+    if (el && el.closest && el.closest('.comment-list')) {
+      activateFocused();
+      return true;
     }
-    // 已加载过则直接展开
-    if (subRepliesMap[rpid] && subRepliesMap[rpid].replies.length) {
-      subRepliesMap[rpid] = { ...subRepliesMap[rpid], expanded: true };
-      subRepliesMap = subRepliesMap;
-      return;
-    }
-    // 首次加载
-    subRepliesMap[rpid] = { expanded: false, loading: true, replies: [] };
-    subRepliesMap = subRepliesMap;
-    try {
-      const oid = meta.aid || meta.bvid;
-      const data = await getSubReplies(oid, rpid);
-      const replies = (data && data.replies) ? data.replies : [];
-      subRepliesMap[rpid] = { expanded: true, loading: false, replies };
-      subRepliesMap = subRepliesMap;
-    } catch (e) {
-      subRepliesMap[rpid] = { expanded: false, loading: false, replies: [] };
-      subRepliesMap = subRepliesMap;
-    }
-  }
-
-  // 获取子评论中被回复人的名字
-  function getReplyToName(r, rootComment, siblingReplies) {
-    const msg = r.content && r.content.message || '';
-    const match = msg.match(/^回复 @(.+?)\s*:/);
-    if (match) return match[1];
-    if (r.parent === rootComment.rpid) return rootComment.member.uname;
-    const found = siblingReplies.find(s => s.rpid === r.parent);
-    if (found) return found.member.uname;
-    return '';
-  }
-
-  // ========== 评论回复 ==========
-  // 设置回复目标
-  function setReplyTarget(c, sub) {
-    if (sub) {
-      replyTarget = { rpid: sub.rpid, uname: sub.member.uname, rootRpid: c.rpid };
-    } else if (c) {
-      replyTarget = { rpid: c.rpid, uname: c.member.uname };
-    } else {
-      replyTarget = null;
-    }
-  }
-
-  // 回复当前聚焦的评论 (未聚焦时回复视频本身)
-  function replyToFocusedComment() {
-    const focused = document.querySelector('.comment-item:focus, .sub-item:focus');
-    if (focused) {
-      const rpid = Number(focused.dataset.rpid);
-      const rootComment = replies.find(c => c.rpid === rpid);
-      if (rootComment) {
-        setReplyTarget(rootComment);
-        if (commentSectionRef) commentSectionRef.openReply(rootComment);
-        return;
-      }
-      // 查找子评论
-      for (const c of replies) {
-        const sub = subRepliesMap[c.rpid];
-        if (sub && sub.replies) {
-          const subComment = sub.replies.find(r => r.rpid === rpid);
-          if (subComment) {
-            setReplyTarget(c, subComment);
-            if (commentSectionRef) commentSectionRef.openReply(c, subComment);
-            return;
-          }
-        }
-      }
-    }
-    // 未选中评论, 回复视频本身
-    if (commentSectionRef) commentSectionRef.openReply();
-  }
-
-  // 发送评论
-  async function sendReply(text) {
-    if (!text.trim()) return;
-    if (!meta || !meta.aid) {
-      return;
-    }
-    try {
-      const oid = meta.aid || meta.bvid;
-      // replyTarget: { rpid, uname, isSub? }
-      // 如果是子评论，root 是根评论 rpid，parent 是当前评论 rpid
-      // 如果是根评论，root 和 parent 都是该评论 rpid
-      // 回复帖子本身：root=0, parent=0
-      let root = 0;
-      let parent = 0;
-      if (replyTarget) {
-        root = replyTarget.rootRpid || replyTarget.rpid;
-        parent = replyTarget.rpid;
-      }
-      await addReply(oid, text.trim(), { root, parent });
-      replyTarget = null;
-      showToast('评论发送成功');
-    } catch (e) {
-      throw e;
-    }
+    return false;
   }
 
   // ── 按键处理 ─────────────────────────────────────────────────────────
@@ -454,21 +351,10 @@
       // 而且 KaiOS 上长按中键会触发 MicrophoneToggle (语音助手), 动作重复一次就够。
       Enter: {
         press: () => {
-          // 只有在评论区且聚焦在某条评论上时，才展开子评论，否则播放/暂停
-          if (activeTab === 1) {
-            const focused = document.querySelector('.comment-item:focus, .sub-item:focus');
-            if (focused) {
-              const rpid = Number(focused.dataset.rpid);
-              const rootComment = replies.find(c => c.rpid === rpid);
-              if (rootComment && rootComment.rcount > 0) {
-                loadSubReplies(rootComment);
-              }
-            } else {
-              requestPlay();
-            }
-          } else {
-            requestPlay();
-          }
+          // 评论 tab: 焦点在评论列表里 → 激活焦点 (展开/收起子评论、加载更多)
+          if (activeTab === 1 && activateInComments()) return;
+          // 其余情况: 播放 / 暂停
+          requestPlay();
         }
       },
       // 真机上真的有音量键的机型 (Nokia 6300 4G / 8000 4G / 225 4G 等):
@@ -480,9 +366,9 @@
         settings.update(s => ({ ...s, muted: !s.muted }));
       },
       SoftLeft: () => {
-        // 评论 tab: 回复评论; 详情 tab: 全屏
+        // 评论 tab: 回复功能下线 (软键显示「待实现」), 按下去给个提示
         if (activeTab === 1) {
-          replyToFocusedComment();
+          showToast('评论回复功能待实现');
         } else {
           toggleFullscreen();
         }
@@ -712,13 +598,12 @@
       <!-- 评论区 Tab -->
       <div class="comment-scroll" data-nav-root>
         <CommentSection
-          bind:this={commentSectionRef}
           comments={replies}
           commentsLoading={replyLoading}
           commentsError={replyError}
           commentHasMore={replyHasMore}
           oid={meta ? (meta.aid || meta.bvid) : ''}
-          on:send={(/** @type {any} */ e) => sendReply(e.detail.text)}
+          on:focuschange={(/** @type {any} */ e) => dispatch('focuschange', e.detail)}
           on:loadMore={() => dispatch('loadmore')}
         />
       </div>

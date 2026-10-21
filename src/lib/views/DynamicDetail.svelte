@@ -1,12 +1,12 @@
 <script>
   import { onMount } from 'svelte';
   import { onKey, moveFocus } from '../keyboard/index.js';
-  import { setSoftkeys } from '../stores/ui.js';
+  import { setSoftkeys, showToast } from '../stores/ui.js';
   import Loading from '../components/Loading.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import CommentSection from '../components/CommentSection.svelte';
   import { getDynamicDetail, parseDynamicItem } from '../api/dynamic.js';
-  import { getReplies, addReply } from '../api/interact.js';
+  import { getReplies } from '../api/interact.js';
   import { formatCount, stripHtml } from '../utils/format.js';
   import { biliImg } from '../utils/platform.js';
   import { navigate } from '../router/index.js';
@@ -38,11 +38,9 @@
   let commentPage = 1;
   let commentHasMore = true;
 
-  // CommentSection 组件实例引用
-  /** @type {any} */
-  let commentSectionRef;
-
-  // 评论回复
+  // 评论列表里中键的提示 (展开/收起/更多), 由 CommentSection 报上来
+  let commentHint = '';
+  let commentInList = false;   // 焦点是不是在评论列表里
 
   // 解析动态详情数据
   //
@@ -124,6 +122,11 @@
 
   function changeTab(i) {
     activeTab = i;
+    // 离开评论 tab 时清掉中键提示, 免得回来还显示上次的文案
+    if (i !== 1) {
+      commentHint = '';
+      commentInList = false;
+    }
     if (i === 1 && comments.length === 0 && !commentsLoading) {
       loadComments();
     }
@@ -176,22 +179,6 @@
     if (el) el.scrollTop += delta * SCROLL_STEP;
   }
 
-  // 发送评论
-  async function sendReply(text, root, parent) {
-    if (!text.trim()) return;
-    if (!commentOid) return;
-    try {
-      await addReply(commentOid, text.trim(), { root, parent, type: commentType });
-      // 刷新评论列表
-      commentPage = 1;
-      comments = [];
-      commentHasMore = true;
-      await loadComments();
-    } catch (e) {
-      throw e;
-    }
-  }
-
   onMount(() => {
     loadDetail();
     // onKey() 返回自己的注销函数, 直接交给 onMount 的返回值 → 组件销毁时
@@ -221,57 +208,34 @@
         playVideo();
       },
       SoftLeft: () => {
-        // 详情 tab: 切到评论; 评论 tab: 回复
+        // 详情 tab: 切到评论; 评论 tab: 回复功能下线 (软键显示「待实现」)
         if (activeTab === 0) {
           changeTab(1);
         } else {
-          replyToFocusedComment();
+          showToast('评论回复功能待实现');
         }
       },
       '0': () => changeTab(activeTab === 0 ? 1 : 0),
     }, { softkeys: true });
   });
 
-  // 回复当前聚焦的评论 (未聚焦时回复动态本身)
-  function replyToFocusedComment() {
-    const focused = document.querySelector('.comment-item:focus, .sub-item:focus');
-    if (focused && commentSectionRef) {
-      const rpid = Number(focused.dataset.rpid);
-      const rootComment = comments.find(c => c.rpid === rpid);
-      if (rootComment) {
-        commentSectionRef.openReply(rootComment);
-        return;
-      }
-    }
-    if (commentSectionRef) commentSectionRef.openReply();
+  // 评论列表里焦点变了 → 中键提示跟着变 (文案必须和行为一致)
+  function onCommentFocusChange(e) {
+    commentHint = (e.detail && e.detail.hint) ? e.detail.hint : '';
+    commentInList = !!(e.detail && e.detail.inList);
   }
 
-  // 软键是唯一来源: 切 tab 时更新 (左=评论/回复; 返回走退格键, 右软键不占)
+  // 软键是唯一来源: 切 tab 时更新 (左=评论/待实现; 返回走退格键, 右软键不占)
   // 初始 activeTab = 0, 这段响应式语句在首次渲染时就会跑, 所以 onMount 里
   // 不再重复设置一遍软键, 避免两处设置互相覆盖。
   //
   // 中键 (center) 提示:
   //   详情 tab: 有视频可播 → "播放"; 没有 → 不显示 (没绑定的键不显示文案)
-  //   评论 tab: "回复" (中键激活当前聚焦的评论项 = 回复它)
+  //   评论 tab: 焦点在评论上 → "展开"/"收起"; 焦点不在评论上 → 不显示
   $: if (activeTab === 0) {
     setSoftkeys('评论', '', playBvid ? '播放' : '');
   } else {
-    setSoftkeys('回复', '', '回复');
-  }
-
-  // 处理评论发送事件
-  async function onCommentSend(e) {
-    const { text, root, parent } = e.detail;
-    try {
-      await sendReply(text, root, parent);
-      if (commentSectionRef) {
-        commentSectionRef.onSendSuccess();
-      }
-    } catch (err) {
-      if (commentSectionRef) {
-        commentSectionRef.onSendError(err.message || '发送失败');
-      }
-    }
+    setSoftkeys('待实现', '', commentInList ? commentHint : '');
   }
 </script>
 
@@ -435,14 +399,13 @@
     {:else}
       <!-- 评论 Tab -->
       <CommentSection
-        bind:this={commentSectionRef}
         comments={comments}
         commentsLoading={commentsLoading}
         commentsError={commentsError}
         commentHasMore={commentHasMore}
         oid={commentOid}
         commentType={commentType}
-        on:send={onCommentSend}
+        on:focuschange={onCommentFocusChange}
         on:loadMore={() => loadComments(true)}
       />
     {/if}
