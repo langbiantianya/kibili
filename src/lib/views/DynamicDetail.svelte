@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { onKey, moveFocus } from '../keyboard/index.js';
   import { setSoftkeys, showToast } from '../stores/ui.js';
   import Loading from '../components/Loading.svelte';
@@ -73,6 +73,29 @@
     } finally {
       detailLoading = false;
     }
+    // 有图就把焦点放到第一张图上 ——
+    // 不然 D-pad 够不着图片 (详情 tab 的上下键默认是滚动), 用户没法选图
+    await focusFirstImage();
+  }
+
+  /**
+   * 焦点是不是在图片列表里
+   *
+   * 详情 tab 的上下键: 焦点在图片列表里 → 在图片之间移动;
+   * 不在 → 滚动正文。
+   */
+  function focusInImageList() {
+    const el = document.activeElement;
+    return !!(el && el.closest && el.closest('.image-list'));
+  }
+
+  /**
+   * 焦点落到第一张图上 (有图才做)
+   */
+  async function focusFirstImage() {
+    await tick();
+    const el = document.querySelector('.image-item');
+    if (el && el.focus) el.focus();
   }
 
   /**
@@ -127,6 +150,12 @@
       commentHint = '';
       commentInList = false;
     }
+    // 详情 tab 的中键提示也跟焦点走 —— 切 tab 时焦点不在详情内容里,
+    // 提示要重置, 不然会显示上一个 tab 的"查看/播放"
+    if (i !== 0) {
+      focusKind = '';
+      focusHint = '';
+    }
     if (i === 1 && comments.length === 0 && !commentsLoading) {
       loadComments();
     }
@@ -143,6 +172,39 @@
     if (detail && detail.orig && detail.orig.major && detail.orig.major.bvid) {
       navigate('/player?bvid=' + detail.orig.major.bvid);
     }
+  }
+
+  // ── 图片全屏查看 ─────────────────────────────────────────────────────
+  // 图片数组通过 URL 参数传给图片查看器 (imgs=<编码后的 JSON>&i=<序号>)
+  //
+  // URL 有长度上限, 图特别多时整个数组塞不进去 —— 这种就不跳了,
+  // 免得跳过去是个空页面。
+  const MAX_URL_LEN = 6000;
+
+  /**
+   * 打开图片查看器
+   *
+   * @param {any[]} list 图片数组 (解析后的 { src, width, height })
+   * @param {number} index 从第几张开始看
+   */
+  function openImages(list, index) {
+    if (!list || !list.length) return;
+    const urls = [];
+    let realIndex = 0;
+    for (let i = 0; i < list.length; i++) {
+      const u = list[i] && list[i].src;
+      if (!u) continue;
+      // 只留有地址的图, 序号要跟着过滤后的数组走 (不然会错位)
+      if (i === index) realIndex = urls.length;
+      urls.push(u);
+    }
+    if (!urls.length) return;
+    const q = 'imgs=' + encodeURIComponent(JSON.stringify(urls)) + '&i=' + realIndex;
+    if (q.length > MAX_URL_LEN) {
+      showToast('图片太多, 暂时打不开大图');
+      return;
+    }
+    navigate('/image-viewer?' + q);
   }
 
   /**
@@ -166,6 +228,24 @@
     navigate('/player?bvid=' + playBvid);
   }
 
+  // ── 焦点与中键提示 ───────────────────────────────────────────────────
+  // 详情 tab 里可聚焦的东西有好几样, 中键做的事不一样:
+  //   视频卡片 → 播视频;  图片 → 进图片查看器
+  // 所以中键提示要跟着焦点走 (文案必须和行为一致)。
+  //
+  // focusKind: 'image' = 焦点在图片上, 'video' = 在视频卡片上, '' = 别的
+  let focusKind = '';
+  let focusHint = '';
+
+  /**
+   * @param {string} kind 'image' / 'video' / ''
+   * @param {string} hint 中键提示文案
+   */
+  function onFocusChange(kind, hint) {
+    focusKind = kind;
+    focusHint = hint;
+  }
+
   // 滚动距离（像素）
   const SCROLL_STEP = 60;
 
@@ -186,25 +266,40 @@
     // 按键名用规范名: Up / Down / Left / Right
     return onKey('dynamic-detail', {
       Down: () => {
-        if (activeTab === 0) scrollDetail(+1);
-        else {
+        if (activeTab === 0) {
+          // 焦点在图片列表里 → 上下键在图片之间移动 (选图)
+          if (focusInImageList()) {
+            const moved = moveFocus(+1);
+            if (moved) return;
+          }
+          scrollDetail(+1);
+        } else {
           const moved = moveFocus(+1);
           if (!moved) scrollComments(+1);
         }
       },
       Up: () => {
-        if (activeTab === 0) scrollDetail(-1);
-        else {
+        if (activeTab === 0) {
+          if (focusInImageList()) {
+            const moved = moveFocus(-1);
+            if (moved) return;
+          }
+          scrollDetail(-1);
+        } else {
           const moved = moveFocus(-1);
           if (!moved) scrollComments(-1);
         }
       },
       Left: () => { if (activeTab > 0) changeTab(activeTab - 1); },
       Right: () => { if (activeTab < tabs.length - 1) changeTab(activeTab + 1); },
-      // 中键: 播视频。详情 tab 才处理 —— 评论 tab 里中键归评论项
-      // (评论项是可聚焦的, 走框架默认的"激活当前焦点"行为)
+      // 中键: 焦点在图片上 → 进图片查看器 (返回 false, 交给框架默认的
+      // "激活当前焦点", 由图片自己的 on:click 处理);
+      // 焦点在视频卡片上 (或者没落在任何东西上) → 播视频。
+      // 评论 tab 里中键归评论项 (评论项是可聚焦的, 走框架默认行为)
       Enter: () => {
-        if (activeTab !== 0 || !playBvid) return false;
+        if (activeTab !== 0) return false;
+        if (focusKind === 'image') return false;
+        if (!playBvid) return false;
         playVideo();
       },
       SoftLeft: () => {
@@ -230,10 +325,12 @@
   // 不再重复设置一遍软键, 避免两处设置互相覆盖。
   //
   // 中键 (center) 提示:
-  //   详情 tab: 有视频可播 → "播放"; 没有 → 不显示 (没绑定的键不显示文案)
+  //   详情 tab: 焦点在图片上 → "查看"; 焦点在视频卡片上 → "播放";
+  //            焦点不在这些东西上 → 有视频可播就 "播放", 没有就不显示
+  //            (没绑定的键不显示文案)
   //   评论 tab: 焦点在评论上 → "展开"/"收起"; 焦点不在评论上 → 不显示
   $: if (activeTab === 0) {
-    setSoftkeys('评论', '', playBvid ? '播放' : '');
+    setSoftkeys('评论', '', focusHint || (playBvid ? '播放' : ''));
   } else {
     setSoftkeys('待实现', '', commentInList ? commentHint : '');
   }
@@ -279,7 +376,8 @@
             {#if detail.major.kind === 'video'}
               <!-- 视频: 点一下去播放器 -->
               <div class="archive-card" data-navable tabindex="0"
-                   on:click={() => openArchiveVideo()}>
+                   on:click={() => openArchiveVideo()}
+                   on:focus={() => onFocusChange('video', '播放')}>
                 <img class="archive-cover" src={biliImg(detail.major.cover, 120, 80)} alt="" />
                 <div class="archive-info">
                   <div class="archive-title">{detail.major.title}</div>
@@ -287,10 +385,14 @@
                 </div>
               </div>
             {:else if detail.major.kind === 'images'}
-              <!-- 带图动态 -->
+              <!-- 带图动态: 中键进大图看 -->
               <div class="image-list">
-                {#each detail.major.images as img}
-                  <img src={biliImg(img.src, 100, 100)} alt="" />
+                {#each detail.major.images as img, i}
+                  <div class="image-item" data-navable tabindex="0"
+                       on:click={() => openImages(detail.major.images, i)}
+                       on:focus={() => onFocusChange('image', '查看')}>
+                    <img src={biliImg(img.src, 100, 100)} alt="" />
+                  </div>
                 {/each}
               </div>
             {:else if detail.major.kind === 'opus'}
@@ -299,8 +401,12 @@
               {#if detail.major.text}<div class="content-text">{stripHtml(detail.major.text)}</div>{/if}
               {#if detail.major.images.length}
                 <div class="image-list">
-                  {#each detail.major.images as img}
-                    <img src={biliImg(img.src, 100, 100)} alt="" />
+                  {#each detail.major.images as img, i}
+                    <div class="image-item" data-navable tabindex="0"
+                         on:click={() => openImages(detail.major.images, i)}
+                         on:focus={() => onFocusChange('image', '查看')}>
+                      <img src={biliImg(img.src, 100, 100)} alt="" />
+                    </div>
                   {/each}
                 </div>
               {/if}
@@ -319,7 +425,8 @@
                     {#if detail.orig.major.kind === 'video'}
                       <!-- 原动态是视频: 也能点进去播 -->
                       <div class="archive-card" data-navable tabindex="0"
-                           on:click={() => openOrigVideo()}>
+                           on:click={() => openOrigVideo()}
+                           on:focus={() => onFocusChange('video', '播放')}>
                         <img class="archive-cover" src={biliImg(detail.orig.major.cover, 120, 80)} alt="" />
                         <div class="archive-info">
                           <div class="archive-title">{detail.orig.major.title}</div>
@@ -331,15 +438,23 @@
                       {#if detail.orig.major.text}<div class="content-text">{stripHtml(detail.orig.major.text)}</div>{/if}
                       {#if detail.orig.major.images.length}
                         <div class="image-list">
-                          {#each detail.orig.major.images as img}
-                            <img src={biliImg(img.src, 100, 100)} alt="" />
+                          {#each detail.orig.major.images as img, i}
+                            <div class="image-item" data-navable tabindex="0"
+                                 on:click={() => openImages(detail.orig.major.images, i)}
+                                 on:focus={() => onFocusChange('image', '查看')}>
+                              <img src={biliImg(img.src, 100, 100)} alt="" />
+                            </div>
                           {/each}
                         </div>
                       {/if}
                     {:else if detail.orig.major.kind === 'images'}
                       <div class="image-list">
-                        {#each detail.orig.major.images as img}
-                          <img src={biliImg(img.src, 100, 100)} alt="" />
+                        {#each detail.orig.major.images as img, i}
+                          <div class="image-item" data-navable tabindex="0"
+                               on:click={() => openImages(detail.orig.major.images, i)}
+                               on:focus={() => onFocusChange('image', '查看')}>
+                            <img src={biliImg(img.src, 100, 100)} alt="" />
+                          </div>
                         {/each}
                       </div>
                     {:else if detail.orig.major.kind === 'invalid'}
@@ -570,6 +685,20 @@
     border-radius: var(--md-sys-shape-corner-small);
     margin-right: 4px;
     margin-bottom: 4px;
+  }
+  /* 图片外面那层: 可聚焦, 中键进大图看 */
+  .image-item {
+    margin-right: 4px;
+    margin-bottom: 4px;
+    cursor: pointer;
+    outline: none;
+  }
+  .image-item img {
+    margin-right: 0;
+    margin-bottom: 0;
+  }
+  .image-item:focus img {
+    outline: 2px solid var(--md-sys-color-primary);
   }
 
   /* 标题 (图文/专栏/合集/剧集…) */

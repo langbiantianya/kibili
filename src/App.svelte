@@ -16,6 +16,7 @@
   import FullscreenPlayer from "./lib/views/FullscreenPlayer.svelte";
   import Login from "./lib/views/Login.svelte";
   import DynamicDetail from "./lib/views/DynamicDetail.svelte";
+  import ImageViewer from "./lib/views/ImageViewer.svelte";
   import Search from "./lib/views/Search.svelte";
   import SearchResults from "./lib/views/SearchResults.svelte";
   import User from "./lib/views/User.svelte";
@@ -43,6 +44,8 @@
     "/fullscreen": FullscreenPlayer,
     "/login": Login,
     "/dynamic-detail": DynamicDetail,
+    // 图片全屏查看: #/image-viewer?imgs=<编码后的 JSON 数组>&i=<序号>
+    "/image-viewer": ImageViewer,
     "/search": Search,
     "/search-results": SearchResults,
     // 用户主页: #/user?uid=xxx (自己的主页和别人的主页走同一条路由)
