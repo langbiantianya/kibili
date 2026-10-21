@@ -163,6 +163,10 @@ const { requestSystemVolume } = await import('../src/lib/player/volume.js');
 const { setSoftkeys } = await import('../src/lib/stores/ui.js');
 const { get } = await import('svelte/store');
 const { ui } = await import('../src/lib/stores/ui.js');
+const {
+  softkeyMenu, openSoftkeyMenu, closeSoftkeyMenu, clearSoftkeyMenu,
+  softkeyMenuMove, softkeyMenuActivate, softkeyMenuBack, softkeyMenuSide
+} = await import('../src/lib/stores/softkey.js');
 
 /** 读当前软键文案 */
 function softkeys() {
@@ -1640,6 +1644,225 @@ check('别用「x = x」触发 Svelte 更新 (引用没变, DOM 不会重渲染)
   }
   walk(srcDir);
   eq(bad.length, 0, '源码里有自赋值写法 (Svelte 3 里不会触发更新):\n    ' + bad.join('\n    '));
+});
+
+// ── 7. 软键菜单 (二级 / 三级) ──────────────────────────────────────────
+/** 造一棵菜单树: 二级三项, 其中两项还有子项 (三级) */
+function makeMenuTree(log) {
+  return {
+    slot: 'right',
+    label: '更多',
+    title: '更多操作',
+    items: [
+      { label: 'UP 主页', action: () => log.push('home') },
+      {
+        label: '分享',
+        items: [
+          { label: '复制链接', action: () => log.push('copy') },
+          { label: '分享给好友', action: () => log.push('share') }
+        ]
+      },
+      {
+        label: '举报',
+        items: [
+          { label: '不友善', action: () => log.push('report') },
+          { label: '垃圾广告', disabled: true, action: () => log.push('ad') }
+        ]
+      }
+    ]
+  };
+}
+
+/** 当前菜单状态的快照 */
+function menuState() {
+  const s = get(softkeyMenu);
+  return {
+    open: s.open,
+    depth: s.stack.length,
+    index: s.index,
+    labels: s.stack.length ? s.stack[s.stack.length - 1].items.map(i => i.label) : [],
+    title: s.stack.length ? s.stack[s.stack.length - 1].title : ''
+  };
+}
+
+check('软键菜单: 作用域注册菜单 → 菜单树跟着作用域一起注册', () => {
+  clearKeys();
+  const log = [];
+  const off = onKey('page', { SoftLeft: () => {} }, { menu: makeMenuTree(log) });
+  const s = get(softkeyMenu);
+  eq(!!s.registered, true, '注册后应该有菜单树');
+  eq(s.registered.label, '更多', '软键文案取菜单树的 label');
+  eq(s.registered.slot, 'right', '菜单默认占右软键');
+  eq(s.open, false, '注册不等于打开');
+  off();
+  clearKeys();
+});
+
+check('软键菜单: 作用域注销 → 菜单一起释放 (不会漏到下一个页面)', () => {
+  clearKeys();
+  const log = [];
+  const off = onKey('page', { SoftLeft: () => {} }, { menu: makeMenuTree(log) });
+  ok(get(softkeyMenu).registered, '注册后有菜单树');
+  off();
+  eq(get(softkeyMenu).registered, null, '注销后菜单树应该被释放');
+  clearKeys();
+});
+
+check('软键菜单: 打开 → 显示二级菜单 (栈的第一层)', () => {
+  clearKeys();
+  const log = [];
+  openSoftkeyMenu(makeMenuTree(log));
+  const st = menuState();
+  eq(st.open, true, '菜单应该打开了');
+  eq(st.depth, 1, '打开时在二级菜单 (栈深 1)');
+  eq(st.labels.join(','), 'UP 主页,分享,举报', '二级菜单的项');
+  eq(st.index, 0, '默认高亮第一项');
+  closeSoftkeyMenu();
+});
+
+check('软键菜单: 上下移动高亮, 到头绕回另一头', () => {
+  clearKeys();
+  const log = [];
+  openSoftkeyMenu(makeMenuTree(log));
+  softkeyMenuMove(1);
+  eq(menuState().index, 1, '下移一项');
+  softkeyMenuMove(-1);
+  eq(menuState().index, 0, '上移一项');
+  softkeyMenuMove(-1);
+  eq(menuState().index, 2, '从第一项往上绕到最后一项');
+  softkeyMenuMove(1);
+  eq(menuState().index, 0, '从最后一项往下绕回第一项');
+  closeSoftkeyMenu();
+});
+
+check('软键菜单: 中键打开有子项的项 → 进入三级菜单', () => {
+  clearKeys();
+  const log = [];
+  openSoftkeyMenu(makeMenuTree(log));
+  softkeyMenuMove(1);                    // 高亮「分享」
+  softkeyMenuActivate();
+  const st = menuState();
+  eq(st.depth, 2, '应该进了三级菜单 (栈深 2)');
+  eq(st.labels.join(','), '复制链接,分享给好友', '三级菜单的项');
+  eq(st.title, '分享', '三级菜单的标题是父项的文案');
+  eq(st.index, 0, '进入后高亮第一项');
+  closeSoftkeyMenu();
+  eq(log.join(','), '', '进菜单不该执行动作');
+});
+
+check('软键菜单: 三级菜单里按中键执行动作并关掉菜单', () => {
+  clearKeys();
+  const log = [];
+  openSoftkeyMenu(makeMenuTree(log));
+  softkeyMenuMove(1);
+  softkeyMenuActivate();                 // 进「分享」
+  softkeyMenuMove(1);                    // 高亮「分享给好友」
+  softkeyMenuActivate();
+  eq(log.join(','), 'share', '应该执行了叶子项的动作');
+  eq(menuState().open, false, '执行完菜单应该关掉');
+});
+
+check('软键菜单: 禁用项按中键没反应 (也不执行动作)', () => {
+  clearKeys();
+  const log = [];
+  openSoftkeyMenu(makeMenuTree(log));
+  softkeyMenuMove(2);                    // 高亮「举报」
+  softkeyMenuActivate();                 // 进三级
+  softkeyMenuMove(1);                    // 高亮「垃圾广告」(禁用)
+  softkeyMenuActivate();
+  eq(log.join(','), '', '禁用项不该执行动作');
+  eq(menuState().open, true, '禁用项不该关掉菜单');
+  closeSoftkeyMenu();
+});
+
+check('软键菜单: 返回键回到上一级, 高亮还原到刚才那一项', () => {
+  clearKeys();
+  const log = [];
+  openSoftkeyMenu(makeMenuTree(log));
+  softkeyMenuMove(2);                    // 高亮「举报」
+  softkeyMenuActivate();                 // 进三级
+  softkeyMenuBack();
+  const st = menuState();
+  eq(st.depth, 1, '应该退回二级菜单');
+  eq(st.index, 2, '高亮应该还原成刚才那一项 (举报)');
+  closeSoftkeyMenu();
+});
+
+check('软键菜单: 在二级按返回键 → 整个关掉', () => {
+  clearKeys();
+  const log = [];
+  openSoftkeyMenu(makeMenuTree(log));
+  softkeyMenuBack();
+  eq(menuState().open, false, '应该关掉菜单');
+});
+
+check('软键菜单: 左右方向键也能进/退层级', () => {
+  clearKeys();
+  const log = [];
+  openSoftkeyMenu(makeMenuTree(log));
+  softkeyMenuMove(1);                    // 高亮「分享」(有子项)
+  softkeyMenuSide(1);                    // → 进入三级
+  eq(menuState().depth, 2, '右方向键应该进了三级');
+  softkeyMenuSide(-1);                   // ← 退回二级
+  eq(menuState().depth, 1, '左方向键应该退回二级');
+  closeSoftkeyMenu();
+});
+
+check('软键菜单: 菜单源是函数时, 打开菜单的那一刻才求值 (菜单项跟着异步状态走)', () => {
+  clearKeys();
+  const log = [];
+  let ownerReady = false;
+  const off = onKey('page', { SoftLeft: () => {} }, {
+    menu: () => ({
+      slot: 'right',
+      label: '更多',
+      title: '更多操作',
+      items: [
+        { label: 'UP 主页', disabled: !ownerReady, action: () => log.push('home') }
+      ]
+    })
+  });
+  // 注册时作者信息还没到 → 「UP 主页」是灰的
+  eq(get(softkeyMenu).registered.items[0].disabled, true, '注册时应该还是禁用');
+  ownerReady = true;                     // 作者信息到了
+  openSoftkeyMenu();
+  const st = menuState();
+  eq(st.open, true, '应该打开了');
+  eq(st.labels.join(','), 'UP 主页', '菜单项在打开时重新求值');
+  off();
+  clearKeys();
+  closeSoftkeyMenu();
+});
+
+check('软键菜单: 菜单打开期间独占按键 (页面收不到上下键)', () => {
+  clearKeys();
+  const log = [];
+  const pageGot = [];
+  const offPage = onKey('page', {
+    Up: () => pageGot.push('up'),
+    Down: () => pageGot.push('down')
+  }, { softkeys: true });
+  // 模拟软键栏: 菜单打开时注册一个独占作用域
+  const offMenu = onKey('softkey-menu', {
+    Up: () => softkeyMenuMove(-1),
+    Down: () => softkeyMenuMove(1)
+  }, { exclusive: true, priority: 100 });
+  openSoftkeyMenu(makeMenuTree(log));
+  press('ArrowDown');
+  press('ArrowUp');
+  eq(pageGot.join(','), '', '菜单打开时页面不该收到上下键');
+  eq(menuState().index, 0, '菜单自己消化了上下键 (绕回第一项)');
+  offMenu();
+  closeSoftkeyMenu();
+  offPage();
+  clearKeys();
+});
+
+check('软键菜单: 空菜单打不开 (按软键没反应, 不吞按键)', () => {
+  clearKeys();
+  eq(openSoftkeyMenu({ items: [] }), false, '没有菜单项就不该打开');
+  eq(get(softkeyMenu).open, false, '菜单不该是打开状态');
+  clearSoftkeyMenu();
 });
 
 // ── 运行 ────────────────────────────────────────────────────────────────

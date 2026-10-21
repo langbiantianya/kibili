@@ -338,6 +338,51 @@
     }
   }
 
+  // ── 软键菜单 (二级 / 三级) ─────────────────────────────────────────
+  // 视频页能派的动作有十来个 (进 UP 主页 / 分享 / 举报 / 收藏 / 稍后再看…),
+  // 软键栏只有三个格子, 塞不下 → 右软键变成「更多」, 按它展开二级菜单;
+  // 分享 / 举报 底下还有子项, 再展开一层就是三级菜单。
+  //
+  // 菜单树写成**函数**: 打开菜单的那一刻才求值, 菜单项能跟着 meta 走
+  // (作者信息没到时「UP 主页」就是灰的, 按了没反应)。
+  //
+  // 菜单跟着这个按键作用域一起注册 / 释放 (opts.menu),
+  // 播放器卸载时自动收走, 不会漏到别的页面。
+  function buildVideoMenu() {
+    const ownerMid = meta && meta.owner ? meta.owner.mid : 0;
+    const bvid = (meta && meta.bvid) || '';
+    return {
+      slot: 'right',           // 占右软键
+      label: '更多',           // 右软键显示的文案
+      title: '更多操作',       // 菜单面板标题 (面包屑第一级)
+      items: [
+        {
+          label: 'UP 主页',
+          disabled: !ownerMid,
+          action: () => dispatch('author', { mid: ownerMid })
+        },
+        {
+          label: '分享',
+          items: [
+            {
+              label: '复制链接',
+              action: () => showToast('https://www.bilibili.com/video/' + bvid)
+            },
+            { label: '分享给好友', action: () => showToast('分享功能待实现') }
+          ]
+        },
+        {
+          label: '举报',
+          items: [
+            { label: '不友善', action: () => showToast('举报功能待实现') },
+            { label: '垃圾广告', action: () => showToast('举报功能待实现') },
+            { label: '其他', action: () => showToast('举报功能待实现') }
+          ]
+        }
+      ]
+    };
+  }
+
   onMount(() => {
     const off = onKey('video-player', {
       Up: {
@@ -383,6 +428,7 @@
       Mute: () => {
         settings.update(s => ({ ...s, muted: !s.muted }));
       },
+      // 左软键: 评论 tab = 回复 (功能下线, 显示「待实现」), 详情 tab = 全屏
       SoftLeft: () => {
         // 评论 tab: 回复功能下线 (软键显示「待实现」), 按下去给个提示
         if (activeTab === 1) {
@@ -390,15 +436,10 @@
         } else {
           toggleFullscreen();
         }
-      },
-      // 右软键: 进 UP 主主页 (和用户主页的路由是同一条: /user?uid=xxx)
-      // 全屏播放器不绑这个 —— 全屏要沉浸, 右软键留空
-      SoftRight: () => {
-        if (meta && meta.owner && meta.owner.mid) {
-          dispatch('author', { mid: meta.owner.mid });
-        }
       }
-    }, { priority: 10, softkeys: true });
+      // 右软键不再单独绑: 它变成了「更多」, 由软键栏的二级菜单接管
+      // (见下面的 buildVideoMenu / opts.menu)
+    }, { priority: 10, softkeys: true, menu: () => buildVideoMenu() });
 
     // 封面尺寸跟着视口走 (跟着播放区域宽度)
     updateSize();

@@ -28,6 +28,64 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
 const PROBE = readFileSync(path.join(__dirname, 'lib', 'ui-probe.js'), 'utf8');
+
+// 软键菜单 (二级/三级) 的探针
+//
+// ui-probe.js 是通用 UI 探针, 不认识菜单面板 (它是浮在页面上的覆盖层),
+// 所以菜单的状态单独探: 面板在不在、面包屑、当前层的项、高亮在哪、
+// 层级点亮了几个、软键栏此刻显示什么。
+const MENU_PROBE = `(function () {
+  function txt(el) { return el ? String(el.innerText || '').replace(/\\s+/g, ' ').trim() : ''; }
+  var layer = document.querySelector('.menu-layer');
+  var out = { open: false, bar: { left: '', center: '', right: '' }, crumbs: [], items: [], selected: -1, disabled: [], dots: 0, last: '' };
+  var bar = document.querySelector('.softkey-bar');
+  if (bar) {
+    out.bar.left = txt(bar.querySelector('.left'));
+    out.bar.center = txt(bar.querySelector('.center'));
+    out.bar.right = txt(bar.querySelector('.right'));
+  }
+  out.open = !!layer;
+  if (layer) {
+    var cs = layer.querySelectorAll('.menu-crumb');
+    for (var i = 0; i < cs.length; i++) out.crumbs.push(txt(cs[i]));
+    var its = layer.querySelectorAll('.menu-text');
+    for (var j = 0; j < its.length; j++) out.items.push(txt(its[j]));
+    var btns = layer.querySelectorAll('.menu-item');
+    for (var k = 0; k < btns.length; k++) {
+      var cn = String(btns[k].className || '');
+      var t = txt(btns[k].querySelector('.menu-text'));
+      if (cn.indexOf('selected') >= 0) out.selected = k;
+      if (cn.indexOf('disabled') >= 0) out.disabled.push(t);
+    }
+    var ds = layer.querySelectorAll('.menu-dot');
+    for (var d = 0; d < ds.length; d++) if (String(ds[d].className || '').indexOf('on') >= 0) out.dots++;
+  }
+  var last = document.querySelector('.last-main');
+  if (last) out.last = txt(last);
+  // ── 箭头位置: 必须在文字**同一行**、且贴着右边 ─────────────────────
+  //
+  // 这是 KaiOS 2.4 (Gecko 48) 的一个坑: <button> 当 flex 容器时, 子元素
+  // 不会被当成 flex item 排布, "文字撑满 + 右边小箭头" 会被挤成两行,
+  // 箭头掉到下一行。菜单项因此用 div 而不是 button。
+  // 这里量一下箭头的位置, 防止改回 button 之后又踩坑。
+  out.chevrons = [];
+  var its2 = layer ? layer.querySelectorAll('.menu-item') : [];
+  for (var m = 0; m < its2.length; m++) {
+    var sub2 = its2[m].querySelector('.menu-sub');
+    if (!sub2) continue;
+    var ir = its2[m].getBoundingClientRect();
+    var sr2 = sub2.getBoundingClientRect();
+    var tx = its2[m].querySelector('.menu-text');
+    var tr2 = tx ? tx.getBoundingClientRect() : null;
+    out.chevrons.push({
+      label: txt(tx),
+      sameLine: sr2.top >= ir.top - 1 && sr2.bottom <= ir.bottom + 1,
+      rightSide: !tr2 || sr2.left >= tr2.right - 1,
+      rightAligned: sr2.left >= ir.left + ir.width * 0.6
+    });
+  }
+  return JSON.stringify(out);
+})()`;
 const DEVICE_PORT = 6000;
 const DEVICE_SOCKET = 'localfilesystem:/data/local/debugger-socket';
 
@@ -48,12 +106,14 @@ const PAGES = [
   { name: 'about', hash: '#/about', wait: 3000, softkeys: {} },
   // 按键检测页: 不绑任何软键快捷键, 软键栏只有中键提示
   { name: 'keytest', hash: '#/keytest', wait: 3000, softkeys: { center: '选择' } },
+  // 菜单测试页: 右软键 = 「更多」菜单 (二级/三级)
+  { name: 'menu-test', hash: '#/menu-test', wait: 3000, softkeys: { left: '', center: '选择', right: '更多' } },
   { name: 'search', hash: '#/search', wait: 5000, softkeys: { left: '刷新', center: '', right: '搜索' } },
   { name: 'search-results', hash: '#/search-results?keyword=%E5%8E%9F%E7%A5%9E', wait: 8000, softkeys: {} },
   // 用户主页: 路由带 uid, 自己的主页和别人的主页同一条路由
   // (切 tab 走左右方向键, 右软键不占这一格; 中间软键随 tab 变, 所以不写 center 断言)
   { name: 'user', hash: '#/user?uid=946974', wait: 9000, softkeys: { left: '刷新', right: '' } },
-  { name: 'player', hash: '#/player?bvid=BV1ZqpE6uEKd', wait: 9000, softkeys: { right: '主页' } },
+  { name: 'player', hash: '#/player?bvid=BV1ZqpE6uEKd', wait: 9000, softkeys: { right: '更多' } },
   // 全屏播放器: 右软键**不绑**主页 (全屏要沉浸), 所以这一格必须没有文案
   { name: 'fullscreen', hash: '#/fullscreen?bvid=BV1ZqpE6uEKd&t=0', wait: 9000, softkeys: { right: '' } },
 ];
@@ -305,12 +365,106 @@ for (const page of PAGES) {
   }
 }
 
+// 真机按键: 软键菜单 (软键栏的二级/三级操作) 的完整交互
+//
+// 这一段是**真机按键**跑出来的, 不是模拟:
+//   右软键 → 展开二级菜单 → ↓ 移动高亮 → 中键进三级 → 退格回二级
+//   → 中键执行叶子动作 → 动作被页面记下来
+//
+// 故意**不按左软键**: 这台机器上左软键是 KEY_MENU, 按下去系统会弹自己的菜单,
+// 应用被挂到后台 (XHR 回调不回来) —— 测菜单用退格键就够了, 行为完全一样。
+if (!only.length || only.indexOf('menu') >= 0) {
+  const fails = [];
+  const shot = name => (shotDir ? path.join(shotDir, 'menu-' + name + '.png') : '');
+  try {
+    await goto('#/menu-test');
+    await delay(3000);
+
+    const menuProbe = async () => {
+      const text = '(function(){return (\n' + MENU_PROBE + '\n);})()';
+      const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+      if (r.exception) throw new Error('菜单探针异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
+      return JSON.parse(r.result);
+    };
+
+    // ── 1) 右软键 → 二级菜单 ────────────────────────────────────────
+    press(158);
+    await delay(1200);
+    let m = await menuProbe();
+    if (!m.open) fails.push('按右软键没有展开菜单');
+    if (m.bar.left !== '关闭') fails.push('二级菜单左软键应该是「关闭」实际「' + m.bar.left + '」');
+    if (m.bar.center !== '选择') fails.push('二级菜单中键应该是「选择」实际「' + m.bar.center + '」');
+    if (m.bar.right !== '') fails.push('二级菜单右软键应该没有文案实际「' + m.bar.right + '」');
+    if (m.items.join(',') !== 'UP 主页,分享,举报') fails.push('二级菜单的项不对: ' + m.items.join(','));
+    if (m.crumbs.join(',') !== '更多操作') fails.push('面包屑不对: ' + m.crumbs.join(','));
+    if (m.selected !== 0) fails.push('默认应该高亮第一项, 实际第 ' + (m.selected + 1) + ' 项');
+    if (m.dots !== 1) fails.push('层级点应该亮 1 个, 实际 ' + m.dots);
+    // 箭头必须和文字同一行、且贴着右边 (Gecko 48 的 button+flex 坑)
+    for (const c of (m.chevrons || [])) {
+      if (!c.sameLine) fails.push('「' + c.label + '」的箭头掉到了下一行 (Gecko 48 的 button+flex 坑)');
+      if (!c.rightSide) fails.push('「' + c.label + '」的箭头压在文字上');
+      if (!c.rightAligned) fails.push('「' + c.label + '」的箭头没贴着右边');
+    }
+    if (shot('level2')) await screenshot(shot('level2'));
+
+    // ── 2) ↓ 移动高亮 → 中键进三级 ─────────────────────────────────
+    press(108);
+    await delay(600);
+    m = await menuProbe();
+    if (m.selected !== 1) fails.push('按 ↓ 之后应该高亮第二项, 实际第 ' + (m.selected + 1) + ' 项');
+
+    press(352);
+    await delay(1200);
+    m = await menuProbe();
+    if (!m.open) fails.push('按中键后菜单应该还开着');
+    if (m.items.join(',') !== '复制链接,分享给好友') fails.push('三级菜单的项不对: ' + m.items.join(','));
+    if (m.crumbs.join(',') !== '更多操作,分享') fails.push('三级面包屑不对: ' + m.crumbs.join(','));
+    if (m.bar.left !== '上一级') fails.push('三级菜单左软键应该是「上一级」实际「' + m.bar.left + '」');
+    if (m.selected !== 0) fails.push('进三级后应该高亮第一项, 实际第 ' + (m.selected + 1) + ' 项');
+    if (m.dots !== 2) fails.push('层级点应该亮 2 个, 实际 ' + m.dots);
+    if (shot('level3')) await screenshot(shot('level3'));
+
+    // ── 3) 退格键 → 回二级, 高亮还原到刚才那一项 ───────────────────
+    press(14);
+    await delay(1200);
+    m = await menuProbe();
+    if (!m.open) fails.push('按退格键后菜单应该还开着 (回到二级)');
+    if (m.items.join(',') !== 'UP 主页,分享,举报') fails.push('退格后应该回到二级菜单, 实际: ' + m.items.join(','));
+    if (m.selected !== 1) fails.push('退格后高亮应该还原成刚才那一项(分享), 实际第 ' + (m.selected + 1) + ' 项');
+    if (m.bar.left !== '关闭') fails.push('回到二级后左软键应该又是「关闭」实际「' + m.bar.left + '」');
+    if (shot('back')) await screenshot(shot('back'));
+
+    // ── 4) 中键执行叶子动作 → 菜单关掉, 页面记下动作 ───────────────
+    press(352);          // 再进三级
+    await delay(1000);
+    press(352);          // 执行第一项「复制链接」
+    await delay(1200);
+    m = await menuProbe();
+    if (m.open) fails.push('执行动作后菜单应该关掉');
+    if (m.last.indexOf('复制链接') < 0) fails.push('页面应该记下执行了「复制链接」, 实际「' + m.last + '」');
+    if (m.bar.right !== '更多') fails.push('菜单关掉后右软键应该恢复成「更多」实际「' + m.bar.right + '」');
+    if (shot('action')) await screenshot(shot('action'));
+
+    // ── 5) 退格键在最外层 → 整个关掉 (其实菜单已经关了, 这里确认没卡住) ──
+    press(14);
+    await delay(800);
+    m = await menuProbe();
+    if (m.open) fails.push('菜单应该是关着的');
+
+    results.push({ page: 'menu', fails });
+    console.log((fails.length ? '✗' : '✓') + ' ' + 'menu'.padEnd(16) +
+      (fails.length ? fails.join(' | ') : '二级/三级菜单: 展开 → 进三级 → 退格回退 → 执行动作 全通过'));
+  } catch (e) {
+    results.push({ page: 'menu', fails: [String(e.message)] });
+    console.log('✗ ' + 'menu'.padEnd(16) + String(e.message));
+  }
+}
+
 // 真机按键: 子页面的**返回键 (退格键)** 必须回到上一级。
 // 先进入 /profile 再进 /settings, 让历史栈里的上一级确定是 /profile,
 // 这样能抓住"首页残留的搜索处理器把返回键劫持到 /search"这类回归 (旧断言只看
 // before !== after, 被劫持到 /search 也算通过)。
-if (!only.length || only.indexOf('back-key') >= 0) {
-  try {
+if (!only.length || only.indexOf('back-key') >= 0) {  try {
     await goto('#/profile');
     await delay(2000);
     await goto('#/settings');

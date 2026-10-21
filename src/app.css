@@ -375,7 +375,10 @@ img {
   z-index: 1;
 }
 
-/* ---- Soft Key Bar ---- */
+/* ---- Soft Key Bar ----
+   一级菜单: 左 / 中 / 右三个格子。
+   二级 / 三级菜单由 components/SoftkeyBar.svelte 负责 (面板 + 按键派发),
+   这里的样式是它的全局镜像, 保证别处引用 .softkey-bar 时观感一致。 */
 .softkey-bar {
   height: var(--kai-softkey-height);
   background: var(--md-sys-color-surface-container);
@@ -387,6 +390,7 @@ img {
   font-weight: var(--md-sys-typescale-label-medium-weight);
   color: var(--md-sys-color-on-surface-variant);
   border-top: 1px solid var(--md-sys-color-outline-variant);
+  box-shadow: var(--md-sys-elevation-level1);
   flex-shrink: 0;
   /* 全屏等 fixed 路由下 .app-root 里 SoftkeyBar 会成为首个在流内元素,
      margin-top:auto 保证它仍贴在底部; z-index 保证它盖在 fixed 覆盖层之上 */
@@ -397,22 +401,40 @@ img {
 
 .softkey-bar .left,
 .softkey-bar .right {
-  min-width: 24px;
-  text-align: center;
-  padding: 4px 8px;
+  flex: 0 0 auto;
+  min-width: 40px;
+  max-width: 42%;
+  padding: 3px 6px;
   border-radius: var(--md-sys-shape-corner-small);
-  transition: background 0.15s ease;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.softkey-bar .left {
+  text-align: left;
+}
+
+.softkey-bar .right {
+  text-align: right;
 }
 
 .softkey-bar .left:active,
 .softkey-bar .right:active {
-  background: var(--md-sys-color-surface-container-high);
+  background: var(--md-sys-color-surface-container-highest);
 }
 
 .softkey-bar .center {
+  flex: 1 1 auto;
+  min-width: 0;
   text-align: center;
-  min-width: 40px;
   color: var(--md-sys-color-on-surface);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ---- Cards ---- */

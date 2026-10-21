@@ -411,8 +411,9 @@
     // 返回由退格键 (Back) 负责 —— 右软键不占返回, 它留给页面自己派活
     // 左软键: 评论 tab = 回复 (功能下线, 显示「待实现」), 详情 tab = 全屏
     const leftLabel = inComments ? '待实现' : '全屏';
-    // 右软键: 进 UP 主主页。作者信息还没到就不显示文案 —— 文案必须和行为一致
-    const rightLabel = currentOwner && currentOwner.mid ? '主页' : '';
+    // 右软键: 交给软键栏的「更多」菜单 (二级/三级) —— 文案由菜单自己给,
+    // 这里留空, 免得两处文案打架 (进 UP 主页的动作已经挪进菜单的第一项)
+    const rightLabel = '';
     setSoftkeys(leftLabel, rightLabel, centerLabel);
   }
 

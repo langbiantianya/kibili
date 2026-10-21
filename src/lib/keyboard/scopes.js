@@ -30,8 +30,14 @@
 //   softkeys: true                → 只接管生命周期, 文案由页面自己 setSoftkeys() 改
 //   softkeys: [left,right,center] → 接管并立即设置成这三个文案
 // 作用域注销时自动还原。
+//
+// opts.menu 让本作用域接管软键栏的**二级/三级菜单** (见 stores/softkey.js):
+//   menu: { label, title, items }        → 菜单树 (对象)
+//   menu: () => ({ label, title, items }) → 返回菜单树的函数 (打开菜单时才求值)
+// 作用域注销时菜单自动释放, 不会漏到下一个页面。
 
 import { claimSoftkeys, releaseSoftkeys } from '../stores/ui.js';
+import { setSoftkeyMenu, releaseSoftkeyMenu } from '../stores/softkey.js';
 
 /** @type {Array<Object>} */
 let scopes = [];
@@ -58,6 +64,9 @@ let seq = 0;
  *        true → 只接管生命周期 (文案由页面自己 setSoftkeys 改)
  *        [left, right, center] → 接管并立即设置成这三个文案
  *        作用域注销时自动还原 (参考 KaiUI SoftKey 的 unregisterSoftKeys)
+ * @param {Object|Function} [opts.menu] 接管软键栏的二级/三级菜单
+ *        对象或返回对象的函数 (函数在菜单打开时才求值, 菜单项能跟着异步状态走)
+ *        作用域注销时自动释放
  * @returns {Function} 注销函数
  */
 export function onKey(name, map, opts) {
@@ -70,7 +79,8 @@ export function onKey(name, map, opts) {
     exclusive: !!opts.exclusive,
     global: !!opts.global,
     catchAll: typeof opts.catchAll === 'function' ? opts.catchAll : null,
-    softkeys: opts.softkeys || null
+    softkeys: opts.softkeys || null,
+    menu: opts.menu || null
   };
   scopes.push(scope);
 
@@ -78,6 +88,10 @@ export function onKey(name, map, opts) {
   if (scope.softkeys) {
     const labels = Array.isArray(scope.softkeys) ? scope.softkeys : null;
     claimSoftkeys(scope, labels);
+  }
+  // 接管软键菜单 (二级/三级): 同样跟着作用域一起释放
+  if (scope.menu) {
+    setSoftkeyMenu(scope.menu, scope);
   }
   return function off() {
     removeScope(scope);
@@ -94,6 +108,8 @@ export function removeScope(scope) {
     scopes.splice(i, 1);
     // 一并归还软键栏
     if (scope.softkeys) releaseSoftkeys(scope);
+    // 一并归还软键菜单
+    if (scope.menu) releaseSoftkeyMenu(scope);
   }
 }
 

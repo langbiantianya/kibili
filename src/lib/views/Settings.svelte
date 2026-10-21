@@ -80,6 +80,11 @@
         <span class="label">按键检测</span>
         <span class="value">›</span>
       </div>
+      <!-- 菜单测试: 在真机上试软键栏的二级/三级菜单 -->
+      <div class="menu-item" data-navable tabindex="0" on:click={() => navigate("/menu-test")}>
+        <span class="label">菜单测试</span>
+        <span class="value">›</span>
+      </div>
       <!-- 打开视频立刻播放: 关掉之后打开视频只显示封面, 按中键才加载并播放 -->
       <div class="menu-item" data-navable tabindex="0" on:click={toggleAutoPlay}>
         <span class="label">打开视频立刻播放</span>

@@ -23,6 +23,7 @@
   import Settings from "./lib/views/Settings.svelte";
   import About from "./lib/views/About.svelte";
   import KeyTest from "./lib/views/KeyTest.svelte";
+  import MenuTest from "./lib/views/MenuTest.svelte";
 
   // 主 Tab 的路径 (都由 MainLayout 内部渲染, 路由表里走 "*" 兜底)
   const MAIN_PATHS = ["/home", "/following", "/profile"];
@@ -53,6 +54,8 @@
     "/settings": Settings,
     "/about": About,
     "/keytest": KeyTest,
+    // 软键菜单 (二级/三级) 手动测试页
+    "/menu-test": MenuTest,
     // 主 Tab + 兜底都走 MainLayout (内部按 /home /following /profile 分发)
     "*": MainLayout,
   };
