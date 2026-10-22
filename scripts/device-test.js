@@ -37,12 +37,14 @@ const PROBE = readFileSync(path.join(__dirname, 'lib', 'ui-probe.js'), 'utf8');
 const MENU_PROBE = `(function () {
   function txt(el) { return el ? String(el.innerText || '').replace(/\\s+/g, ' ').trim() : ''; }
   var layer = document.querySelector('.menu-layer');
-  var out = { open: false, bar: { left: '', center: '', right: '' }, crumbs: [], items: [], selected: -1, disabled: [], dots: 0, last: '' };
+  var out = { open: false, bar: { left: '', center: '', right: '' }, barVisible: false, crumbs: [], items: [], selected: -1, disabled: [], dots: 0, last: '' };
   var bar = document.querySelector('.softkey-bar');
   if (bar) {
     out.bar.left = txt(bar.querySelector('.left'));
     out.bar.center = txt(bar.querySelector('.center'));
     out.bar.right = txt(bar.querySelector('.right'));
+    // 软键栏是不是真的画出来了: 藏起来时是 display:none → 没有布局盒
+    out.barVisible = bar.getClientRects().length > 0;
   }
   out.open = !!layer;
   if (layer) {
@@ -147,7 +149,7 @@ const PAGES = [
   { name: 'player', hash: '#/player?bvid=BV1ZqpE6uEKd', wait: 9000, softkeys: { right: '更多' } },
   // 全屏播放器: 右软键 = 「菜单」(二级/三级菜单, 和视频详情页同一份);
   // 左软键空着; 中键提示跟着播放状态走 (播放/暂停), 所以这里不写 center 断言
-  { name: 'fullscreen', hash: '#/fullscreen?bvid=BV1ZqpE6uEKd&t=0', wait: 9000, softkeys: { left: '', right: '菜单' } },
+  { name: 'fullscreen', hash: '#/fullscreen?bvid=BV1ZqpE6uEKd&t=0', wait: 9000, softkeys: { left: '', right: '更多' } },
 ];
 
 function sh(cmd, args) {
@@ -685,7 +687,7 @@ if (!only.length || only.indexOf('fullscreen-menu') >= 0) {
     // ── 1) 软键栏: 左 = 空, 中 = 播放/暂停 (跟着播放状态), 右 = 菜单 ──
     let m = await menuProbe();
     if (m.bar.left !== '') fails.push('全屏左软键应该没有文案实际「' + m.bar.left + '」');
-    if (m.bar.right !== '菜单') fails.push('全屏右软键应该是「菜单」实际「' + m.bar.right + '」');
+    if (m.bar.right !== '更多') fails.push('全屏右软键应该是「更多」实际「' + m.bar.right + '」');
     if (m.bar.center !== '播放' && m.bar.center !== '暂停') {
       fails.push('全屏中软键应该是「播放」或「暂停」实际「' + m.bar.center + '」');
     }
@@ -732,7 +734,7 @@ if (!only.length || only.indexOf('fullscreen-menu') >= 0) {
     m = await menuProbe();
     if (m.open) fails.push('菜单应该是关着的');
     if (m.bar.left !== '') fails.push('菜单关掉后左软键应该没有文案实际「' + m.bar.left + '」');
-    if (m.bar.right !== '菜单') fails.push('菜单关掉后右软键应该恢复成「菜单」实际「' + m.bar.right + '」');
+    if (m.bar.right !== '更多') fails.push('菜单关掉后右软键应该恢复成「更多」实际「' + m.bar.right + '」');
 
     // ── 4) 提示和实际绑定对得上: ↓ = 快进 (提示写的就是「短按 ↓ 键」) ──
     // 先把视频拉起来 (设置里关了「打开视频立刻播放」时页面上没有 <video>)
@@ -775,6 +777,97 @@ if (!only.length || only.indexOf('fullscreen-menu') >= 0) {
   } catch (e) {
     results.push({ page: 'fullscreen-menu', fails: [String(e.message)] });
     console.log('✗ ' + 'fullscreen-menu'.padEnd(16) + String(e.message));
+  }
+}
+
+// 真机按键: 设置里「全屏播放显示软键栏」关掉之后的行为
+//
+// 关掉 = **整条软键栏藏起来** (沉浸模式), 不是"二级菜单打不开":
+//   软键栏藏着 → 右软键照样能展开二级菜单, 5 个入口一个不少
+//   菜单关掉 → 软键栏继续藏着 (不会又冒出来)
+//
+// 菜单**开着的时候**软键栏会临时露出来 —— 菜单的操作提示 (关闭 / 选择)
+// 就写在这一行上, 而且菜单面板贴着软键栏上沿摆, 栏不见了底下就空一条。
+if (!only.length || only.indexOf('fullscreen-nobar') >= 0) {
+  const fails = [];
+  const shot = name => (shotDir ? path.join(shotDir, 'fullscreen-nobar-' + name + '.png') : '');
+  const evalJS = async text => {
+    const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+    if (r.exception) throw new Error('探针异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
+    return String(r.result == null ? '' : r.result);
+  };
+  const menuProbe = async () => {
+    const text = '(function(){return (\n' + MENU_PROBE + '\n);})()';
+    return JSON.parse(await evalJS(text));
+  };
+  // 设置页里那一项: 聚焦它 (之后按 OK 键 = 激活焦点项, 和用户操作一条路)
+  const FOCUS_ROW = '(function(){var it=document.querySelectorAll(".menu-item");' +
+    'for(var i=0;i<it.length;i++){if((it[i].innerText||"").indexOf("全屏播放显示软键栏")>=0){it[i].focus();return "ok";}}' +
+    'return "NOT_FOUND";})()';
+  const ROW_VALUE = '(function(){var it=document.querySelectorAll(".menu-item");' +
+    'for(var i=0;i<it.length;i++){if((it[i].innerText||"").indexOf("全屏播放显示软键栏")>=0){' +
+    'return ((it[i].querySelector(".value")||{}).innerText||"").trim();}}return "NOT_FOUND";})()';
+
+  try {
+    // ── 1) 在设置页把「全屏播放显示软键栏」关掉 ─────────────────
+    await goto('#/settings');
+    await delay(2500);
+    const v0 = await evalJS(ROW_VALUE);
+    if (v0 === 'NOT_FOUND') fails.push('设置页里找不到「全屏播放显示软键栏」这一项');
+    if (v0 === '开') {
+      await evalJS(FOCUS_ROW);
+      press(352);              // OK 键 = 激活当前焦点项 → 把这个开关关掉
+      await delay(1500);
+    }
+    const v1 = await evalJS(ROW_VALUE);
+    if (v1 !== '关') fails.push('没能把「全屏播放显示软键栏」关掉, 现在是「' + v1 + '」');
+
+    // ── 2) 进全屏: 软键栏应该整个藏起来 ─────────────────────────
+    await goto('#/fullscreen?bvid=BV1ZqpE6uEKd&t=0');
+    await delay(7000);
+    let m = await menuProbe();
+    if (m.barVisible) fails.push('关掉设置后全屏的软键栏应该藏起来, 但它还在');
+    if (m.open) fails.push('刚进全屏时菜单不该是开着的');
+    if (shot('hidden')) await screenshot(shot('hidden'));
+
+    // ── 3) 软键栏藏着, 右软键照样能展开**完整**菜单 ──────────────
+    press(158);
+    await delay(1500);
+    m = await menuProbe();
+    if (!m.open) fails.push('软键栏藏着的时候按右软键应该照样能展开菜单');
+    if (m.items.join(',') !== 'UP 主页,播放控制,互动,分享,举报') {
+      fails.push('藏栏时菜单的项不对: ' + m.items.join(','));
+    }
+    if (!m.barVisible) fails.push('菜单开着的时候软键栏应该露出来当「关闭 / 选择」的提示');
+    if (m.bar.left !== '关闭') fails.push('菜单打开后左软键应该是「关闭」实际「' + m.bar.left + '」');
+    if (m.bar.center !== '选择') fails.push('菜单打开后中软键应该是「选择」实际「' + m.bar.center + '」');
+    if (shot('menu')) await screenshot(shot('menu'));
+
+    // ── 4) 关掉菜单 → 软键栏继续藏着 ────────────────────────────
+    await pressJs('SoftLeft');
+    await delay(1500);
+    m = await menuProbe();
+    if (m.open) fails.push('菜单应该是关着的');
+    if (m.barVisible) fails.push('菜单关掉后软键栏应该继续藏着, 但它冒出来了');
+
+    // ── 5) 把设置改回原样 (别把用户设备留在改过的状态) ───────────
+    await goto('#/settings');
+    await delay(2500);
+    if (v0 === '开') {
+      await evalJS(FOCUS_ROW);
+      press(352);
+      await delay(1500);
+    }
+    const v2 = await evalJS(ROW_VALUE);
+    if (v2 !== v0) fails.push('设置没能改回原样: 期望「' + v0 + '」实际「' + v2 + '」');
+
+    results.push({ page: 'fullscreen-nobar', fails });
+    console.log((fails.length ? '✗' : '✓') + ' ' + 'fullscreen-nobar'.padEnd(16) +
+      (fails.length ? fails.join(' | ') :
+        '关掉设置: 软键栏藏起来 + 右软键照样展开完整菜单 + 关菜单后继续藏 全通过'));
+  } catch (e) {
+    results.push({ page: 'fullscreen-nobar', fails: [String(e.message)] });
+    console.log('✗ ' + 'fullscreen-nobar'.padEnd(16) + String(e.message));
   }
 }
 

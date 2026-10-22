@@ -64,6 +64,9 @@ let seq = 0;
  *        true → 只接管生命周期 (文案由页面自己 setSoftkeys 改)
  *        [left, right, center] → 接管并立即设置成这三个文案
  *        作用域注销时自动还原 (参考 KaiUI SoftKey 的 unregisterSoftKeys)
+ * @param {boolean} [opts.hideSoftkeys=false] 把**软键栏整个藏起来** (沉浸模式)
+ *        只藏那一行提示, 不影响页面派给软键的动作 ——
+ *        二级菜单照样能按软键打开 (菜单面板是另一个图层)。
  * @param {Object|Function} [opts.menu] 接管软键栏的二级/三级菜单
  *        对象或返回对象的函数 (函数在菜单打开时才求值, 菜单项能跟着异步状态走)
  *        作用域注销时自动释放
@@ -80,6 +83,7 @@ export function onKey(name, map, opts) {
     global: !!opts.global,
     catchAll: typeof opts.catchAll === 'function' ? opts.catchAll : null,
     softkeys: opts.softkeys || null,
+    hideSoftkeys: !!opts.hideSoftkeys,
     menu: opts.menu || null
   };
   scopes.push(scope);
@@ -87,7 +91,7 @@ export function onKey(name, map, opts) {
   // 接管软键栏: 文案和处理器由同一个作用域持有, 注销时一起释放
   if (scope.softkeys) {
     const labels = Array.isArray(scope.softkeys) ? scope.softkeys : null;
-    claimSoftkeys(scope, labels);
+    claimSoftkeys(scope, labels, scope.hideSoftkeys);
   }
   // 接管软键菜单 (二级/三级): 同样跟着作用域一起释放
   if (scope.menu) {

@@ -3,6 +3,12 @@ import { writable, get } from 'svelte/store';
 export const ui = writable({
   route: '/home',
   softkeys: { left: '菜单', center: '', right: '...' },
+  // 软键栏整个藏起来 (页面级的"沉浸模式")
+  //
+  // 和"二级菜单开不开"是两回事: 藏栏只是看不见软键栏这一条,
+  // 页面派给软键的动作**照常有效** —— 例如全屏页把软键栏藏了,
+  // 按右软键照样能展开二级菜单 (菜单面板是另一个图层, 不受这个开关影响)。
+  softkeysHidden: false,
   toast: '',
   toastTimer: null
 });
@@ -22,6 +28,11 @@ function setSoftkeysRaw(left, right, center) {
   ui.update(s => ({ ...s, softkeys: { left, center, right } }));
 }
 
+/** 内部: 只改软键栏可见性, 不同步软键所有权 */
+function setHiddenRaw(hidden) {
+  ui.update(s => ({ ...s, softkeysHidden: !!hidden }));
+}
+
 // ── 软键所有权 ─────────────────────────────────────────────────────────
 // 参考 KaiUI 的 SoftKey: 软键的**文案**和**处理器**由同一个对象持有,
 // 组件卸载时一起释放 (KaiUI 叫 unregisterSoftKeys)。
@@ -39,7 +50,7 @@ function setSoftkeysRaw(left, right, center) {
 // 旧组件后 onDestroy (顺序和 React 相反), 简单栈会还原错。
 // 声明栈按下标取最后一个, 谁最后接管谁说了算, 与注销顺序无关。
 //
-// @type {Array<{owner: Object, labels: {left: string, right: string, center: string}}>}
+// @type {Array<{owner: Object, labels: {left: string, right: string, center: string}, hidden: boolean}>}
 const softkeyClaims = [];
 
 /** 第一个接管之前的软键 (应用默认) */
@@ -47,24 +58,31 @@ let baseSoftkeys = null;
 
 /**
  * 接管软键栏
+ *
  * @param {Object} owner 拥有者 (通常是按键作用域)
  * @param {Array<string>|null} labels [left, right, center]; null 表示沿用当前文案
+ * @param {boolean} [hidden=false] 是否把**软键栏整个藏起来** (沉浸模式)
+ *
+ *        藏栏 ≠ 菜单打不开: 页面派给软键的动作照常有效, 只是看不见那一行。
+ *        例如全屏页把栏藏了, 按右软键照样能展开二级菜单 (菜单是另一个图层)。
  */
-export function claimSoftkeys(owner, labels) {
+export function claimSoftkeys(owner, labels, hidden) {
   if (!baseSoftkeys) {
     const cur = get(ui).softkeys;
-    baseSoftkeys = { left: cur.left, right: cur.right, center: cur.center };
+    baseSoftkeys = { left: cur.left, right: cur.right, center: cur.center, hidden: !!cur.softkeysHidden };
   }
   const cur = get(ui).softkeys;
   softkeyClaims.push({
     owner: owner,
     labels: labels
       ? { left: labels[0] || '', right: labels[1] || '', center: labels[2] || '' }
-      : { left: cur.left, right: cur.right, center: cur.center }
+      : { left: cur.left, right: cur.right, center: cur.center },
+    hidden: !!hidden
   });
   if (labels) {
     setSoftkeysRaw(labels[0] || '', labels[1] || '', labels[2] || '');
   }
+  setHiddenRaw(!!hidden);
 }
 
 /**
@@ -79,12 +97,14 @@ export function releaseSoftkeys(owner) {
     }
   }
   if (softkeyClaims.length) {
-    // 还原成当前持有者的文案
+    // 还原成当前持有者的文案 + 可见性
     const top = softkeyClaims[softkeyClaims.length - 1];
     setSoftkeysRaw(top.labels.left, top.labels.right, top.labels.center);
+    setHiddenRaw(top.hidden);
   } else if (baseSoftkeys) {
     // 没人接管了 → 回到应用默认
     setSoftkeysRaw(baseSoftkeys.left, baseSoftkeys.right, baseSoftkeys.center);
+    setHiddenRaw(baseSoftkeys.hidden);
     baseSoftkeys = null;
   }
 }

@@ -49,6 +49,13 @@
 
   $: centerText = menuOpen ? MENU_SELECT : ($ui.softkeys.center || '');
 
+  // 整条软键栏藏起来 (页面级的沉浸模式, 例如全屏页在设置里关掉"显示软键栏"):
+  //   藏的只是**这一行提示**, 页面派给软键的动作照常有效 ——
+  //   二级菜单照样能按软键打开 (菜单面板是另一个图层, 不受这个开关影响)。
+  // 菜单**开着的时候**要把栏露出来: 菜单的操作提示 (关闭 / 选择) 写在这一行上,
+  // 而且菜单面板是贴着软键栏上沿摆的, 栏不见了面板底下就空一条。
+  $: barHidden = $ui.softkeysHidden && !menuOpen;
+
   $: rightText = menuOpen
     ? ''
     : (registered && registered.slot === 'right' && registered.items.length
@@ -191,7 +198,7 @@
   });
 </script>
 
-<div class="softkey-bar" class:menu-open={menuOpen}>
+<div class="softkey-bar" class:menu-open={menuOpen} class:hidden={barHidden}>
   <span class="left" class:empty={!leftText} class:menu-slot={leftIsMenu}>{leftText}</span>
   <span class="center" class:empty={!centerText}>{centerText}</span>
   <span class="right" class:empty={!rightText} class:menu-slot={rightIsMenu}>{rightText}</span>
@@ -276,6 +283,12 @@
   /* 菜单打开时, 软键栏跟着"沉"下去一层, 和菜单面板拉开层次 */
   .softkey-bar.menu-open {
     background: var(--md-sys-color-surface-container-high);
+  }
+
+  /* 整条藏起来 (沉浸模式): 只是看不见这一行提示,
+     页面派给软键的动作照常有效 (菜单照样能打开) */
+  .softkey-bar.hidden {
+    display: none;
   }
 
   .left,

@@ -51,7 +51,8 @@
   // 得知道当前是已赞还是未赞 —— 登录后查一次状态。
   let status = { like: 0, coin: 0, fav: 0 };
 
-  // 设置里「全屏播放显示菜单」关了 → 全屏不接管二级菜单, 右软键空着
+  // 设置里「全屏播放显示软键栏」关了 → 全屏把整条软键栏藏起来 (沉浸模式),
+  // 但二级菜单照常能按右软键打开 (藏的是提示行, 不是菜单)
   $: fullscreenMenu = $settings.fullscreenMenu !== false;
 
   // 长按检测参数 (和视频详情页一致)
@@ -382,7 +383,7 @@
     return buildVideoMenu({
       slot: 'right',           // 全屏用**右软键**开菜单 (和视频详情页一致;
                               // 左软键留空, 全屏画面上不占地方)
-      label: '菜单',
+      label: '更多',           // 右软键上的文案: 和视频详情页一模一样
       bvid: currentBvid,
       ownerMid: ownerMid,
       seekStep: SEEK_STEP,
@@ -460,8 +461,12 @@
     }, {
       priority: 10,
       softkeys: true,
-      // 全屏的二级菜单挂在**右软键**上 (和视频详情页一样; 设置里可以关掉)
-      menu: fullscreenMenu ? () => buildMenu() : null
+      // 设置里「全屏播放显示软键栏」关掉 → 整条软键栏藏起来 (沉浸模式)。
+      // 注意: 藏的只是那一行提示, **菜单照常能用** —— 右软键照样能展开二级菜单,
+      // 菜单打开时软键栏会临时露出来当"关闭 / 选择"的提示, 关掉菜单后又藏回去。
+      hideSoftkeys: !fullscreenMenu,
+      // 二级菜单挂在**右软键**上 (和视频详情页一样), 一直都在
+      menu: () => buildMenu()
     });
     return () => {
       window.removeEventListener('resize', updateOrientation);
