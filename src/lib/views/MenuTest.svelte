@@ -117,17 +117,23 @@
       })
     },
     {
-      name: "分组 + 副提示",
-      desc: "UP 主页排第一 + 播放控制一组 + 互动收进三级, 和视频页的菜单一个结构",
+      name: "视频页同结构",
+      desc: "二级只留 5 个入口, 快进/快退/音量/互动都收进三级菜单",
       build: () => ({
         slot: "right",
         label: "更多",
         title: "更多操作",
         items: [
           { label: "UP 主页", action: () => act("UP 主页") },
-          { group: "播放控制", label: "快进", hint: "长按 → 键", action: () => act("快进") },
-          { group: "播放控制", label: "快退", hint: "长按 ← 键", action: () => act("快退") },
-          { group: "播放控制", label: "音量加", hint: "长按 ↑ 键", action: () => act("音量加") },
+          {
+            label: "播放控制",
+            items: [
+              { label: "快进", hint: "长按 → 键", action: () => act("播放控制 › 快进") },
+              { label: "快退", hint: "长按 ← 键", action: () => act("播放控制 › 快退") },
+              { label: "音量加", hint: "长按 ↑ 键", action: () => act("播放控制 › 音量加") },
+              { label: "音量减", hint: "长按 ↓ 键", action: () => act("播放控制 › 音量减") }
+            ]
+          },
           {
             label: "互动",
             items: [
@@ -137,8 +143,37 @@
               { label: "收藏", action: () => act("互动 › 收藏") }
             ]
           },
-          { group: "其它", label: "分享", items: [{ label: "复制链接", action: () => act("分享 › 复制链接") }] },
-          { group: "其它", label: "举报", items: [{ label: "不友善", action: () => act("举报 › 不友善") }] }
+          {
+            label: "分享",
+            items: [
+              { label: "复制链接", action: () => act("分享 › 复制链接") },
+              { label: "分享给好友", action: () => act("分享 › 分享给好友") }
+            ]
+          },
+          {
+            label: "举报",
+            items: [
+              { label: "不友善", action: () => act("举报 › 不友善") },
+              { label: "垃圾广告", action: () => act("举报 › 垃圾广告") }
+            ]
+          }
+        ]
+      })
+    },
+    {
+      name: "分组 + 副提示",
+      desc: "组标题 + 「长按方向键」提示, 长菜单分组的写法",
+      build: () => ({
+        slot: "right",
+        label: "更多",
+        title: "更多操作",
+        items: [
+          { group: "互动", label: "一键三连", action: () => act("一键三连") },
+          { group: "互动", label: "点赞", action: () => act("点赞") },
+          { group: "播放控制", label: "快进", hint: "长按 → 键", action: () => act("快进") },
+          { group: "播放控制", label: "快退", hint: "长按 ← 键", action: () => act("快退") },
+          { group: "其它", label: "UP 主页", action: () => act("UP 主页") },
+          { group: "其它", label: "分享", items: [{ label: "复制链接", action: () => act("复制链接") }] }
         ]
       })
     }
