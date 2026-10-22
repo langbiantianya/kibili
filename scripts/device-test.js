@@ -147,9 +147,10 @@ const PAGES = [
   // (切 tab 走左右方向键, 右软键不占这一格; 中间软键随 tab 变, 所以不写 center 断言)
   { name: 'user', hash: '#/user?uid=946974', wait: 9000, softkeys: { left: '刷新', right: '' } },
   { name: 'player', hash: '#/player?bvid=BV1ZqpE6uEKd', wait: 9000, softkeys: { right: '更多' } },
-  // 全屏播放器: 右软键 = 「菜单」(二级/三级菜单, 和视频详情页同一份);
-  // 左软键空着; 中键提示跟着播放状态走 (播放/暂停), 所以这里不写 center 断言
-  { name: 'fullscreen', hash: '#/fullscreen?bvid=BV1ZqpE6uEKd&t=0', wait: 9000, softkeys: { left: '', right: '更多' } },
+  // 全屏播放器: 右软键 = 「更多」(二级/三级菜单, 和视频详情页同一份);
+  // 左软键 = 显示/隐藏软键栏 (文案跟着栏的显隐走, 见 fullscreen-menu 用例);
+  // 中键提示跟着播放状态走 (播放/暂停), 所以这里不写 center / left 断言
+  { name: 'fullscreen', hash: '#/fullscreen?bvid=BV1ZqpE6uEKd&t=0', wait: 9000, softkeys: { right: '更多' } },
 ];
 
 function sh(cmd, args) {
@@ -684,12 +685,16 @@ if (!only.length || only.indexOf('fullscreen-menu') >= 0) {
       return JSON.parse(r.result);
     };
 
-    // ── 1) 软键栏: 左 = 空, 中 = 播放/暂停 (跟着播放状态), 右 = 菜单 ──
+    // ── 1) 软键栏: 左 = 隐藏/显示, 中 = 播放/暂停, 右 = 更多 ──────
     let m = await menuProbe();
-    if (m.bar.left !== '') fails.push('全屏左软键应该没有文案实际「' + m.bar.left + '」');
     if (m.bar.right !== '更多') fails.push('全屏右软键应该是「更多」实际「' + m.bar.right + '」');
     if (m.bar.center !== '播放' && m.bar.center !== '暂停') {
       fails.push('全屏中软键应该是「播放」或「暂停」实际「' + m.bar.center + '」');
+    }
+    // 左软键的文案写的是**按下之后会做什么**: 栏显示着 → 「隐藏」, 栏藏着 → 「显示」
+    const wantLeft = m.barVisible ? '隐藏' : '显示';
+    if (m.bar.left !== wantLeft) {
+      fails.push('全屏左软键应该是「' + wantLeft + '」实际「' + m.bar.left + '」');
     }
     if (m.open) fails.push('刚进全屏时菜单不该是开着的');
 
@@ -733,8 +738,25 @@ if (!only.length || only.indexOf('fullscreen-menu') >= 0) {
     await delay(1000);
     m = await menuProbe();
     if (m.open) fails.push('菜单应该是关着的');
-    if (m.bar.left !== '') fails.push('菜单关掉后左软键应该没有文案实际「' + m.bar.left + '」');
+    if (m.bar.left !== wantLeft) fails.push('菜单关掉后左软键应该恢复成「' + wantLeft + '」实际「' + m.bar.left + '」');
     if (m.bar.right !== '更多') fails.push('菜单关掉后右软键应该恢复成「更多」实际「' + m.bar.right + '」');
+
+    // ── 3.5) 左软键 = 显示/隐藏整条软键栏 (沉浸模式) ────────────────
+    // 文案写的是"按下之后会做什么": 栏显示着 → 「隐藏」, 栏藏着 → 「显示」。
+    // 按两下回到原状态 (设置也跟着来回切)。
+    const shown0 = m.barVisible;
+    await pressJs('SoftLeft');
+    await delay(1200);
+    m = await menuProbe();
+    if (m.barVisible === shown0) fails.push('按左软键应该把软键栏' + (shown0 ? '藏起来' : '显示出来'));
+    if (m.bar.left !== (shown0 ? '显示' : '隐藏')) {
+      fails.push('软键栏' + (shown0 ? '藏起来' : '显示出来') + '后左软键文案应该是「' + (shown0 ? '显示' : '隐藏') + '」实际「' + m.bar.left + '」');
+    }
+    await pressJs('SoftLeft');
+    await delay(1200);
+    m = await menuProbe();
+    if (m.barVisible !== shown0) fails.push('再按一次左软键软键栏应该回到原状态');
+    if (m.bar.left !== wantLeft) fails.push('软键栏回到原状态后左软键文案应该还是「' + wantLeft + '」实际「' + m.bar.left + '」');
 
     // ── 4) 提示和实际绑定对得上: ↓ = 快进 (提示写的就是「短按 ↓ 键」) ──
     // 先把视频拉起来 (设置里关了「打开视频立刻播放」时页面上没有 <video>)
@@ -827,6 +849,7 @@ if (!only.length || only.indexOf('fullscreen-nobar') >= 0) {
     await delay(7000);
     let m = await menuProbe();
     if (m.barVisible) fails.push('关掉设置后全屏的软键栏应该藏起来, 但它还在');
+    if (m.bar.left !== '显示') fails.push('软键栏藏着时左软键文案应该是「显示」实际「' + m.bar.left + '」');
     if (m.open) fails.push('刚进全屏时菜单不该是开着的');
     if (shot('hidden')) await screenshot(shot('hidden'));
 
@@ -849,6 +872,18 @@ if (!only.length || only.indexOf('fullscreen-nobar') >= 0) {
     m = await menuProbe();
     if (m.open) fails.push('菜单应该是关着的');
     if (m.barVisible) fails.push('菜单关掉后软键栏应该继续藏着, 但它冒出来了');
+
+    // ── 4.5) 栏藏着的时候, 左软键照样能把它叫回来 ────────────────
+    await pressJs('SoftLeft');
+    await delay(1500);
+    m = await menuProbe();
+    if (!m.barVisible) fails.push('栏藏着的时候按左软键应该能把它显示出来');
+    if (m.bar.left !== '隐藏') fails.push('栏显示出来后左软键文案应该是「隐藏」实际「' + m.bar.left + '」');
+    // 再按一下 → 藏回去 (设置也跟着回到关的状态)
+    await pressJs('SoftLeft');
+    await delay(1500);
+    m = await menuProbe();
+    if (m.barVisible) fails.push('再按一次左软键软键栏应该重新藏起来');
 
     // ── 5) 把设置改回原样 (别把用户设备留在改过的状态) ───────────
     await goto('#/settings');

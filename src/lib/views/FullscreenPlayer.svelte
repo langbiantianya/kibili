@@ -5,7 +5,7 @@
   import { settings } from '../stores/settings.js';
   import { requestSystemVolume } from '../player/volume.js';
   import { onKey } from '../keyboard/index.js';
-  import { setSoftkeys, showToast } from '../stores/ui.js';
+  import { setSoftkeys, setSoftkeysHidden, showToast } from '../stores/ui.js';
   import { isLogin } from '../stores/user.js';
   import { buildVideoMenu } from '../player/videoMenu.js';
   import { navigate } from '../router/index.js';
@@ -53,6 +53,8 @@
 
   // 设置里「全屏播放显示软键栏」关了 → 全屏把整条软键栏藏起来 (沉浸模式),
   // 但二级菜单照常能按右软键打开 (藏的是提示行, 不是菜单)
+  //
+  // 左软键直接改这个设置 (设置项也就跟着变了, 别的页面也生效)
   $: fullscreenMenu = $settings.fullscreenMenu !== false;
 
   // 长按检测参数 (和视频详情页一致)
@@ -315,6 +317,19 @@
     requestSystemVolume(delta);
   }
 
+  // 左软键: 显示 / 隐藏整条软键栏 (沉浸模式)
+  //
+  // 直接改设置项「全屏播放显示软键栏」—— 改的是全局状态, 别的页面也跟着;
+  // 藏的只是那一行提示, 二级菜单照常能按右软键打开。
+  //
+  // 文案写的是**按下之后会做什么**: 栏现在显示着 → 写「隐藏」;
+  // 栏现在藏着 → 写「显示」(虽然这时候这行字自己也看不见, 但按一下就回来了)。
+  function toggleSoftkeyBar() {
+    const cur = $settings.fullscreenMenu !== false;
+    settings.update(s => ({ ...s, fullscreenMenu: !cur }));
+    showToast(!cur ? '已隐藏软键栏' : '已显示软键栏');
+  }
+
   // ── 互动动作 (点赞/投币/收藏/一键三连) ──────────────────────────────
   //
   // 菜单内容与视频详情页一模一样, 但全屏页没有详情页那套 status/counts UI,
@@ -427,7 +442,7 @@
 
   onMount(() => {
     // 右软键 = 显示/隐藏菜单 (由软键栏的兜底作用域接管);
-    // 左软键不声明, 保持空着 (全屏画面上不占地方);
+    // 左软键 = 显示/隐藏整条软键栏 (沉浸模式);
     // 返回走退格键 (全局 app-back)
     loadVideo();
     updateOrientation();
@@ -435,6 +450,10 @@
     const off = onKey('fullscreen-player', {
       // 中键用 { press } 形式: 松手时触发一次, 按住不放不会连发
       Enter: { press: () => togglePlay() },
+
+      // 左软键 = 显示 / 隐藏软键栏。
+      // 菜单开着的时候不用管 —— 菜单的独占作用域接管左软键 (那是「关闭」)。
+      SoftLeft: () => toggleSoftkeyBar(),
 
       // ── 方向键 ────────────────────────────────────────────────────
       //
@@ -475,11 +494,16 @@
   });
 
   // 软键文案:
-  //   左 = 空 (全屏画面上不占地方)
+  //   左 = 显示 / 隐藏软键栏 —— 写的是**按下之后会做什么**:
+  //        栏现在显示着 → 「隐藏」; 栏现在藏着 → 「显示」
   //   中 = 中键 (OK) 的提示: 正在播放显示「暂停」, 已暂停显示「播放」
   //        —— 跟着真实播放状态走, 文案和行为必须对得上 (硬规矩)
-  //   右 = 空 —— 菜单接管那一格 (软键栏会显示菜单的 label「菜单」+ 小箭头)
-  $: setSoftkeys('', '', playing ? '暂停' : '播放');
+  //   右 = 空 —— 菜单接管那一格 (软键栏会显示菜单的 label「更多」+ 小箭头)
+  $: setSoftkeys(fullscreenMenu ? '隐藏' : '显示', '', playing ? '暂停' : '播放');
+
+  // 软键栏的显隐跟着设置走 (左软键改设置 → 这里跟着变)。
+  // 藏的只是那一行提示, 二级菜单照常能按右软键打开。
+  $: setSoftkeysHidden(!fullscreenMenu);
 
   // 封面地址跟着屏幕尺寸走 (横屏宽度 = 视口长边)
   $: posterUrl = poster ? biliImg(poster, posterW, posterH, 'jpg') : '';

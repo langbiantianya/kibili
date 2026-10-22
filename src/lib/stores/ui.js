@@ -69,7 +69,8 @@ let baseSoftkeys = null;
 export function claimSoftkeys(owner, labels, hidden) {
   if (!baseSoftkeys) {
     const cur = get(ui).softkeys;
-    baseSoftkeys = { left: cur.left, right: cur.right, center: cur.center, hidden: !!cur.softkeysHidden };
+    // 应用默认: 软键栏是显示的 (藏栏是页面级的临时状态, 不该留到应用默认里)
+    baseSoftkeys = { left: cur.left, right: cur.right, center: cur.center, hidden: false };
   }
   const cur = get(ui).softkeys;
   softkeyClaims.push({
@@ -125,4 +126,23 @@ export function setSoftkeys(left, right, center = '') {
     const top = softkeyClaims[softkeyClaims.length - 1];
     top.labels = { left: left, right: right, center: center };
   }
+}
+
+/**
+ * 显示 / 隐藏整条软键栏 (沉浸模式)
+ *
+ * 藏的只是**那一行提示**, 页面派给软键的动作照常有效 ——
+ * 二级菜单照样能按软键打开 (菜单面板是另一个图层)。
+ *
+ * 顺带同步给当前持有者, 这样持有者注销时能还原成它自己那一份。
+ *
+ * @param {boolean} hidden 是否藏起来
+ */
+export function setSoftkeysHidden(hidden) {
+  const h = !!hidden;
+  if (softkeyClaims.length) {
+    const top = softkeyClaims[softkeyClaims.length - 1];
+    top.hidden = h;
+  }
+  setHiddenRaw(h);
 }
