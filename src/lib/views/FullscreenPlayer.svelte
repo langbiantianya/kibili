@@ -35,6 +35,12 @@
   let normalPlaybackRate = 1.0; // 保存正常播放速度
   let isSpeedUp = false;        // 是否正在倍速播放
 
+  // 播放状态: 中键 (OK) 的提示跟着它走 ——
+  //   正在播放 → 提示「暂停」(按下去会暂停)
+  //   已经暂停 → 提示「播放」(按下去会播放)
+  // 文案必须和行为对得上 (本项目的硬规矩), 所以不能写死成「OK键播放暂停」。
+  let playing = false;
+
   // 一次快进/快退多少秒
   const SEEK_STEP = 10;
 
@@ -45,7 +51,7 @@
   // 得知道当前是已赞还是未赞 —— 登录后查一次状态。
   let status = { like: 0, coin: 0, fav: 0 };
 
-  // 设置里「全屏播放显示菜单」关了 → 全屏不接管二级菜单, 左软键空着
+  // 设置里「全屏播放显示菜单」关了 → 全屏不接管二级菜单, 右软键空着
   $: fullscreenMenu = $settings.fullscreenMenu !== false;
 
   // 长按检测参数 (和视频详情页一致)
@@ -216,12 +222,14 @@
   }
 
   function onPlay() {
+    playing = true;
     if (dashAudio) {
       dashAudio.play().catch(() => {});
     }
   }
 
   function onPause() {
+    playing = false;
     if (dashAudio) {
       dashAudio.pause();
     }
@@ -233,6 +241,7 @@
   }
 
   function onEnded() {
+    playing = false;
     if (dashAudio) {
       dashAudio.pause();
     }
@@ -371,7 +380,8 @@
    */
   function buildMenu() {
     return buildVideoMenu({
-      slot: 'left',            // 全屏用左软键开菜单 (右软键留空, 保持沉浸)
+      slot: 'right',           // 全屏用**右软键**开菜单 (和视频详情页一致;
+                              // 左软键留空, 全屏画面上不占地方)
       label: '菜单',
       bvid: currentBvid,
       ownerMid: ownerMid,
@@ -415,8 +425,9 @@
   //   release = 无论长短按, 松手时都会触发 (倍速靠它恢复)
 
   onMount(() => {
-    // 左软键 = 显示/隐藏菜单 (由软键栏的兜底作用域接管);
-    // 返回走退格键 (全局 app-back); 右软键不声明, 保持沉浸
+    // 右软键 = 显示/隐藏菜单 (由软键栏的兜底作用域接管);
+    // 左软键不声明, 保持空着 (全屏画面上不占地方);
+    // 返回走退格键 (全局 app-back)
     loadVideo();
     updateOrientation();
     window.addEventListener('resize', updateOrientation);
@@ -449,7 +460,7 @@
     }, {
       priority: 10,
       softkeys: true,
-      // 全屏的二级菜单挂在**左软键**上 (设置里可以关掉)
+      // 全屏的二级菜单挂在**右软键**上 (和视频详情页一样; 设置里可以关掉)
       menu: fullscreenMenu ? () => buildMenu() : null
     });
     return () => {
@@ -459,10 +470,11 @@
   });
 
   // 软键文案:
-  //   左 = 空 —— 菜单接管那一格 (软键栏会显示菜单的 label「菜单」+ 小箭头)
-  //   中 = OK 键播放/暂停的提示 (播放/暂停已经从中键走, 明确告诉用户)
-  //   右 = 空 (保持沉浸)
-  $: setSoftkeys('', '', 'OK键播放暂停');
+  //   左 = 空 (全屏画面上不占地方)
+  //   中 = 中键 (OK) 的提示: 正在播放显示「暂停」, 已暂停显示「播放」
+  //        —— 跟着真实播放状态走, 文案和行为必须对得上 (硬规矩)
+  //   右 = 空 —— 菜单接管那一格 (软键栏会显示菜单的 label「菜单」+ 小箭头)
+  $: setSoftkeys('', '', playing ? '暂停' : '播放');
 
   // 封面地址跟着屏幕尺寸走 (横屏宽度 = 视口长边)
   $: posterUrl = poster ? biliImg(poster, posterW, posterH, 'jpg') : '';

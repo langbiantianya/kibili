@@ -10,8 +10,8 @@ const initial = persist.load('settings:v1', {
   //   false = 不拉流不播, 只显示封面, 按中键(播放)才去加载
   autoPlay: true,
   // 全屏播放要不要显示二级菜单:
-  //   true  = 左软键用来显示/隐藏菜单 (和视频详情页同一份菜单)
-  //   false = 全屏保持沉浸, 左软键空着, 没有菜单
+  //   true  = 右软键用来显示/隐藏菜单 (和视频详情页同一份菜单)
+  //   false = 全屏保持沉浸, 右软键空着, 没有菜单
   fullscreenMenu: true
 });
 

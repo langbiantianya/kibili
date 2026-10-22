@@ -145,8 +145,9 @@ const PAGES = [
   // (切 tab 走左右方向键, 右软键不占这一格; 中间软键随 tab 变, 所以不写 center 断言)
   { name: 'user', hash: '#/user?uid=946974', wait: 9000, softkeys: { left: '刷新', right: '' } },
   { name: 'player', hash: '#/player?bvid=BV1ZqpE6uEKd', wait: 9000, softkeys: { right: '更多' } },
-  // 全屏播放器: 右软键**不绑**主页 (全屏要沉浸), 所以这一格必须没有文案
-  { name: 'fullscreen', hash: '#/fullscreen?bvid=BV1ZqpE6uEKd&t=0', wait: 9000, softkeys: { left: '菜单', center: 'OK键播放暂停', right: '' } },
+  // 全屏播放器: 右软键 = 「菜单」(二级/三级菜单, 和视频详情页同一份);
+  // 左软键空着; 中键提示跟着播放状态走 (播放/暂停), 所以这里不写 center 断言
+  { name: 'fullscreen', hash: '#/fullscreen?bvid=BV1ZqpE6uEKd&t=0', wait: 9000, softkeys: { left: '', right: '菜单' } },
 ];
 
 function sh(cmd, args) {
@@ -655,12 +656,14 @@ if (!only.length || only.indexOf('video-menu') >= 0) {
 
 // 真机按键: 全屏播放页的**软键菜单**
 //
-// 全屏页现在也有二级菜单, 挂在**左软键**上 (内容与视频详情页同一份),
-// 左软键不再绑播放/暂停 —— 播放/暂停挪到中键, 提示写成「OK键播放暂停」。
+// 全屏页的二级菜单挂在**右软键**上 (和视频详情页同一份、同一侧),
+// 左软键空着; 播放/暂停走中键 (OK), 中键提示跟着真实播放状态走 ——
+// 正在播放显示「暂停」, 已经暂停显示「播放」。
 //
 // 这台机器上左软键是 KEY_MENU, 真按下去系统会弹自己的菜单并把应用挂到
-// 后台, 所以这里用 evaluateJS 派发合成的 SoftLeft (DOM 层收到的 key 名
-// 和真机一样, 按键总线的分发路径也完全相同)。
+// 后台, 所以需要按左软键的地方用 evaluateJS 派发合成的 SoftLeft (DOM 层
+// 收到的 key 名和真机一样, 按键总线的分发路径也完全相同)。
+// 右软键是真机上能真按的键 (KEY_SOFTRIGHT 158 → SoftRight), 直接 sendevent。
 //
 // 另外验一件容易做错的事: 菜单里的副提示必须和**实际绑定**对得上 ——
 // 全屏画面转了 90°, 方向键也跟着转 (↑/↓ 快退快进, ←/→ 音量),
@@ -679,20 +682,24 @@ if (!only.length || only.indexOf('fullscreen-menu') >= 0) {
       return JSON.parse(r.result);
     };
 
-    // ── 1) 软键栏: 左 = 菜单, 中 = OK键播放暂停, 右 = 空 ────────────
+    // ── 1) 软键栏: 左 = 空, 中 = 播放/暂停 (跟着播放状态), 右 = 菜单 ──
     let m = await menuProbe();
-    if (m.bar.left !== '菜单') fails.push('全屏左软键应该是「菜单」实际「' + m.bar.left + '」');
-    if (m.bar.center !== 'OK键播放暂停') fails.push('全屏中软键应该是「OK键播放暂停」实际「' + m.bar.center + '」');
-    if (m.bar.right !== '') fails.push('全屏右软键应该没有文案实际「' + m.bar.right + '」');
+    if (m.bar.left !== '') fails.push('全屏左软键应该没有文案实际「' + m.bar.left + '」');
+    if (m.bar.right !== '菜单') fails.push('全屏右软键应该是「菜单」实际「' + m.bar.right + '」');
+    if (m.bar.center !== '播放' && m.bar.center !== '暂停') {
+      fails.push('全屏中软键应该是「播放」或「暂停」实际「' + m.bar.center + '」');
+    }
     if (m.open) fails.push('刚进全屏时菜单不该是开着的');
 
-    // ── 2) 左软键 → 展开二级菜单 ───────────────────────────────────
-    await pressJs('SoftLeft');
+    // ── 2) 右软键 → 展开二级菜单 ───────────────────────────────────
+    // 右软键是真机上能真按的键 (KEY_SOFTRIGHT → SoftRight), 直接 sendevent
+    press(158);
     await delay(1200);
     m = await menuProbe();
-    if (!m.open) fails.push('按左软键没有展开菜单');
+    if (!m.open) fails.push('按右软键没有展开菜单');
     if (m.bar.left !== '关闭') fails.push('菜单打开后左软键应该是「关闭」实际「' + m.bar.left + '」');
     if (m.bar.center !== '选择') fails.push('菜单打开后中软键应该是「选择」实际「' + m.bar.center + '」');
+    if (m.bar.right !== '') fails.push('菜单打开后右软键应该没有文案实际「' + m.bar.right + '」');
     const wantItems = 'UP 主页,播放控制,互动,分享,举报';
     if (m.items.join(',') !== wantItems) fails.push('全屏菜单的项不对: ' + m.items.join(','));
     if (m.crumbs.join(',') !== '更多操作') fails.push('全屏菜单的面包屑不对: ' + m.crumbs.join(','));
@@ -717,14 +724,15 @@ if (!only.length || only.indexOf('fullscreen-menu') >= 0) {
     if (m.bar.left !== '上一级') fails.push('三级菜单左软键应该是「上一级」实际「' + m.bar.left + '」');
     if (shot('level3')) await screenshot(shot('level3'));
 
-    // 退格 → 回二级; 再按左软键 → 整个关掉
+    // 退格 → 回二级; 再按左软键 (菜单开着时它写着「关闭」) → 整个关掉
     press(14);
     await delay(1000);
     await pressJs('SoftLeft');
     await delay(1000);
     m = await menuProbe();
     if (m.open) fails.push('菜单应该是关着的');
-    if (m.bar.left !== '菜单') fails.push('菜单关掉后左软键应该恢复成「菜单」实际「' + m.bar.left + '」');
+    if (m.bar.left !== '') fails.push('菜单关掉后左软键应该没有文案实际「' + m.bar.left + '」');
+    if (m.bar.right !== '菜单') fails.push('菜单关掉后右软键应该恢复成「菜单」实际「' + m.bar.right + '」');
 
     // ── 4) 提示和实际绑定对得上: ↓ = 快进 (提示写的就是「短按 ↓ 键」) ──
     // 先把视频拉起来 (设置里关了「打开视频立刻播放」时页面上没有 <video>)
@@ -739,10 +747,31 @@ if (!only.length || only.indexOf('fullscreen-menu') >= 0) {
     const after = ((await menuProbe()).media || {}).time || 0;
     if (after <= before) fails.push('按 ↓ 键应该快进 (提示写着「短按 ↓ 键」), 进度没动: ' + before + ' → ' + after);
 
+    // ── 5) 中键提示跟着播放状态走: 播放中显示「暂停」, 暂停中显示「播放」 ──
+    // 文案必须和行为一致: 提示写「暂停」的时候按下去就该暂停。
+    const label0 = (await menuProbe()).bar.center;
+    if (label0 !== '播放' && label0 !== '暂停') {
+      fails.push('全屏中软键应该是「播放」或「暂停」实际「' + label0 + '」');
+    }
+    const opposite = label0 === '播放' ? '暂停' : '播放';
+    press(352);           // OK: 播放 ⇄ 暂停
+    await delay(2500);
+    const label1 = (await menuProbe()).bar.center;
+    if (label1 !== opposite) {
+      fails.push('按 OK 键后中软键应该变成「' + opposite + '」实际「' + label1 + '」');
+    }
+    press(352);           // 再按一次, 应该变回来
+    await delay(2500);
+    const label2 = (await menuProbe()).bar.center;
+    if (label2 !== label0) {
+      fails.push('再按一次 OK 键中软键应该变回「' + label0 + '」实际「' + label2 + '」');
+    }
+    if (shot('ok-label')) await screenshot(shot('ok-label'));
+
     results.push({ page: 'fullscreen-menu', fails });
     console.log((fails.length ? '✗' : '✓') + ' ' + 'fullscreen-menu'.padEnd(16) +
       (fails.length ? fails.join(' | ') :
-        '全屏菜单: 左软键开关菜单 + 内容同详情页 + 副提示跟着绑定走 全通过'));
+        '全屏菜单: 右软键开关菜单 + 内容同详情页 + 副提示跟着绑定走 + 中键提示跟着播放状态走 全通过'));
   } catch (e) {
     results.push({ page: 'fullscreen-menu', fails: [String(e.message)] });
     console.log('✗ ' + 'fullscreen-menu'.padEnd(16) + String(e.message));

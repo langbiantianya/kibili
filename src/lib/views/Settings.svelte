@@ -35,8 +35,8 @@
     showToast(!cur ? '已开启: 打开视频立刻播放' : '已关闭: 只显示封面, 按中键播放');
   }
 
-  // 全屏播放要不要显示二级菜单 (左软键显示/隐藏)
-  // 关掉的话: 全屏只剩中键的「OK键播放暂停」提示, 左软键空着, 保持沉浸
+  // 全屏播放要不要显示二级菜单 (右软键显示/隐藏)
+  // 关掉的话: 全屏只剩中键的「播放 / 暂停」提示, 右软键空着, 保持沉浸
   function toggleFullscreenMenu() {
     const cur = $settings.fullscreenMenu !== false;
     settings.update(s => ({ ...s, fullscreenMenu: !cur }));
@@ -98,7 +98,7 @@
         <span class="label">打开视频立刻播放</span>
         <span class="value">{$settings.autoPlay === false ? '关' : '开'}</span>
       </div>
-      <!-- 全屏播放显示菜单: 左软键用来显示/隐藏二级菜单 (关掉则保持沉浸) -->
+      <!-- 全屏播放显示菜单: 右软键用来显示/隐藏二级菜单 (关掉则保持沉浸) -->
       <div class="menu-item" data-navable tabindex="0" on:click={toggleFullscreenMenu}>
         <span class="label">全屏播放显示菜单</span>
         <span class="value">{$settings.fullscreenMenu === false ? '关' : '开'}</span>
