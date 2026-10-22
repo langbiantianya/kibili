@@ -130,9 +130,9 @@ const only = (opt('--only') || '').split(',').filter(Boolean);
 
 // 每个页面: 路径 + 等待时间(毫秒) + 期望的软键文案
 const PAGES = [
-  { name: 'home', hash: '#/home', wait: 6000, softkeys: { left: '刷新' } },
-  { name: 'following', hash: '#/following', wait: 6000, softkeys: { left: '刷新', center: '打开' } },
-  { name: 'profile', hash: '#/profile', wait: 4000, softkeys: { left: '', center: '打开', right: '' } },
+  { name: 'home', hash: '#/home', wait: 6000, softkeys: { left: '刷新', right: '更多' } },
+  { name: 'following', hash: '#/following', wait: 6000, softkeys: { left: '刷新', center: '打开', right: '更多' } },
+  { name: 'profile', hash: '#/profile', wait: 4000, softkeys: { left: '', center: '打开', right: '更多' } },
   { name: 'history', hash: '#/history', wait: 7000, softkeys: { left: '刷新' } },
   { name: 'favorites', hash: '#/favorites', wait: 6000, softkeys: {} },
   { name: 'settings', hash: '#/settings', wait: 3000, softkeys: {} },
@@ -925,6 +925,148 @@ if (!only.length || only.indexOf('back-key') >= 0) {  try {
   } catch (e) {
     results.push({ page: 'back-key', fails: [String(e.message)] });
     console.log('✗ ' + 'back-key'.padEnd(16) + String(e.message));
+  }
+}
+
+// 真机按键: 主页三个 Tab 的**二级菜单**
+//
+// 右软键现在统一是「更多」: 原来绑在右软键上的动作收进二级菜单,
+// 菜单最后一项固定是「退出应用」(全局收口)。
+if (!only.length || only.indexOf('tab-menu') >= 0) {
+  const fails = [];
+  const shot = name => (shotDir ? path.join(shotDir, 'tab-menu-' + name + '.png') : '');
+  const menuProbe = async () => {
+    const text = '(function(){return (\n' + MENU_PROBE + '\n);})()';
+    const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+    if (r.exception) throw new Error('菜单探针异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
+    return JSON.parse(r.result);
+  };
+  try {
+    // ── 1) 首页: 搜索 + 退出应用 ────────────────────────────────
+    await goto('#/home');
+    await delay(4000);
+    let m = await menuProbe();
+    if (m.bar.right !== '更多') fails.push('首页右软键应该是「更多」实际「' + m.bar.right + '」');
+    press(158);
+    await delay(1500);
+    m = await menuProbe();
+    if (!m.open) fails.push('首页按右软键没有展开菜单');
+    if (m.items.join(',') !== '搜索,退出应用') fails.push('首页菜单的项不对: ' + m.items.join(','));
+    if (m.bar.right !== '') fails.push('菜单打开后右软键应该没有文案实际「' + m.bar.right + '」');
+    if (m.bar.center !== '选择') fails.push('菜单打开后中软键应该是「选择」实际「' + m.bar.center + '」');
+    if (shot('home')) await screenshot(shot('home'));
+    await pressJs('SoftLeft');   // 关闭
+    await delay(1000);
+
+    // ── 2) 关注: 切 Tab + 退出应用 ───────────────────────────────
+    await goto('#/following');
+    await delay(4000);
+    press(158);
+    await delay(1500);
+    m = await menuProbe();
+    if (!m.open) fails.push('关注页按右软键没有展开菜单');
+    const items = m.items || [];
+    if (items.length !== 2) fails.push('关注页菜单应该两项, 实际: ' + items.join(','));
+    else {
+      if (items[0].indexOf('切到') !== 0) fails.push('关注页菜单第一项应该是「切到…」实际「' + items[0] + '」');
+      if (items[1] !== '退出应用') fails.push('关注页菜单最后一项应该是「退出应用」实际「' + items[1] + '」');
+    }
+    if (shot('following')) await screenshot(shot('following'));
+    await pressJs('SoftLeft');
+    await delay(1000);
+
+    // ── 3) 我的: 这一页原来没绑右软键 → 菜单里只有「退出应用」 ────
+    await goto('#/profile');
+    await delay(4000);
+    press(158);
+    await delay(1500);
+    m = await menuProbe();
+    if (!m.open) fails.push('我的页按右软键没有展开菜单');
+    if (m.items.join(',') !== '退出应用') fails.push('我的页菜单的项不对: ' + m.items.join(','));
+    if (shot('profile')) await screenshot(shot('profile'));
+
+    results.push({ page: 'tab-menu', fails });
+    console.log((fails.length ? '✗' : '✓') + ' ' + 'tab-menu'.padEnd(16) +
+      (fails.length ? fails.join(' | ') :
+        '三个 Tab: 右软键变「更多」+ 原动作进菜单 + 末项「退出应用」 全通过'));
+  } catch (e) {
+    results.push({ page: 'tab-menu', fails: [String(e.message)] });
+    console.log('✗ ' + 'tab-menu'.padEnd(16) + String(e.message));
+  }
+}
+
+// 真机: 「退出应用」—— 菜单最后一项
+//
+// 退出前先把路由重置到 '/' (首页), 再关掉应用窗口。
+// window.close() 在 KaiOS 2.4 上是真的能结束应用 (实测: 调完之后
+// console actor 消失, b2g-ps 里也没有这个应用了)。
+//
+// 这个用例会**把应用关掉**, 所以必须放在最后跑; 跑完再把应用拉起来,
+// 顺便验证重新打开落在首页 (路由确实被重置过)。
+if (!only.length || only.indexOf('exit-app') >= 0) {
+  const fails = [];
+  const shot = name => (shotDir ? path.join(shotDir, 'exit-app-' + name + '.png') : '');
+  const menuProbe = async () => {
+    const text = '(function(){return (\n' + MENU_PROBE + '\n);})()';
+    const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+    if (r.exception) throw new Error('菜单探针异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
+    return JSON.parse(r.result);
+  };
+  try {
+    // 先停在一个子页: 退出时应该被重置回首页
+    await goto('#/settings');
+    await delay(2500);
+    await goto('#/home');
+    await delay(3500);
+    press(158);
+    await delay(1500);
+    let m = await menuProbe();
+    if (!m.open) fails.push('按右软键没有展开菜单');
+    const n = (m.items || []).length;
+    if (!n || m.items[n - 1] !== '退出应用') {
+      fails.push('菜单最后一项应该是「退出应用」实际「' + ((m.items || [])[n - 1] || '') + '」');
+    }
+    // 高亮移到最后一项 (↓ 是绕圈的, 按 n-1 次正好落在末项)
+    for (let i = 0; i < n - 1; i++) {
+      press(108);
+      await delay(350);
+    }
+    await delay(600);
+    m = await menuProbe();
+    if (m.selected !== n - 1) {
+      fails.push('高亮应该落在最后一项 (第 ' + n + ' 项), 实际第 ' + (m.selected + 1) + ' 项');
+    }
+    if (shot('menu')) await screenshot(shot('menu'));
+
+    // 中键 = 激活 → 退出应用
+    press(352);
+    await delay(4000);
+
+    // 应用应该被关掉了: 再取状态会失败
+    let closed = false;
+    try {
+      await withActor(a => req(a, 'evaluateJS', { text: 'location.hash' }, 6000));
+    } catch (e) {
+      closed = true;
+    }
+    if (!closed) fails.push('点了「退出应用」之后应用还活着');
+
+    // 重新拉起来: 路由应该被重置过 → 落在首页
+    await req(webappsActor, 'launch', { manifestURL });
+    await delay(6000);
+    const again = await withActor(a => req(a, 'evaluateJS', { text: 'location.hash' }, DEFAULT_TIMEOUT));
+    if (!/^#\/(home)?$/.test(String(again.result || ''))) {
+      fails.push('退出后重新打开应该落在首页, 实际「' + again.result + '」');
+    }
+    if (shot('relaunch')) await screenshot(shot('relaunch'));
+
+    results.push({ page: 'exit-app', fails });
+    console.log((fails.length ? '✗' : '✓') + ' ' + 'exit-app'.padEnd(16) +
+      (fails.length ? fails.join(' | ') :
+        '退出应用: 路由先重置到 / + 真把应用关掉 + 重开落在首页 全通过'));
+  } catch (e) {
+    results.push({ page: 'exit-app', fails: [String(e.message)] });
+    console.log('✗ ' + 'exit-app'.padEnd(16) + String(e.message));
   }
 }
 

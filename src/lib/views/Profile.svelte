@@ -8,6 +8,7 @@
     focusFirst,
   } from "../keyboard/index.js";
   import { setSoftkeys, showToast } from "../stores/ui.js";
+  import { buildAppMenu } from "../menu/appMenu.js";
 
   // 页面容器 (聚焦用)
   let mainEl = null;
@@ -25,10 +26,15 @@
     //   - 左软键原来是"打开"、右软键原来是"登出", 都去掉了
     //   - "打开"交给中键 (框架默认 Enter → activateFocused, 点当前焦点元素)
     //   - "登出"在下面的菜单项里, 同样用中键打开
+    //   - 右软键现在是**二级菜单** (软键栏的兜底作用域接管, 页面别自己绑)
     const off = onKey("profile", {
       Down: () => moveFocus(+1),
       Up: () => moveFocus(-1)
-    }, { softkeys: true });
+    }, {
+      softkeys: true,
+      // 二级菜单 (右软键): 这一页原来没绑右软键, 菜单里就只剩「退出应用」
+      menu: () => buildAppMenu([]),
+    });
 
     // 进入页面焦点落在用户卡片上 —— "打开"由中键承担, 焦点得先在能打开的东西上
     tick().then(() => {

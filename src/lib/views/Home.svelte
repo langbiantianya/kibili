@@ -9,6 +9,7 @@
   import { navigate } from "../router/index.js";
   import { onKey, roam, getFocusables, focusAt, focusFirst } from "../keyboard/index.js";
   import { setSoftkeys, showToast } from "../stores/ui.js";
+  import { buildAppMenu } from "../menu/appMenu.js";
 
   // 数据、加载状态在模块级 store 里 (见 stores/home.js):
   // 组件销毁也不丢 —— 从播放器/二级页返回时直接用缓存, 不重新发请求。
@@ -97,8 +98,10 @@
   $: restoreFocus($homeFeed.items.length);
 
   // 软键标签随登录状态变化 (登录/登出后立即更新, 不用重进页面)
-  // 左软键: 未登录=登录, 已登录=刷新; 右软键: 已登录=搜索; 中键: 已登录=打开
-  $: setSoftkeys($isLogin ? "刷新" : "登录", $isLogin ? "搜索" : "", $isLogin ? "打开" : "");
+  // 左软键: 未登录=登录, 已登录=刷新
+  // 右软键: 收进二级菜单了 → 这一格空着, 软键栏显示菜单的 label「更多」
+  // 中键: 未登录=无, 已登录=打开
+  $: setSoftkeys($isLogin ? "刷新" : "登录", "", $isLogin ? "打开" : "");
 
   onMount(() => {
     // **只有没有缓存时才拉**: 返回本页时列表已经在缓存里, 不重复请求
@@ -120,12 +123,19 @@
           navigate("/login");
         }
       },
-      SoftRight: () => {
-        if ($isLogin) {
-          navigate("/search");
-        }
-      },
-    }, { softkeys: true });
+      // 右软键不绑了: 收进二级菜单 (软键栏的兜底作用域接管这个键)
+    }, {
+      softkeys: true,
+      // 二级菜单: 搜索 + 退出应用 (最后一项)
+      menu: () => buildAppMenu([
+        {
+          label: "搜索",
+          // 没登录时搜索页去不了 —— 灰掉, 按中键没反应
+          disabled: !$isLogin,
+          action: () => navigate("/search"),
+        },
+      ]),
+    });
     return () => {
       window.removeEventListener("focus", onFocusCapture, true);
       off();

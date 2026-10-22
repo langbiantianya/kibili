@@ -5,6 +5,7 @@
   import { navigate } from '../router/index.js';
   import { onKey, roam, getFocusables, focusAt, focusFirst } from '../keyboard/index.js';
   import { setSoftkeys } from '../stores/ui.js';
+  import { buildAppMenu } from '../menu/appMenu.js';
   import { following, followingFocus, resetFollowingData, loadFollowing } from '../stores/following.js';
   import TabBar from '../components/TabBar.svelte';
   import FeedList from '../components/FeedList.svelte';
@@ -134,9 +135,10 @@
   $: restoreFocus($following.videos.length, $following.dynamics.length);
 
   // 软键标签随登录状态变化 (登录/登出后立即更新, 不用重进页面)
-  // 左软键: 未登录=登录, 已登录=刷新; 右软键: 切Tab
+  // 左软键: 未登录=登录, 已登录=刷新
+  // 右软键: 收进二级菜单了 → 这一格空着, 软键栏显示菜单的 label「更多」
   // 中间: 中键 (OK) 的作用提示 —— 打开当前选中的视频/动态
-  $: setSoftkeys($isLogin ? '刷新' : '登录', '切Tab', $isLogin ? '打开' : '');
+  $: setSoftkeys($isLogin ? '刷新' : '登录', '', $isLogin ? '打开' : '');
 
   onMount(() => {
     // 恢复上次的 tab (默认「视频」); 有缓存就不重新拉
@@ -157,12 +159,22 @@
           navigate('/login');
         }
       },
-      SoftRight: () => changeTab($following.activeTab === 0 ? 1 : 0),
+      // 右软键不绑了: 切 Tab 收进二级菜单 (软键栏的兜底作用域接管这个键)
       // 数字键 0: 重新加载当前 Tab
       // (loadFollowing 是往数组尾部追加的, 必须先清空分页状态再加载,
       //  否则整个列表会被追加一份重复的)
       '0': () => refreshCurrent(),
-    }, { softkeys: true });
+    }, {
+      softkeys: true,
+      // 二级菜单: 切 Tab + 退出应用 (最后一项)
+      // 菜单是打开那一刻才求值的 → 「切到哪个 Tab」永远是最新的当前 Tab
+      menu: () => buildAppMenu([
+        {
+          label: $following.activeTab === 0 ? '切到动态' : '切到视频',
+          action: () => changeTab($following.activeTab === 0 ? 1 : 0),
+        },
+      ]),
+    });
     return () => {
       window.removeEventListener('focus', onFocusCapture, true);
       off();
