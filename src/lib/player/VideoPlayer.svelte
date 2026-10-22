@@ -6,6 +6,7 @@
   import { moveFocus, onKey, activateFocused } from '../keyboard/index.js';
   import { reportProgress } from '../api/interact.js';
   import { showToast } from '../stores/ui.js';
+  import { buildVideoMenu } from './videoMenu.js';
   import { formatCount } from '../utils/format.js';
   import { biliImg } from '../utils/platform.js';
   import CommentSection from '../components/CommentSection.svelte';
@@ -340,88 +341,40 @@
   }
 
   // ── 软键菜单 (二级 / 三级) ─────────────────────────────────────────
-  // 视频页能派的动作有十来个 (互动 / 播放控制 / 分享 / 举报…),
-  // 软键栏只有三个格子, 塞不下 → 右软键变成「更多」, 按它展开二级菜单;
-  // 二级菜单里的项如果还有子项, 再展开一层就是三级菜单。
+  // 菜单树是**共用**的 (player/videoMenu.js): 视频详情页和全屏播放页的
+  // 菜单内容必须一模一样, 所以只写一份, 两个页面各自把动作传进去。
   //
-  // 二级菜单只留**入口**, 按顺手程度排:
-  //   1. UP 主页    —— 常常就想知道这视频是谁做的
-  //   2. 播放控制   —— 快进/快退/音量加/音量减 收进三级菜单
-  //   3. 互动       —— 一键三连/点赞/投币/收藏 收进三级菜单
-  //   4. 分享       —— 复制链接/分享给好友
-  //   5. 举报       —— 不友善/垃圾广告/其他
-  //
-  // 二级一眼能扫完 (5 项, 一屏放得下), 想细调再展开一层;
-  // 三级里都是叶子项, 按中键直接执行。
+  // 菜单按**语义**分组, 层级用 items 嵌套:
+  //   UP 主页                      ← 直接执行
+  //   播放控制 ▸  快进/快退/音量加/音量减
+  //   互动 ▸      一键三连/点赞/投币/收藏
+  //   分享 ▸ / 举报 ▸
   //
   // 菜单树写成**函数**: 打开菜单的那一刻才求值, 菜单项能跟着 meta 走
   // (作者信息没到时「UP 主页」就是灰的, 按了没反应)。
   //
   // 菜单跟着这个按键作用域一起注册 / 释放 (opts.menu),
   // 播放器卸载时自动收走, 不会漏到别的页面。
-  function buildVideoMenu() {
+  function buildMenu() {
     const ownerMid = meta && meta.owner ? meta.owner.mid : 0;
-    const bvid = (meta && meta.bvid) || '';
-    return {
+    return buildVideoMenu({
       slot: 'right',           // 占右软键
       label: '更多',           // 右软键显示的文案
-      title: '更多操作',       // 菜单面板标题 (面包屑第一级)
-      items: [
-        // ── 1. UP 主页 ──────────────────────────────────────────────
-        {
-          label: 'UP 主页',
-          disabled: !ownerMid,
-          action: () => dispatch('author', { mid: ownerMid })
-        },
-
-        // ── 2. 播放控制 → 三级菜单 ──────────────────────────────────
-        // hint 提示"还有更快的键": 方向键长按就是同样的事 (见上面的按键表)
-        {
-          label: '播放控制',
-          items: [
-            { label: '快进', hint: '长按 → 键', action: () => seek(SEEK_STEP) },
-            { label: '快退', hint: '长按 ← 键', action: () => seek(-SEEK_STEP) },
-            { label: '音量加', hint: '长按 ↑ 键', action: () => bumpVolume(1) },
-            { label: '音量减', hint: '长按 ↓ 键', action: () => bumpVolume(-1) }
-          ]
-        },
-
-        // ── 3. 互动 → 三级菜单 ───────────────────────────────────────
-        // 点赞/投币/收藏/三连的接口逻辑在 Player.svelte (那里才有登录态和
-        // status/counts), 播放器这边派事件过去。
-        {
-          label: '互动',
-          items: [
-            { label: '一键三连', action: () => dispatch('triple') },
-            { label: '点赞', action: () => dispatch('like') },
-            { label: '投币', action: () => dispatch('coin') },
-            { label: '收藏', action: () => dispatch('fav') }
-          ]
-        },
-
-        // ── 4. 分享 → 三级菜单 ───────────────────────────────────────
-        {
-          label: '分享',
-          items: [
-            {
-              label: '复制链接',
-              action: () => showToast('https://www.bilibili.com/video/' + bvid)
-            },
-            { label: '分享给好友', action: () => showToast('分享功能待实现') }
-          ]
-        },
-
-        // ── 5. 举报 → 三级菜单 ───────────────────────────────────────
-        {
-          label: '举报',
-          items: [
-            { label: '不友善', action: () => showToast('举报功能待实现') },
-            { label: '垃圾广告', action: () => showToast('举报功能待实现') },
-            { label: '其他', action: () => showToast('举报功能待实现') }
-          ]
-        }
-      ]
-    };
+      bvid: (meta && meta.bvid) || '',
+      ownerMid: ownerMid,
+      seekStep: SEEK_STEP,
+      seek: d => seek(d),
+      volume: d => bumpVolume(d),
+      onAuthor: mid => dispatch('author', { mid: mid }),
+      // 点赞/投币/收藏/三连的接口逻辑在 Player.svelte (那里才有登录态和
+      // status/counts), 播放器这边派事件过去。
+      interact: {
+        triple: () => dispatch('triple'),
+        like: () => dispatch('like'),
+        coin: () => dispatch('coin'),
+        fav: () => dispatch('fav')
+      }
+    });
   }
 
   onMount(() => {
@@ -480,7 +433,7 @@
       }
       // 右软键不再单独绑: 它变成了「更多」, 由软键栏的二级菜单接管
       // (见下面的 buildVideoMenu / opts.menu)
-    }, { priority: 10, softkeys: true, menu: () => buildVideoMenu() });
+    }, { priority: 10, softkeys: true, menu: () => buildMenu() });
 
     // 封面尺寸跟着视口走 (跟着播放区域宽度)
     updateSize();

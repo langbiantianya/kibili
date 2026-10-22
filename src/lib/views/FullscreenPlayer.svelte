@@ -1,10 +1,14 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { getVideoInfo, getPlayUrl, getDashUrls } from '../api/video.js';
+  import { getStatus, likeVideo, coinVideo, favVideo, unfavVideo, tripleAction } from '../api/interact.js';
   import { settings } from '../stores/settings.js';
   import { requestSystemVolume } from '../player/volume.js';
   import { onKey } from '../keyboard/index.js';
-  import { setSoftkeys } from '../stores/ui.js';
+  import { setSoftkeys, showToast } from '../stores/ui.js';
+  import { isLogin } from '../stores/user.js';
+  import { buildVideoMenu } from '../player/videoMenu.js';
+  import { navigate } from '../router/index.js';
   import { biliImg } from '../utils/platform.js';
 
   let videoSrc = '';
@@ -30,6 +34,22 @@
 
   let normalPlaybackRate = 1.0; // 保存正常播放速度
   let isSpeedUp = false;        // 是否正在倍速播放
+
+  // 一次快进/快退多少秒
+  const SEEK_STEP = 10;
+
+  // UP 主 mid (「UP 主页」菜单项要它; 没有作者信息时那一项是灰的)
+  let ownerMid = 0;
+
+  // 互动状态 (点赞/投币/收藏): 菜单里「点赞」「收藏」是**切换**,
+  // 得知道当前是已赞还是未赞 —— 登录后查一次状态。
+  let status = { like: 0, coin: 0, fav: 0 };
+
+  // 设置里「全屏播放显示菜单」关了 → 全屏不接管二级菜单, 左软键空着
+  $: fullscreenMenu = $settings.fullscreenMenu !== false;
+
+  // 长按检测参数 (和视频详情页一致)
+  const LONG_PRESS_MS = 400;   // 长按阈值
 
   // 进度条相关
   let currentTime = 0;
@@ -128,6 +148,12 @@
       title = info.title;
       poster = info.pic;
       currentCid = info.cid;
+      ownerMid = info.owner ? info.owner.mid : 0;
+
+      // 登录了才查互动状态 (点赞/收藏是**切换**, 得知道当前状态)
+      if ($isLogin) {
+        getStatus(bvid).then(st => { status = st; }).catch(() => {});
+      }
 
       // 全屏播放器读取设置中的 quality，默认 360P
       const qn = $settings.quality || 16;
@@ -259,7 +285,7 @@
     }
   }
 
-  // 开始倍速
+  // 开始倍速 (长按 ↓ 键)
   function startSpeedUp() {
     if (!video || isSpeedUp) return;
     isSpeedUp = true;
@@ -267,7 +293,7 @@
     setPlaybackRate(2.0);
   }
 
-  // 结束倍速
+  // 结束倍速 (松手时恢复)
   function stopSpeedUp() {
     if (!isSpeedUp) return;
     isSpeedUp = false;
@@ -277,6 +303,97 @@
   // 调音量 = 只调系统音量 (应用不维护自己的音量, 详见 player/volume.js)
   function bumpVolume(delta) {
     requestSystemVolume(delta);
+  }
+
+  // ── 互动动作 (点赞/投币/收藏/一键三连) ──────────────────────────────
+  //
+  // 菜单内容与视频详情页一模一样, 但全屏页没有详情页那套 status/counts UI,
+  // 所以这里自己调接口 + 给个 toast (没登录/失败都要有反馈, 否则按了跟没按一样)。
+  function needLogin() {
+    if (!$isLogin) {
+      showToast('请先登录');
+      return false;
+    }
+    return true;
+  }
+
+  async function doLike() {
+    if (!needLogin()) return;
+    try {
+      await likeVideo(currentBvid, !status.like);
+      status = { ...status, like: status.like ? 0 : 1 };
+      showToast(status.like ? '✓ 已点赞' : '已取消点赞');
+    } catch (e) {
+      showToast('操作失败');
+    }
+  }
+
+  async function doCoin() {
+    if (!needLogin()) return;
+    try {
+      await coinVideo(currentBvid, 1);
+      status = { ...status, coin: 1 };
+      showToast('✓ 已投币');
+    } catch (e) {
+      showToast('操作失败');
+    }
+  }
+
+  async function doFav() {
+    if (!needLogin()) return;
+    try {
+      if (status.fav) {
+        await unfavVideo(currentBvid);
+      } else {
+        await favVideo(currentBvid);
+      }
+      status = { ...status, fav: status.fav ? 0 : 1 };
+      showToast(status.fav ? '✓ 已收藏' : '已取消收藏');
+    } catch (e) {
+      showToast('操作失败');
+    }
+  }
+
+  async function doTriple() {
+    if (!needLogin()) return;
+    try {
+      await tripleAction(currentBvid);
+      status = { ...status, like: 1, coin: 1, fav: 1 };
+      showToast('✓ 一键三连');
+    } catch (e) {
+      showToast('操作失败');
+    }
+  }
+
+  /**
+   * 菜单树: 和视频详情页共用同一份 (player/videoMenu.js),
+   * 这里只把自己的动作传进去。
+   */
+  function buildMenu() {
+    return buildVideoMenu({
+      slot: 'left',            // 全屏用左软键开菜单 (右软键留空, 保持沉浸)
+      label: '菜单',
+      bvid: currentBvid,
+      ownerMid: ownerMid,
+      seekStep: SEEK_STEP,
+      seek: d => seek(d),
+      volume: d => bumpVolume(d),
+      onAuthor: mid => { if (mid) navigate('/user?uid=' + mid); },
+      // 副提示里的按键跟着本页面的绑定走 (画面转了 90°, 方向键也转了 90°):
+      //   ↑ = 快退, ↓ = 快进, ← = 音量减, → = 音量加
+      hints: {
+        forward: '短按 ↓ 键',
+        back: '短按 ↑ 键',
+        volUp: '短按 → 键',
+        volDown: '短按 ← 键'
+      },
+      interact: {
+        triple: doTriple,
+        like: doLike,
+        coin: doCoin,
+        fav: doFav
+      }
+    });
   }
 
   // 将字符串拆分成单个字符数组
@@ -298,37 +415,54 @@
   //   release = 无论长短按, 松手时都会触发 (倍速靠它恢复)
 
   onMount(() => {
-    // 左软键 = 播放/暂停; 返回走退格键 (全局 app-back), 右软键不声明
+    // 左软键 = 显示/隐藏菜单 (由软键栏的兜底作用域接管);
+    // 返回走退格键 (全局 app-back); 右软键不声明, 保持沉浸
     loadVideo();
     updateOrientation();
     window.addEventListener('resize', updateOrientation);
     const off = onKey('fullscreen-player', {
       // 中键用 { press } 形式: 松手时触发一次, 按住不放不会连发
       Enter: { press: () => togglePlay() },
-      SoftLeft: () => togglePlay(),
-      Up: () => seek(-10),
+
+      // ── 方向键 ────────────────────────────────────────────────────
+      //
+      // 画面是转 90° 放的 (用户把手机横过来看), 方向键的绑定也跟着转过
+      // 90° (和视频详情页正好差一格):
+      //   ↑/↓  快退 / 快进      ←/→  音量加 / 音量减
+      //
+      // 菜单里的副提示写的也是这一套键 (见下面 buildMenu 的 hints),
+      // 文案和实际行为必须对得上。
+      Up: () => seek(-SEEK_STEP),
       Down: {
         // 短按 = 前进 10 秒; 长按 = 倍速播放 (长按时不再走短按的 seek)
-        press: () => seek(10),
+        press: () => seek(SEEK_STEP),
         long: () => startSpeedUp(),
         release: () => stopSpeedUp(),
         repeat: false,
-        threshold: 400
+        threshold: LONG_PRESS_MS
       },
       Left: () => bumpVolume(-1),
       Right: () => bumpVolume(+1),
       // 真机硬件音量键 (Nokia 6300 4G / 8000 4G 等)
       VolumeUp: () => bumpVolume(+1),
       VolumeDown: () => bumpVolume(-1)
-    }, { priority: 10, softkeys: true });
+    }, {
+      priority: 10,
+      softkeys: true,
+      // 全屏的二级菜单挂在**左软键**上 (设置里可以关掉)
+      menu: fullscreenMenu ? () => buildMenu() : null
+    });
     return () => {
       window.removeEventListener('resize', updateOrientation);
       off();
     };
   });
 
-  // 软键文案跟着状态走: 还没加载视频时左软键 = 播放 (去加载), 加载后 = 播放/暂停
-  $: setSoftkeys(videoSrc ? '播放/暂停' : '播放', '', '');
+  // 软键文案:
+  //   左 = 空 —— 菜单接管那一格 (软键栏会显示菜单的 label「菜单」+ 小箭头)
+  //   中 = OK 键播放/暂停的提示 (播放/暂停已经从中键走, 明确告诉用户)
+  //   右 = 空 (保持沉浸)
+  $: setSoftkeys('', '', 'OK键播放暂停');
 
   // 封面地址跟着屏幕尺寸走 (横屏宽度 = 视口长边)
   $: posterUrl = poster ? biliImg(poster, posterW, posterH, 'jpg') : '';

@@ -8,7 +8,11 @@ const initial = persist.load('settings:v1', {
   // 打开视频是否立刻播放:
   //   true  = 保持原样, 打开就拉流并播放
   //   false = 不拉流不播, 只显示封面, 按中键(播放)才去加载
-  autoPlay: true
+  autoPlay: true,
+  // 全屏播放要不要显示二级菜单:
+  //   true  = 左软键用来显示/隐藏菜单 (和视频详情页同一份菜单)
+  //   false = 全屏保持沉浸, 左软键空着, 没有菜单
+  fullscreenMenu: true
 });
 
 // 旧版本存过的"应用内音量"(settings.volume), 现在音量只走系统 (KaiOS 2.4 读不到系统音量,
@@ -21,6 +25,11 @@ if (initial && typeof initial === 'object' && 'volume' in initial) {
 // 不然老用户升级后打开视频会突然变成不播 (行为变了)
 if (initial && typeof initial === 'object' && typeof initial.autoPlay !== 'boolean') {
   initial.autoPlay = true;
+}
+
+// 老版本存过的设置里没有 fullscreenMenu 这个字段 —— 缺省按"显示菜单"处理
+if (initial && typeof initial === 'object' && typeof initial.fullscreenMenu !== 'boolean') {
+  initial.fullscreenMenu = true;
 }
 
 export const settings = writable(initial);
