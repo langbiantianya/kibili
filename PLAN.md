@@ -343,7 +343,7 @@ function install() {
 | `9` | 跳到「UP 主空间」 | 预留 |
 | `0` | **「一键三连」(赞+币+藏)**: B 站梗 | 0 = "全部" |
 | `*` | 收藏(等于 `3` 的快捷) | star |
-| `#` | 「更多」: 举报/反馈/复制链接 | pound |
+| `#` | 「更多」: 复制链接/分享 | pound |
 | SoftLeft | "选项" | Symbian |
 | SoftRight | "返回" | 上下文 |
 
@@ -696,7 +696,7 @@ xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset
 | 5 | 进入全屏播放 |
 | 0 | **一键三连**: 赞 + 币 + 藏(B 站梗) |
 | * | 收藏(等于 `3` 快捷) |
-| # | 更多: 举报/复制链接(后续) |
+| # | 更多: 复制链接/分享 |
 | D-pad Left/Right | 切区段: [简介/UP/统计] → [互动栏] → [评论区] |
 | SoftLeft | 选项(切评论排序: 热门 ↔ 最新) |
 | SoftRight | 返回来源页(`#/folder` 或 `#/home`) |

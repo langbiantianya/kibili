@@ -449,7 +449,7 @@ if (!only.length || only.indexOf('menu') >= 0) {
     if (m.bar.left !== '关闭') fails.push('二级菜单左软键应该是「关闭」实际「' + m.bar.left + '」');
     if (m.bar.center !== '选择') fails.push('二级菜单中键应该是「选择」实际「' + m.bar.center + '」');
     if (m.bar.right !== '') fails.push('二级菜单右软键应该没有文案实际「' + m.bar.right + '」');
-    if (m.items.join(',') !== 'UP 主页,分享,举报') fails.push('二级菜单的项不对: ' + m.items.join(','));
+    if (m.items.join(',') !== 'UP 主页,分享,收藏') fails.push('二级菜单的项不对: ' + m.items.join(','));
     if (m.crumbs.join(',') !== '更多操作') fails.push('面包屑不对: ' + m.crumbs.join(','));
     if (m.selected !== 0) fails.push('默认应该高亮第一项, 实际第 ' + (m.selected + 1) + ' 项');
     if (m.dots !== 1) fails.push('层级点应该亮 1 个, 实际 ' + m.dots);
@@ -483,7 +483,7 @@ if (!only.length || only.indexOf('menu') >= 0) {
     await delay(1200);
     m = await menuProbe();
     if (!m.open) fails.push('按退格键后菜单应该还开着 (回到二级)');
-    if (m.items.join(',') !== 'UP 主页,分享,举报') fails.push('退格后应该回到二级菜单, 实际: ' + m.items.join(','));
+    if (m.items.join(',') !== 'UP 主页,分享,收藏') fails.push('退格后应该回到二级菜单, 实际: ' + m.items.join(','));
     if (m.selected !== 1) fails.push('退格后高亮应该还原成刚才那一项(分享), 实际第 ' + (m.selected + 1) + ' 项');
     if (m.bar.left !== '关闭') fails.push('回到二级后左软键应该又是「关闭」实际「' + m.bar.left + '」');
     if (shot('back')) await screenshot(shot('back'));
@@ -516,7 +516,7 @@ if (!only.length || only.indexOf('menu') >= 0) {
 
 // 真机按键: 视频页的**软键菜单**
 //
-// 视频页的二级菜单只留 5 个入口 (UP 主页 / 播放控制 / 互动 / 分享 / 举报),
+// 视频页的二级菜单只留 4 个入口 (UP 主页 / 播放控制 / 互动 / 分享),
 // 快进快退音量、点赞投币收藏全都收在**三级菜单**里。这里验四件事:
 //   1) 二级菜单的项和顺序都和代码里写的一致 (没有分组标题/副提示)
 //   2) 「播放控制」进三级后, 四项带"长按 → 键"这类副提示
@@ -556,17 +556,17 @@ if (!only.length || only.indexOf('video-menu') >= 0) {
     if (m.bar.center !== '选择') fails.push('视频页菜单中键应该是「选择」实际「' + m.bar.center + '」');
     if (m.bar.right !== '') fails.push('视频页菜单右软键应该没有文案实际「' + m.bar.right + '」');
 
-    // 二级菜单只留 5 个入口, 顺序按顺手程度: UP 主页 → 播放控制 → 互动 → 分享 → 举报
-    const wantItems = 'UP 主页,播放控制,互动,分享,举报';
+    // 二级菜单只留 4 个入口, 顺序按顺手程度: UP 主页 → 播放控制 → 互动 → 分享
+    const wantItems = 'UP 主页,播放控制,互动,分享';
     if (m.items.join(',') !== wantItems) fails.push('视频页菜单的项不对: ' + m.items.join(','));
     if (m.groups.length) fails.push('二级菜单不该有分组标题: ' + m.groups.join(','));
     if (m.hints.length) fails.push('二级菜单不该有副提示: ' + m.hints.join(','));
     if (m.selected !== 0) fails.push('默认应该高亮第一项(UP 主页), 实际第 ' + (m.selected + 1) + ' 项');
     if (m.items[0] !== 'UP 主页') fails.push('第一个位置应该是「UP 主页」实际「' + m.items[0] + '」');
     if (m.items[1] !== '播放控制') fails.push('第二个位置应该是「播放控制」实际「' + m.items[1] + '」');
-    // 播放控制/互动/分享/举报 都有子项 → 右边必须有箭头
+    // 播放控制/互动/分享 都有子项 → 右边必须有箭头
     const withArrow = (m.chevrons || []).map(c => c.label).join(',');
-    if (withArrow !== '播放控制,互动,分享,举报') fails.push('有子项的项不对: ' + withArrow);
+    if (withArrow !== '播放控制,互动,分享') fails.push('有子项的项不对: ' + withArrow);
     for (const c of (m.chevrons || [])) {
       if (!c.sameLine) fails.push('「' + c.label + '」的箭头掉到了下一行');
       if (!c.rightSide) fails.push('「' + c.label + '」的箭头压在文字上');
@@ -654,7 +654,7 @@ if (!only.length || only.indexOf('video-menu') >= 0) {
     results.push({ page: 'video-menu', fails });
     console.log((fails.length ? '✗' : '✓') + ' ' + 'video-menu'.padEnd(16) +
       (fails.length ? fails.join(' | ') :
-        '视频页菜单: 二级 5 入口 + 播放控制/互动三级菜单 + 副提示 + 快进 5 秒 全通过' +
+        '视频页菜单: 二级 4 入口 + 播放控制/互动三级菜单 + 副提示 + 快进 5 秒 全通过' +
         (canSeek ? '' : ' (视频没加载出来, 快进没验证)')));
   } catch (e) {
     results.push({ page: 'video-menu', fails: [String(e.message)] });
@@ -712,7 +712,7 @@ if (!only.length || only.indexOf('fullscreen-menu') >= 0) {
     if (m.bar.left !== '关闭') fails.push('菜单打开后左软键应该是「关闭」实际「' + m.bar.left + '」');
     if (m.bar.center !== '选择') fails.push('菜单打开后中软键应该是「选择」实际「' + m.bar.center + '」');
     if (m.bar.right !== '') fails.push('菜单打开后右软键应该没有文案实际「' + m.bar.right + '」');
-    const wantItems = 'UP 主页,播放控制,互动,分享,举报';
+    const wantItems = 'UP 主页,播放控制,互动,分享';
     if (m.items.join(',') !== wantItems) fails.push('全屏菜单的项不对: ' + m.items.join(','));
     if (m.crumbs.join(',') !== '更多操作') fails.push('全屏菜单的面包屑不对: ' + m.crumbs.join(','));
     if (m.selected !== 0) fails.push('默认应该高亮第一项, 实际第 ' + (m.selected + 1) + ' 项');
@@ -810,7 +810,7 @@ if (!only.length || only.indexOf('fullscreen-menu') >= 0) {
 // 真机按键: 设置里「全屏播放显示软键栏」关掉之后的行为
 //
 // 关掉 = **整条软键栏藏起来** (沉浸模式), 不是"二级菜单打不开":
-//   软键栏藏着 → 右软键照样能展开二级菜单, 5 个入口一个不少
+//   软键栏藏着 → 右软键照样能展开二级菜单, 4 个入口一个不少
 //   菜单关掉 → 软键栏继续藏着 (不会又冒出来)
 //
 // 菜单**开着的时候**软键栏会临时露出来 —— 菜单的操作提示 (关闭 / 选择)
@@ -863,7 +863,7 @@ if (!only.length || only.indexOf('fullscreen-nobar') >= 0) {
     await delay(1500);
     m = await menuProbe();
     if (!m.open) fails.push('软键栏藏着的时候按右软键应该照样能展开菜单');
-    if (m.items.join(',') !== 'UP 主页,播放控制,互动,分享,举报') {
+    if (m.items.join(',') !== 'UP 主页,播放控制,互动,分享') {
       fails.push('藏栏时菜单的项不对: ' + m.items.join(','));
     }
     if (!m.barVisible) fails.push('菜单开着的时候软键栏应该露出来当「关闭 / 选择」的提示');

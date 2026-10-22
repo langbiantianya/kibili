@@ -36,7 +36,7 @@
   const VARIANTS = [
     {
       name: "基础两级",
-      desc: "二级菜单 + 两个带子项的项 (分享/举报)",
+      desc: "二级菜单 + 两个带子项的项 (分享/收藏)",
       build: () => ({
         slot: "right",
         label: "更多",
@@ -51,11 +51,11 @@
             ]
           },
           {
-            label: "举报",
+            label: "收藏",
             items: [
-              { label: "不友善", action: () => act("举报 › 不友善") },
-              { label: "垃圾广告", action: () => act("举报 › 垃圾广告") },
-              { label: "其他", action: () => act("举报 › 其他") }
+              { label: "稍后再看", action: () => act("收藏 › 稍后再看") },
+              { label: "收藏到文件夹", action: () => act("收藏 › 收藏到文件夹") },
+              { label: "其他", action: () => act("收藏 › 其他") }
             ]
           }
         ]
@@ -118,7 +118,7 @@
     },
     {
       name: "视频页同结构",
-      desc: "二级只留 5 个入口, 快进/快退/音量/互动都收进三级菜单",
+      desc: "二级只留 4 个入口, 快进/快退/音量/互动都收进三级菜单",
       build: () => ({
         slot: "right",
         label: "更多",
@@ -148,13 +148,6 @@
             items: [
               { label: "复制链接", action: () => act("分享 › 复制链接") },
               { label: "分享给好友", action: () => act("分享 › 分享给好友") }
-            ]
-          },
-          {
-            label: "举报",
-            items: [
-              { label: "不友善", action: () => act("举报 › 不友善") },
-              { label: "垃圾广告", action: () => act("举报 › 垃圾广告") }
             ]
           }
         ]

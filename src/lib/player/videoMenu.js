@@ -16,8 +16,6 @@
 //     一键三连 / 点赞 / 投币 / 收藏
 //   分享 ▸                      ← 三级菜单
 //     复制链接 / 分享给好友
-//   举报 ▸                      ← 三级菜单
-//     不友善 / 垃圾广告 / 其他
 //
 // hint 里写的按键必须和**那个页面**里方向键的实际绑定对得上 (软键文案
 // 与行为一致是本项目的硬规矩)。两个页面的方向键布局不一样 (全屏的画面
@@ -102,14 +100,6 @@ export function buildVideoMenu(o) {
             action: () => showToast('https://www.bilibili.com/video/' + bvid)
           },
           { label: '分享给好友', action: () => showToast('分享功能待实现') }
-        ]
-      },
-      {
-        label: '举报',
-        items: [
-          { label: '不友善', action: () => showToast('举报功能待实现') },
-          { label: '垃圾广告', action: () => showToast('举报功能待实现') },
-          { label: '其他', action: () => showToast('举报功能待实现') }
         ]
       }
     ]

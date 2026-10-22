@@ -1679,10 +1679,10 @@ function makeMenuTree(log) {
         ]
       },
       {
-        label: '举报',
+        label: '收藏',
         items: [
-          { label: '不友善', action: () => log.push('report') },
-          { label: '垃圾广告', disabled: true, action: () => log.push('ad') }
+          { label: '稍后再看', action: () => log.push('later') },
+          { label: '收藏到文件夹', disabled: true, action: () => log.push('folder') }
         ]
       }
     ]
@@ -1731,7 +1731,7 @@ check('软键菜单: 打开 → 显示二级菜单 (栈的第一层)', () => {
   const st = menuState();
   eq(st.open, true, '菜单应该打开了');
   eq(st.depth, 1, '打开时在二级菜单 (栈深 1)');
-  eq(st.labels.join(','), 'UP 主页,分享,举报', '二级菜单的项');
+  eq(st.labels.join(','), 'UP 主页,分享,收藏', '二级菜单的项');
   eq(st.index, 0, '默认高亮第一项');
   closeSoftkeyMenu();
 });
@@ -1782,9 +1782,9 @@ check('软键菜单: 禁用项按中键没反应 (也不执行动作)', () => {
   clearKeys();
   const log = [];
   openSoftkeyMenu(makeMenuTree(log));
-  softkeyMenuMove(2);                    // 高亮「举报」
+  softkeyMenuMove(2);                    // 高亮「收藏」
   softkeyMenuActivate();                 // 进三级
-  softkeyMenuMove(1);                    // 高亮「垃圾广告」(禁用)
+  softkeyMenuMove(1);                    // 高亮「收藏到文件夹」(禁用)
   softkeyMenuActivate();
   eq(log.join(','), '', '禁用项不该执行动作');
   eq(menuState().open, true, '禁用项不该关掉菜单');
@@ -1795,12 +1795,12 @@ check('软键菜单: 返回键回到上一级, 高亮还原到刚才那一项', 
   clearKeys();
   const log = [];
   openSoftkeyMenu(makeMenuTree(log));
-  softkeyMenuMove(2);                    // 高亮「举报」
+  softkeyMenuMove(2);                    // 高亮「收藏」
   softkeyMenuActivate();                 // 进三级
   softkeyMenuBack();
   const st = menuState();
   eq(st.depth, 1, '应该退回二级菜单');
-  eq(st.index, 2, '高亮应该还原成刚才那一项 (举报)');
+  eq(st.index, 2, '高亮应该还原成刚才那一项 (收藏)');
   closeSoftkeyMenu();
 });
 
