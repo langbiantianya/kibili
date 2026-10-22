@@ -167,6 +167,9 @@ const {
   softkeyMenu, openSoftkeyMenu, closeSoftkeyMenu, clearSoftkeyMenu,
   softkeyMenuMove, softkeyMenuActivate, softkeyMenuBack, softkeyMenuSide
 } = await import('../src/lib/stores/softkey.js');
+// 两套菜单构造器: 末项「退出应用」的挂法/禁用开关要验
+const { buildVideoMenu } = await import('../src/lib/player/videoMenu.js');
+const { buildAppMenu } = await import('../src/lib/menu/appMenu.js');
 
 /** 读当前软键文案 */
 function softkeys() {
@@ -1879,6 +1882,54 @@ check('软键菜单: 空菜单打不开 (按软键没反应, 不吞按键)', () 
   eq(openSoftkeyMenu({ items: [] }), false, '没有菜单项就不该打开');
   eq(get(softkeyMenu).open, false, '菜单不该是打开状态');
   clearSoftkeyMenu();
+});
+
+// ── 菜单末项「退出应用」 ──────────────────────────────────────────────
+// 全局收口: 两套菜单 (主页那套 / 视频页那套) 的末项都是「退出应用」,
+// 调用方可以手动关掉 (exit: false) 或手动禁用 (exitDisabled: true → 灰着按不动)。
+check('菜单末项: 视频页菜单的末项是「退出应用」', () => {
+  const m = buildVideoMenu({});
+  eq(m.items.length, 5, '视频页菜单应该有 5 项');
+  eq(m.items[m.items.length - 1].label, '退出应用', '末项应该是「退出应用」');
+  eq(!!m.items[m.items.length - 1].disabled, false, '「退出应用」默认不该是禁用状态');
+});
+
+check('菜单末项: 视频页菜单能手动关掉「退出应用」', () => {
+  const m = buildVideoMenu({ exit: false });
+  eq(m.items.length, 4, '关掉之后应该只剩 4 项');
+  eq(m.items.map(i => i.label).indexOf('退出应用'), -1, '不该再有「退出应用」');
+});
+
+check('菜单末项: 视频页菜单能手动禁用「退出应用」(灰着, 按不动)', () => {
+  const m = buildVideoMenu({ exitDisabled: true });
+  const last = m.items[m.items.length - 1];
+  eq(last.label, '退出应用', '末项还是「退出应用」');
+  eq(!!last.disabled, true, '「退出应用」应该是禁用状态');
+});
+
+check('菜单末项: 主页那套全局菜单同样能关掉/禁用「退出应用」', () => {
+  const m = buildAppMenu([{ label: '搜索', action: () => {} }]);
+  eq(m.items.length, 2, '全局菜单应该有 2 项');
+  eq(m.items[m.items.length - 1].label, '退出应用', '末项应该是「退出应用」');
+
+  const off = buildAppMenu([{ label: '搜索', action: () => {} }], { exit: false });
+  eq(off.items.length, 1, 'exit:false 之后只剩页面自己的动作');
+
+  const dis = buildAppMenu([], { exitDisabled: true });
+  eq(dis.items[0].label, '退出应用', '还是要追加这一项');
+  eq(!!dis.items[0].disabled, true, 'exitDisabled 应该把这一项灰掉');
+});
+
+check('菜单末项: 禁用的「退出应用」按中键不执行 (也不会把应用关掉)', () => {
+  clearKeys();
+  const m = buildVideoMenu({ exitDisabled: true });
+  eq(openSoftkeyMenu(m), true, '菜单应该能打开');
+  const n = menuState().labels.length;
+  softkeyMenuMove(n - 1);              // 高亮末项 (退出应用)
+  eq(menuState().index, n - 1, '高亮应该落在末项');
+  softkeyMenuActivate();
+  eq(menuState().open, true, '禁用的项按中键不该关掉菜单');
+  closeSoftkeyMenu();
 });
 
 // ── 运行 ────────────────────────────────────────────────────────────────

@@ -16,6 +16,7 @@
 //     一键三连 / 点赞 / 投币 / 收藏
 //   分享 ▸                      ← 三级菜单
 //     复制链接 / 分享给好友
+//   退出应用                    ← 末项 (全局收口, 和主页那套菜单一致)
 //
 // hint 里写的按键必须和**那个页面**里方向键的实际绑定对得上 (软键文案
 // 与行为一致是本项目的硬规矩)。两个页面的方向键布局不一样 (全屏的画面
@@ -25,6 +26,7 @@
 // 提示由调用方传进来 (hints), 默认是视频详情页那套。
 
 import { showToast } from '../stores/ui.js';
+import { buildExitItem } from '../menu/appMenu.js';
 
 /**
  * 构造视频页/全屏页共用的二级菜单
@@ -41,6 +43,8 @@ import { showToast } from '../stores/ui.js';
  * @param {Object}   [o.hints]        四项的副提示 (写清楚等价的按键)
  *                                      默认是视频详情页那套
  * @param {Object}   [o.interact]     互动动作: { like, coin, fav, triple }
+ * @param {boolean}  [o.exit=true]    末项是否追加「退出应用」
+ * @param {boolean}  [o.exitDisabled=false] 追加了但手动禁用 (灰着, 按不动)
  * @returns {Object} 菜单树 (给 onKey 的 opts.menu 用)
  */
 export function buildVideoMenu(o) {
@@ -63,45 +67,53 @@ export function buildVideoMenu(o) {
   };
   const run = fn => () => { if (typeof fn === 'function') fn(); };
 
+  const items = [
+    {
+      label: 'UP 主页',
+      // 作者信息没到时就是灰的, 按了没反应
+      disabled: !ownerMid,
+      action: () => onAuthor(ownerMid)
+    },
+    {
+      label: '播放控制',
+      items: [
+        { label: '快进', hint: hints.forward, action: () => seek(step) },
+        { label: '快退', hint: hints.back, action: () => seek(-step) },
+        { label: '音量加', hint: hints.volUp, action: () => volume(1) },
+        { label: '音量减', hint: hints.volDown, action: () => volume(-1) }
+      ]
+    },
+    {
+      label: '互动',
+      items: [
+        { label: '一键三连', action: run(it.triple) },
+        { label: '点赞', action: run(it.like) },
+        { label: '投币', action: run(it.coin) },
+        { label: '收藏', action: run(it.fav) }
+      ]
+    },
+    {
+      label: '分享',
+      items: [
+        {
+          label: '复制链接',
+          action: () => showToast('https://www.bilibili.com/video/' + bvid)
+        },
+        { label: '分享给好友', action: () => showToast('分享功能待实现') }
+      ]
+    }
+  ];
+
+  // 末项「退出应用」: 全局收口, 和主页三个 Tab 那套菜单保持一致。
+  // 调用方可以关掉 (exit: false) 或手动禁用 (exitDisabled: true → 灰着按不动)。
+  if (opt.exit !== false) {
+    items.push(buildExitItem({ disabled: !!opt.exitDisabled }));
+  }
+
   return {
     slot: slot,
     label: label,
     title: '更多操作',
-    items: [
-      {
-        label: 'UP 主页',
-        // 作者信息没到时就是灰的, 按了没反应
-        disabled: !ownerMid,
-        action: () => onAuthor(ownerMid)
-      },
-      {
-        label: '播放控制',
-        items: [
-          { label: '快进', hint: hints.forward, action: () => seek(step) },
-          { label: '快退', hint: hints.back, action: () => seek(-step) },
-          { label: '音量加', hint: hints.volUp, action: () => volume(1) },
-          { label: '音量减', hint: hints.volDown, action: () => volume(-1) }
-        ]
-      },
-      {
-        label: '互动',
-        items: [
-          { label: '一键三连', action: run(it.triple) },
-          { label: '点赞', action: run(it.like) },
-          { label: '投币', action: run(it.coin) },
-          { label: '收藏', action: run(it.fav) }
-        ]
-      },
-      {
-        label: '分享',
-        items: [
-          {
-            label: '复制链接',
-            action: () => showToast('https://www.bilibili.com/video/' + bvid)
-          },
-          { label: '分享给好友', action: () => showToast('分享功能待实现') }
-        ]
-      }
-    ]
+    items: items
   };
 }

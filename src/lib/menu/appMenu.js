@@ -8,6 +8,10 @@
 // 菜单的最后一项固定是「退出应用」: 退出是全局收口, 放在哪儿都得有,
 // 所以由这个构造器统一追加, 页面只管把自己的动作放前面。
 //
+// 「退出应用」这一项由 buildExitItem() 统一造 (文案 + 行为只有这一份),
+// 别的菜单构造器 (比如视频页/全屏页那套) 要加就用它, 别各写一份 ——
+// 两边行为不一样的话, 用户按到就会觉得"这软件的退出怎么两副样子"。
+//
 // 菜单挂在**右软键**上: 页面不要再自己绑 SoftRight ——
 // 软键栏的兜底作用域 (优先级 50) 接管这个键, 优先级高于页面 (10),
 // 免得软键栏写着「更多」按下去却是页面自己的动作 (文案和行为必须对得上)。
@@ -40,6 +44,21 @@ export function exitApp() {
 }
 
 /**
+ * 造「退出应用」这一项 (全局收口, 各菜单共用同一份)
+ *
+ * @param {Object} [opts]
+ * @param {boolean} [opts.disabled=false] 手动禁用这一项:
+ *        灰着显示, 按中键没反应 (softkey.js 里 disabled 项会被吞掉按键)
+ * @returns {Object} 菜单项
+ */
+export function buildExitItem(opts) {
+  const o = opts || {};
+  const item = { label: '退出应用', action: () => exitApp() };
+  if (o.disabled) item.disabled = true;
+  return item;
+}
+
+/**
  * 构造全局二级菜单
  *
  * @param {Array} [items] 页面自己的动作 (放前面)
@@ -47,13 +66,14 @@ export function exitApp() {
  * @param {string} [opts.label='更多']   右软键上显示的文案
  * @param {string} [opts.title='更多操作'] 面板标题 / 面包屑第一级
  * @param {boolean} [opts.exit=true]     最后是否追加「退出应用」
+ * @param {boolean} [opts.exitDisabled=false] 追加了但手动禁用 (灰着, 按不动)
  * @returns {Object} 菜单树 (给 onKey 的 opts.menu 用)
  */
 export function buildAppMenu(items, opts) {
   const o = opts || {};
   const list = (items || []).slice();
   if (o.exit !== false) {
-    list.push({ label: '退出应用', action: () => exitApp() });
+    list.push(buildExitItem({ disabled: !!o.exitDisabled }));
   }
   return {
     slot: 'right',

@@ -516,7 +516,7 @@ if (!only.length || only.indexOf('menu') >= 0) {
 
 // 真机按键: 视频页的**软键菜单**
 //
-// 视频页的二级菜单只留 4 个入口 (UP 主页 / 播放控制 / 互动 / 分享),
+// 视频页的二级菜单 5 个入口 (UP 主页 / 播放控制 / 互动 / 分享 / 退出应用),
 // 快进快退音量、点赞投币收藏全都收在**三级菜单**里。这里验四件事:
 //   1) 二级菜单的项和顺序都和代码里写的一致 (没有分组标题/副提示)
 //   2) 「播放控制」进三级后, 四项带"长按 → 键"这类副提示
@@ -556,14 +556,19 @@ if (!only.length || only.indexOf('video-menu') >= 0) {
     if (m.bar.center !== '选择') fails.push('视频页菜单中键应该是「选择」实际「' + m.bar.center + '」');
     if (m.bar.right !== '') fails.push('视频页菜单右软键应该没有文案实际「' + m.bar.right + '」');
 
-    // 二级菜单只留 4 个入口, 顺序按顺手程度: UP 主页 → 播放控制 → 互动 → 分享
-    const wantItems = 'UP 主页,播放控制,互动,分享';
+    // 二级菜单 5 个入口, 顺序按顺手程度: UP 主页 → 播放控制 → 互动 → 分享 → 退出应用
+    const wantItems = 'UP 主页,播放控制,互动,分享,退出应用';
     if (m.items.join(',') !== wantItems) fails.push('视频页菜单的项不对: ' + m.items.join(','));
     if (m.groups.length) fails.push('二级菜单不该有分组标题: ' + m.groups.join(','));
     if (m.hints.length) fails.push('二级菜单不该有副提示: ' + m.hints.join(','));
     if (m.selected !== 0) fails.push('默认应该高亮第一项(UP 主页), 实际第 ' + (m.selected + 1) + ' 项');
     if (m.items[0] !== 'UP 主页') fails.push('第一个位置应该是「UP 主页」实际「' + m.items[0] + '」');
     if (m.items[1] !== '播放控制') fails.push('第二个位置应该是「播放控制」实际「' + m.items[1] + '」');
+    // 末项「退出应用」是全局收口: 必须在, 而且是可点的 (没被手动禁用)
+    if (m.items[m.items.length - 1] !== '退出应用') {
+      fails.push('最后一项应该是「退出应用」实际「' + (m.items[m.items.length - 1] || '') + '」');
+    }
+    if ((m.disabled || []).indexOf('退出应用') >= 0) fails.push('「退出应用」不该是禁用状态');
     // 播放控制/互动/分享 都有子项 → 右边必须有箭头
     const withArrow = (m.chevrons || []).map(c => c.label).join(',');
     if (withArrow !== '播放控制,互动,分享') fails.push('有子项的项不对: ' + withArrow);
@@ -654,7 +659,7 @@ if (!only.length || only.indexOf('video-menu') >= 0) {
     results.push({ page: 'video-menu', fails });
     console.log((fails.length ? '✗' : '✓') + ' ' + 'video-menu'.padEnd(16) +
       (fails.length ? fails.join(' | ') :
-        '视频页菜单: 二级 4 入口 + 播放控制/互动三级菜单 + 副提示 + 快进 5 秒 全通过' +
+        '视频页菜单: 二级 5 入口 (含末项「退出应用」) + 播放控制/互动三级菜单 + 副提示 + 快进 5 秒 全通过' +
         (canSeek ? '' : ' (视频没加载出来, 快进没验证)')));
   } catch (e) {
     results.push({ page: 'video-menu', fails: [String(e.message)] });
@@ -712,7 +717,7 @@ if (!only.length || only.indexOf('fullscreen-menu') >= 0) {
     if (m.bar.left !== '关闭') fails.push('菜单打开后左软键应该是「关闭」实际「' + m.bar.left + '」');
     if (m.bar.center !== '选择') fails.push('菜单打开后中软键应该是「选择」实际「' + m.bar.center + '」');
     if (m.bar.right !== '') fails.push('菜单打开后右软键应该没有文案实际「' + m.bar.right + '」');
-    const wantItems = 'UP 主页,播放控制,互动,分享';
+    const wantItems = 'UP 主页,播放控制,互动,分享,退出应用';
     if (m.items.join(',') !== wantItems) fails.push('全屏菜单的项不对: ' + m.items.join(','));
     if (m.crumbs.join(',') !== '更多操作') fails.push('全屏菜单的面包屑不对: ' + m.crumbs.join(','));
     if (m.selected !== 0) fails.push('默认应该高亮第一项, 实际第 ' + (m.selected + 1) + ' 项');
@@ -810,7 +815,7 @@ if (!only.length || only.indexOf('fullscreen-menu') >= 0) {
 // 真机按键: 设置里「全屏播放显示软键栏」关掉之后的行为
 //
 // 关掉 = **整条软键栏藏起来** (沉浸模式), 不是"二级菜单打不开":
-//   软键栏藏着 → 右软键照样能展开二级菜单, 4 个入口一个不少
+//   软键栏藏着 → 右软键照样能展开二级菜单, 5 个入口一个不少
 //   菜单关掉 → 软键栏继续藏着 (不会又冒出来)
 //
 // 菜单**开着的时候**软键栏会临时露出来 —— 菜单的操作提示 (关闭 / 选择)
@@ -863,7 +868,7 @@ if (!only.length || only.indexOf('fullscreen-nobar') >= 0) {
     await delay(1500);
     m = await menuProbe();
     if (!m.open) fails.push('软键栏藏着的时候按右软键应该照样能展开菜单');
-    if (m.items.join(',') !== 'UP 主页,播放控制,互动,分享') {
+    if (m.items.join(',') !== 'UP 主页,播放控制,互动,分享,退出应用') {
       fails.push('藏栏时菜单的项不对: ' + m.items.join(','));
     }
     if (!m.barVisible) fails.push('菜单开着的时候软键栏应该露出来当「关闭 / 选择」的提示');
@@ -1112,10 +1117,53 @@ if (!only.length || only.indexOf('exit-app') >= 0) {
     }
     if (shot('relaunch')) await screenshot(shot('relaunch'));
 
+    // ── 2) 视频页菜单的末项「退出应用」同样能退出 ──────────────────
+    // 视频页/全屏页那套菜单共用 buildVideoMenu, 末项也是全局收口:
+    // 从子页面退出, 路由同样得被重置回首页。
+    await goto('#/player?bvid=BV1ZqpE6uEKd');
+    await delay(9000);
+    press(158);
+    await delay(1500);
+    m = await menuProbe();
+    if (!m.open) fails.push('视频页按右软键没有展开菜单');
+    const n2 = (m.items || []).length;
+    if (!n2 || m.items[n2 - 1] !== '退出应用') {
+      fails.push('视频页菜单最后一项应该是「退出应用」实际「' + ((m.items || [])[n2 - 1] || '') + '」');
+    }
+    if ((m.disabled || []).indexOf('退出应用') >= 0) fails.push('视频页的「退出应用」不该是禁用状态');
+    for (let i = 0; i < n2 - 1; i++) {
+      press(108);
+      await delay(350);
+    }
+    await delay(600);
+    m = await menuProbe();
+    if (m.selected !== n2 - 1) {
+      fails.push('视频页菜单高亮应该落在最后一项, 实际第 ' + (m.selected + 1) + ' 项');
+    }
+    if (shot('video-menu')) await screenshot(shot('video-menu'));
+
+    press(352);          // 末项 = 退出应用 → 应用应该被关掉
+    await delay(4000);
+    let closed2 = false;
+    try {
+      await withActor(a => req(a, 'evaluateJS', { text: 'location.hash' }, 6000));
+    } catch (e) {
+      closed2 = true;
+    }
+    if (!closed2) fails.push('在视频页点了「退出应用」之后应用还活着');
+
+    // 再拉起来: 从视频页退出, 路由同样应该被重置到首页
+    await req(webappsActor, 'launch', { manifestURL });
+    await delay(6000);
+    const again2 = await withActor(a => req(a, 'evaluateJS', { text: 'location.hash' }, DEFAULT_TIMEOUT));
+    if (!/^#\/(home)?$/.test(String(again2.result || ''))) {
+      fails.push('视频页退出后重新打开应该落在首页, 实际「' + again2.result + '」');
+    }
+
     results.push({ page: 'exit-app', fails });
     console.log((fails.length ? '✗' : '✓') + ' ' + 'exit-app'.padEnd(16) +
       (fails.length ? fails.join(' | ') :
-        '退出应用: 路由先重置到 / + 真把应用关掉 + 重开落在首页 全通过'));
+        '退出应用: 主页菜单和视频页菜单都能退出 + 路由先重置到 / + 真把应用关掉 + 重开落在首页 全通过'));
   } catch (e) {
     results.push({ page: 'exit-app', fails: [String(e.message)] });
     console.log('✗ ' + 'exit-app'.padEnd(16) + String(e.message));
