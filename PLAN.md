@@ -136,18 +136,25 @@ export function request(path, { method = 'GET', query = {}, body, needCookie = f
 
 > `mozSystem: true` 是 systemXHR 权限的真正开关,必须与 `manifest.webapp` 的 `systemXHR` 权限共存。
 
-### 3.2 `src/lib/api/video.js` — 强制 320p
+### 3.2 `src/lib/api/video.js` — 清晰度按 qn 走 (详情页 240P, 全屏可调)
 
 ```js
 export const getVideoInfo = (bvid) => request('/x/web-interface/view', { query: { bvid }, needCookie: true });
-export const getPlayUrl = async (bvid, cid) => {
+
+// MP4 单流 (platform=html5 + fnval=1): 清晰度跟着 qn 走,
+// 6=240P / 16=360P / 32=480P / 64=720P。
+// B 站给什么档就是什么档 (没登录/视频没有该档 → 抬到可用档)。
+export const getPlayUrl = async (bvid, cid, qn = 16) => {
   const data = await request('/x/player/playurl', {
-    query: { bvid, cid, qn: 16, fnval: 1, fourk: 0, high_quality: 0, fnver: 0, fnflag: 0 },
+    query: { bvid, cid, qn, fnval: 1, fnver: 0, fourk: 0, platform: 'html5' },
     needCookie: true
   });
   return data.durl?.[0]?.url ?? data.durl?.[0]?.durl?.[0]?.url ?? '';
 };
 ```
+
+> DASH (`getDashUrls`) 只当兜底: 它的 id 是清晰度码 (16/32/64/80), **没有 240P 档**,
+> 所以按请求的 qn 挑 (挑不到就当没有, 让调用方退回 MP4 单流), 不能"取 id 最小的那个"。
 
 ### 3.3 `src/lib/stores/queue.js` — 收藏夹可作为播放列表
 
@@ -174,7 +181,7 @@ export function next() { queue.update(q => ({ ...q, index: Math.min(q.index + 1,
 export function prev() { queue.update(q => ({ ...q, index: Math.max(q.index - 1, 0) })); }
 ```
 
-### 3.4 `src/lib/player/VideoPlayer.svelte` — 320p + 全屏 + 音量 + 听视频(对齐 YouTube-KaiOS)
+### 3.4 `src/lib/player/VideoPlayer.svelte` — 240p + 全屏 + 音量 + 听视频(对齐 YouTube-KaiOS)
 
 Props: `src`, `poster`, `title`, `bvid`, `cid`, `autoplay`
 

@@ -357,6 +357,16 @@ async function withActor(fn) {
 }
 
 async function goto(hash) {
+  // 同一个 hash 再跳一次, 路由**不会**触发变化 → 页面不会重新挂载,
+  // 上一个用例留下的状态 (比如菜单还开着) 会被下一个用例当成本页的状态,
+  // 断言就误判了 (实测: 上个用例停在「全屏页+菜单开着」, 下一个用例
+  // goto 同一个全屏 hash, 菜单还开着 → "刚进全屏时菜单不该是开着的" 失败)。
+  // 所以目标 hash 和当前一样时, 先绕到首页再跳过去, 保证页面重新挂载。
+  const cur = await withActor(a => req(a, 'evaluateJS', { text: 'location.hash' }, 10000));
+  if (String(cur && cur.result || '') === hash) {
+    await withActor(a => req(a, 'evaluateJS', { text: '(location.hash = "#/home", 1)' }, 10000));
+    await delay(900);
+  }
   await withActor(a => req(a, 'evaluateJS', { text: `(location.hash = ${JSON.stringify(hash)}, 1)` }, 10000));
 }
 
@@ -717,8 +727,14 @@ if (!only.length || only.indexOf('fullscreen-menu') >= 0) {
     if (m.bar.left !== '关闭') fails.push('菜单打开后左软键应该是「关闭」实际「' + m.bar.left + '」');
     if (m.bar.center !== '选择') fails.push('菜单打开后中软键应该是「选择」实际「' + m.bar.center + '」');
     if (m.bar.right !== '') fails.push('菜单打开后右软键应该没有文案实际「' + m.bar.right + '」');
-    const wantItems = 'UP 主页,播放控制,互动,分享,退出应用';
-    if (m.items.join(',') !== wantItems) fails.push('全屏菜单的项不对: ' + m.items.join(','));
+    // 全屏菜单比详情页多一项「视频分辨率」(标题里带当前档位, 档位会变, 不能写死)
+    const wantItems = ['UP 主页', '播放控制', '视频分辨率', '互动', '分享', '退出应用'];
+    if (m.items.length !== wantItems.length
+      || m.items[0] !== wantItems[0] || m.items[1] !== wantItems[1]
+      || m.items[2].indexOf(wantItems[2]) !== 0
+      || m.items[3] !== wantItems[3] || m.items[4] !== wantItems[4] || m.items[5] !== wantItems[5]) {
+      fails.push('全屏菜单的项不对: ' + m.items.join(','));
+    }
     if (m.crumbs.join(',') !== '更多操作') fails.push('全屏菜单的面包屑不对: ' + m.crumbs.join(','));
     if (m.selected !== 0) fails.push('默认应该高亮第一项, 实际第 ' + (m.selected + 1) + ' 项');
     for (const c of (m.chevrons || [])) {
@@ -805,10 +821,143 @@ if (!only.length || only.indexOf('fullscreen-menu') >= 0) {
     results.push({ page: 'fullscreen-menu', fails });
     console.log((fails.length ? '✗' : '✓') + ' ' + 'fullscreen-menu'.padEnd(16) +
       (fails.length ? fails.join(' | ') :
-        '全屏菜单: 右软键开关菜单 + 内容同详情页 + 副提示跟着绑定走 + 中键提示跟着播放状态走 全通过'));
+        '全屏菜单: 右软键开关菜单 + 比详情页多一项「视频分辨率」 + 副提示跟着绑定走 + 中键提示跟着播放状态走 全通过'));
   } catch (e) {
     results.push({ page: 'fullscreen-menu', fails: [String(e.message)] });
     console.log('✗ ' + 'fullscreen-menu'.padEnd(16) + String(e.message));
+  }
+}
+
+// 真机按键: 全屏菜单里切**视频分辨率**
+//
+// 全屏页的二级菜单比详情页多一项「视频分辨率」(标题里带当前档位),
+// 三级是 240P / 360P / 480P / 720P, 当前档用 ✓ 标出。切完之后验三件事:
+//   1) 播放地址重新拉了 (视频宽度跟着变, 不是还停在原来那档)
+//   2) 播放位置接着走 (别从头开始播)
+//   3) 设置里的「全屏默认分辨率」跟着变 → 持久化, 下次进全屏就用它
+// 结束时把档位切回原来的 (别把用户设备留在改过的状态)。
+if (!only.length || only.indexOf('fullscreen-quality') >= 0) {
+  const fails = [];
+  const shot = name => (shotDir ? path.join(shotDir, 'fullscreen-quality-' + name + '.png') : '');
+  const menuProbe = async () => {
+    const text = '(function(){return (\n' + MENU_PROBE + '\n);})()';
+    const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+    if (r.exception) throw new Error('菜单探针异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
+    return JSON.parse(r.result);
+  };
+  // 设置里的当前档位 + 视频宽度/地址/进度
+  const stateProbe = async () => {
+    const text = '(function(){' +
+      'var s={};try{s=JSON.parse(localStorage.getItem("settings:v1")||"{}")||{};}catch(e){}' +
+      'var v=document.querySelector("video");' +
+      'return JSON.stringify({quality:s.quality||0,w:v?(v.videoWidth||0):0,' +
+      'src:v?String(v.currentSrc||v.src||"").split("?")[0].split("/").pop():"",' +
+      't:v?Math.round((v.currentTime||0)*10)/10:0});' +
+      '})()';
+    const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+    if (r.exception) throw new Error('状态探针异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
+    return JSON.parse(r.result);
+  };
+  // 菜单里选某一档: 开菜单 → 移到「视频分辨率」→ 进三级 → 移到目标档 → 中键
+  const pickQuality = async (value) => {
+    const idx = { 6: 0, 16: 1, 32: 2, 64: 3 }[value];
+    if (idx === undefined) return false;
+    press(158);
+    await delay(1500);
+    const m = await menuProbe();
+    const qIdx = (m.items || []).map((t, i) => (t.indexOf('视频分辨率') === 0 ? i : -1)).filter(i => i >= 0)[0];
+    if (qIdx === undefined || qIdx < 0) return false;
+    for (let i = 0; i < qIdx; i++) { press(108); await delay(320); }
+    await delay(400);
+    press(352);
+    await delay(1200);
+    for (let i = 0; i < idx; i++) { press(108); await delay(320); }
+    await delay(400);
+    press(352);
+    await delay(1500);
+    return true;
+  };
+
+  try {
+    await goto('#/fullscreen?bvid=BV1ZqpE6uEKd&t=0');
+    await delay(9000);
+    // 设置里关了"打开立刻播放" → 按中键才拉流
+    let st = await stateProbe();
+    if (!st.w) {
+      press(352);
+      await delay(12000);
+      st = await stateProbe();
+    }
+    if (!st.w) fails.push('全屏页没能把视频拉起来 (width=0)');
+    const quality0 = st.quality;
+    const src0 = st.src;
+    const w0 = st.w;
+
+    // 选一个和当前不同的档 (B 站这视频只给 360P/720P, 240P/480P 它不给)
+    const target = quality0 === 64 ? 16 : 64;
+
+    // 二级菜单里得有「视频分辨率」这一项
+    press(158);
+    await delay(1500);
+    let m = await menuProbe();
+    if (!m.open) fails.push('按右软键没有展开菜单');
+    const qIdx = (m.items || []).map((t, i) => (t.indexOf('视频分辨率') === 0 ? i : -1)).filter(i => i >= 0)[0];
+    if (qIdx === undefined || qIdx < 0) {
+      fails.push('全屏菜单里没有「视频分辨率」这一项: ' + (m.items || []).join(','));
+    } else {
+      for (let i = 0; i < qIdx; i++) { press(108); await delay(320); }
+      await delay(400);
+      m = await menuProbe();
+      if (m.items[m.selected].indexOf('视频分辨率') !== 0) {
+        fails.push('高亮的不是「视频分辨率」而是「' + m.items[m.selected] + '」');
+      }
+      press(352);
+      await delay(1200);
+      m = await menuProbe();
+      if (m.items.length !== 4) fails.push('分辨率的三级菜单项不对: ' + m.items.join(','));
+      const checked = (m.items || []).filter(t => t.indexOf('✓') === 0);
+      if (checked.length !== 1) fails.push('当前档应该只有一个 ✓ 标记: ' + (m.items || []).join(','));
+      if (shot('level3')) await screenshot(shot('level3'));
+      // 退格回二级, 关掉菜单 (下面统一走 pickQuality 重开菜单)
+      press(14);
+      await delay(1000);
+      press(14);
+      await delay(1000);
+    }
+
+    // 切到目标档
+    const ok = await pickQuality(target);
+    if (!ok) fails.push('没能从菜单里切分辨率');
+    await delay(14000);
+    st = await stateProbe();
+
+    // 1) 设置里的「全屏默认分辨率」跟着变了 (联动 + 持久化)
+    if (st.quality !== target) {
+      fails.push('切到 ' + target + ' 后设置里的分辨率应该是 ' + target + ' 实际 ' + st.quality);
+    }
+    // 2) 播放地址真的换了 (宽度变了)
+    if (st.w === w0 && st.src === src0) {
+      fails.push('切了分辨率但播放地址没换 (width ' + st.w + ', src ' + st.src + ')');
+    }
+    if (target === 64 && st.w && st.w < 1280) fails.push('切到 720P 实际只有 ' + st.w + ' 宽');
+    if (target === 16 && st.w && st.w > 640) fails.push('切到 360P 实际有 ' + st.w + ' 宽');
+    // 3) 播放位置接着走 (不是从头开始)
+    if (st.t <= 0) fails.push('切完分辨率后播放位置丢了 (t=' + st.t + ')');
+    if (shot('switched')) await screenshot(shot('switched'));
+
+    // 切回原来的档, 别把用户设备留在改过的状态
+    if (quality0 && quality0 !== target) {
+      await pickQuality(quality0);
+      await delay(3000);
+    }
+
+    results.push({ page: 'fullscreen-quality', fails });
+    console.log((fails.length ? '✗' : '✓') + ' ' + 'fullscreen-quality'.padEnd(16) +
+      (fails.length ? fails.join(' | ') :
+        '全屏菜单切分辨率: 换流 + 位置接着走 + 设置里的默认分辨率跟着变 全通过'));
+  } catch (e) {
+    results.push({ page: 'fullscreen-quality', fails: [String(e.message)] });
+    console.log('✗ ' + 'fullscreen-quality'.padEnd(16) + String(e.message));
   }
 }
 
@@ -868,7 +1017,12 @@ if (!only.length || only.indexOf('fullscreen-nobar') >= 0) {
     await delay(1500);
     m = await menuProbe();
     if (!m.open) fails.push('软键栏藏着的时候按右软键应该照样能展开菜单');
-    if (m.items.join(',') !== 'UP 主页,播放控制,互动,分享,退出应用') {
+    // 藏栏时菜单项和平时一样 (多一项「视频分辨率」, 标题带当前档位)
+    const nobarItems = ['UP 主页', '播放控制', '视频分辨率', '互动', '分享', '退出应用'];
+    if (m.items.length !== nobarItems.length
+      || m.items[0] !== nobarItems[0] || m.items[1] !== nobarItems[1]
+      || m.items[2].indexOf(nobarItems[2]) !== 0
+      || m.items[3] !== nobarItems[3] || m.items[4] !== nobarItems[4] || m.items[5] !== nobarItems[5]) {
       fails.push('藏栏时菜单的项不对: ' + m.items.join(','));
     }
     if (!m.barVisible) fails.push('菜单开着的时候软键栏应该露出来当「关闭 / 选择」的提示');

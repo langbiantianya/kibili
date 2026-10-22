@@ -20,6 +20,11 @@
   let playerMode = 'video';    // 'video' | 'audio'
   let resumeAt = 0;            // 听视频时保存 currentTime, 切回 video 时恢复
 
+  // 视频详情页的默认清晰度: 240P (qn=6)
+  //   240×320 的屏上 240P 够看, 又最省流量。
+  //   全屏页可以调 (菜单里改), 详情页固定这一档。
+  const DETAIL_QUALITY = 6;
+
   // 打开视频要不要立刻加载并播放
   //   true  = 保持原样, 打开就拉流并播放
   //   false = 不拉流也不播, 只显示封面, 按中键(播放)才去拉流
@@ -62,7 +67,14 @@
   }
 
   /**
-   * 拉播放地址: DASH 优先, 拿不到退回 MP4 单流
+   * 拉播放地址
+   *
+   * 视频详情页固定 **240P** (qn=6): 240×320 的屏上 240P 足够看清,
+   * 又最省流量。B 站没有的档会给回可用档 (比如这视频只有 360P/720P,
+   * 就给 360P) —— 那是 B 站的事, 我们这边只管"要 240P"。
+   *
+   * 走 **MP4 单流** 而不是 DASH: DASH 压根没有 240P 档 (最低 360P),
+   * 拿 DASH 等于悄悄用回 360P, 和"详情页默认 240P"对不上。
    *
    * @param {string} bvid
    * @param {number} cid
@@ -71,25 +83,22 @@
   async function fetchStream(bvid, cid) {
     let src = '';
     let audio = '';
-    // 2. 拉 DASH 拿独立音视频流 (供听视频模式用)
-    // 普通播放器使用 qn=6 (240P 极速), 节省流量
+    // 1. 视频流: MP4 单流, 240P
     try {
-      const dash = await getDashUrls(bvid, cid, 6);
-      if (dash && dash.videoUrl) {
-        src = dash.videoUrl;
+      src = await getPlayUrl(bvid, cid, DETAIL_QUALITY);
+    } catch (e) {
+      src = '';
+    }
+    // 2. 听视频模式要独立音频 → 单独拉一次 DASH (只取音频)
+    //    MP4 单流拿不到时, 视频流也退回 DASH (那档可能比 240P 高, 但能播)
+    try {
+      const dash = await getDashUrls(bvid, cid, DETAIL_QUALITY);
+      if (dash) {
         audio = dash.audioUrl;
+        if (!src && dash.videoUrl) src = dash.videoUrl;
       }
     } catch (e) {
-      // DASH 拉取失败
-    }
-    // DASH 拿不到可用地址时退回 MP4 单流 (听视频功能不可用, 但视频能播)
-    if (!src) {
-      try {
-        src = await getPlayUrl(bvid, cid, 6);
-        audio = '';
-      } catch (e) {
-        src = '';
-      }
+      // DASH 拉取失败 (不影响 MP4 单流)
     }
     return { src, audio };
   }

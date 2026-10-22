@@ -1,5 +1,5 @@
 <script>
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { getVideoInfo, getPlayUrl, getDashUrls } from '../api/video.js';
   import { getStatus, likeVideo, coinVideo, favVideo, unfavVideo, tripleAction } from '../api/interact.js';
   import { settings } from '../stores/settings.js';
@@ -31,6 +31,31 @@
   let currentBvid = '';        // 当前播放视频的 bvid
   let currentCid = 0;          // 当前视频的 cid (拉播放地址要用)
   let playError = '';          // 播放失败提示 (视频解码/URL 失效时不再只显示黑屏)
+
+  // ── 清晰度 ────────────────────────────────────────────────────────
+  // 可选档位 (和设置页「全屏默认分辨率」的选项一致)
+  const QUALITY_OPTIONS = [
+    { label: '240P', value: 6 },
+    { label: '360P', value: 16 },
+    { label: '480P', value: 32 },
+    { label: '720P', value: 64 }
+  ];
+  // 当前档位: 初值取设置里的「全屏默认分辨率」, 之后用户在菜单里改就跟着改
+  let currentQuality = 16;
+  // 换清晰度后要回到的播放位置 (换流会把播放头重置成 0)
+  let pendingSeek = 0;
+
+  /**
+   * 档位值 → 文案
+   * @param {number} qn
+   * @returns {string}
+   */
+  function qualityLabel(qn) {
+    for (let i = 0; i < QUALITY_OPTIONS.length; i++) {
+      if (QUALITY_OPTIONS[i].value === qn) return QUALITY_OPTIONS[i].label;
+    }
+    return '';
+  }
 
   let normalPlaybackRate = 1.0; // 保存正常播放速度
   let isSpeedUp = false;        // 是否正在倍速播放
@@ -105,7 +130,11 @@
   }
 
   /**
-   * 拉播放地址: DASH 优先, 拿不到退回 MP4 单流
+   * 拉播放地址: MP4 单流优先, 拿不到退回 DASH
+   *
+   * 走 MP4 单流 (platform=html5): 清晰度**跟着 qn 走**, 而且老 Gecko
+   * 播普通 mp4 最稳。DASH 那边的清晰度 id 和 qn 不是一回事 (没有 240P 档),
+   * 只当兜底。
    *
    * @param {string} bvid
    * @param {number} cid
@@ -116,29 +145,73 @@
     let src = '';
     let audio = '';
     try {
+      src = await getPlayUrl(bvid, cid, qn);
+    } catch (e) {
+      // MP4 拉取失败
+    }
+    try {
       const dash = await getDashUrls(bvid, cid, qn);
-      if (dash && dash.videoUrl) {
-        src = dash.videoUrl;
+      if (dash) {
         audio = dash.audioUrl;
+        if (!src && dash.videoUrl) src = dash.videoUrl;
       }
     } catch (e) {
       // DASH 拉取失败
     }
-    // DASH 拿不到可用地址时退回 MP4 单流, 避免只有黑屏
-    if (!src) {
-      try {
-        src = await getPlayUrl(bvid, cid, qn);
-        audio = '';
-      } catch (e) {
-        src = '';
-      }
-    }
     return { src, audio };
+  }
+
+  /**
+   * 换清晰度: 重新拉流, 播放位置接着走
+   *
+   * 顺手写回设置里的「全屏默认分辨率」—— 用户在菜单里选的那档,
+   * 就是以后进全屏的默认档 (持久化, 下次进全屏直接用)。
+   *
+   * @param {number} qn
+   */
+  async function changeQuality(qn) {
+    if (qn === currentQuality) {
+      showToast('已经是 ' + qualityLabel(qn));
+      return;
+    }
+    const at = video ? (video.currentTime || 0) : 0;   // 记住播放位置
+    currentQuality = qn;
+    // 联动设置: 「全屏默认分辨率」跟着变 (持久化)
+    settings.update(s => ({ ...s, quality: qn }));
+    showToast('已切换到 ' + qualityLabel(qn));
+
+    // 播放地址还没拉 (设置里关了自动播放) → 换个档记着就行, 回头再拉
+    if (!currentBvid || !currentCid) return;
+    if (!videoSrc && !streamLoading) return;
+
+    streamLoading = true;
+    streamError = '';
+    try {
+      const s = await fetchStream(currentBvid, currentCid, qn);
+      if (!s.src) {
+        streamError = '无法获取播放地址';
+        return;
+      }
+      // 换流: 播放头会重置成 0, 记下位置等新的流 loadedmetadata 再跳回去
+      // 直接换 src (不清空): <video> 元素不重建, 不会闪一下封面
+      pendingSeek = at;
+      videoSrc = s.src;
+      audioSrc = s.audio;
+      await tick();
+    } catch (e) {
+      streamError = e.message || '加载失败';
+    } finally {
+      streamLoading = false;
+    }
   }
 
   async function loadVideo() {
     // 读取初始播放位置
     startAt = getStartTimeFromUrl();
+
+    // 清晰度: 取设置里的「全屏默认分辨率」
+    // (菜单里改过档会写回设置, 这里每次进全屏都重新读一遍)
+    currentQuality = $settings.quality || 16;
 
     const bvid = getBvidFromUrl();
 
@@ -164,8 +237,8 @@
         getStatus(bvid).then(st => { status = st; }).catch(() => {});
       }
 
-      // 全屏播放器读取设置中的 quality，默认 360P
-      const qn = $settings.quality || 16;
+      // 全屏播放器的清晰度: 取设置里的「全屏默认分辨率」(默认 360P)
+      const qn = currentQuality;
       if (autoPlay) {
         // 保持原样: 打开就拉流并播放
         const s = await fetchStream(bvid, info.cid, qn);
@@ -192,7 +265,7 @@
     streamLoading = true;
     streamError = '';
     try {
-      const qn = $settings.quality || 16;
+      const qn = currentQuality;
       const s = await fetchStream(currentBvid, currentCid, qn);
       if (!s.src) {
         streamError = '无法获取播放地址';
@@ -208,17 +281,20 @@
   }
 
   function onLoaded() {
+    // 播放位置: 换过清晰度就回到换之前的位置 (换流会把播放头重置成 0),
+    // 第一次进来则回到 URL 里带的 t= 位置
+    const at = pendingSeek > 0 ? pendingSeek : startAt;
+    pendingSeek = 0;
     if (video) {
       duration = video.duration || 0;
-      // 如果有初始播放位置，跳转到对应时间
-      if (startAt > 0 && startAt < duration) {
-        video.currentTime = startAt;
+      if (at > 0 && at < duration) {
+        video.currentTime = at;
       }
       video.play().catch(() => {});
     }
     if (dashAudio) {
-      if (startAt > 0 && video && video.duration && startAt < video.duration) {
-        dashAudio.currentTime = startAt;
+      if (at > 0 && video && video.duration && at < video.duration) {
+        dashAudio.currentTime = at;
       }
       dashAudio.play().catch(() => {});
     }
@@ -418,7 +494,11 @@
         like: doLike,
         coin: doCoin,
         fav: doFav
-      }
+      },
+      // 「视频分辨率」三级菜单: 这三个只有全屏页给, 详情页固定 240P
+      quality: currentQuality,
+      qualities: QUALITY_OPTIONS,
+      onQuality: qn => changeQuality(qn)
     });
   }
 

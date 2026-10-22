@@ -1932,6 +1932,39 @@ check('菜单末项: 禁用的「退出应用」按中键不执行 (也不会把
   closeSoftkeyMenu();
 });
 
+// ── 菜单里的「视频分辨率」 ────────────────────────────────────────────
+// 详情页固定 240P (不传 onQuality) → 菜单里没有这一项;
+// 全屏页传了 onQuality → 有这一项, 标题带当前档, 三级里用 ✓ 标当前档。
+const QUALITIES = [
+  { label: '240P', value: 6 },
+  { label: '360P', value: 16 },
+  { label: '480P', value: 32 },
+  { label: '720P', value: 64 }
+];
+
+check('视频菜单: 不传 onQuality 就没有「视频分辨率」这一项', () => {
+  const m = buildVideoMenu({});
+  eq(m.items.length, 5, '详情页菜单应该 5 项');
+  eq(m.items.map(i => i.label).indexOf('视频分辨率'), -1, '不该有「视频分辨率」');
+});
+
+check('视频菜单: 传了 onQuality 才有「视频分辨率」, 排在「播放控制」后面', () => {
+  const m = buildVideoMenu({ quality: 16, qualities: QUALITIES, onQuality: () => {} });
+  eq(m.items.length, 6, '全屏菜单应该 6 项');
+  eq(m.items[1].label, '播放控制', '第二项应该是「播放控制」');
+  eq(m.items[2].label, '视频分辨率 360P', '第三项应该是「视频分辨率 360P」');
+  eq(m.items[2].items.length, 4, '三级菜单应该有 4 个档');
+  eq(m.items[2].items[1].label, '✓ 360P', '当前档应该用 ✓ 标出');
+  eq(m.items[2].items[3].label, '720P', '没选中的档不带 ✓');
+});
+
+check('视频菜单: 选某一档会回调 onQuality (带上那档的值)', () => {
+  let got = 0;
+  const m = buildVideoMenu({ quality: 6, qualities: QUALITIES, onQuality: v => { got = v; } });
+  m.items[2].items[3].action();
+  eq(got, 64, '应该回调 onQuality(64)');
+});
+
 // ── 运行 ────────────────────────────────────────────────────────────────
 // 顺序执行 (测试之间共用全局的按键总线, 并发/交叠会互相污染)
 for (const t of tests) {

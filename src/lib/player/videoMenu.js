@@ -12,6 +12,8 @@
 //     快退        长按 ← 键
 //     音量加      长按 ↑ 键
 //     音量减      长按 ↓ 键
+//   视频分辨率 ▸                 ← 三级菜单 (页面传了 onQuality 才有)
+//     240P / 360P / 480P / 720P  ← 当前档用 ✓ 标出
 //   互动 ▸                      ← 三级菜单
 //     一键三连 / 点赞 / 投币 / 收藏
 //   分享 ▸                      ← 三级菜单
@@ -43,6 +45,10 @@ import { buildExitItem } from '../menu/appMenu.js';
  * @param {Object}   [o.hints]        四项的副提示 (写清楚等价的按键)
  *                                      默认是视频详情页那套
  * @param {Object}   [o.interact]     互动动作: { like, coin, fav, triple }
+ * @param {number}  [o.quality]       当前清晰度 (qn), 用于在菜单里标出当前档
+ * @param {Array}   [o.qualities]     可选清晰度 [{ label, value }]
+ * @param {Function}[o.onQuality]      切清晰度: (qn) => void
+ *                                      传了这个才有「视频分辨率」这一项
  * @param {boolean}  [o.exit=true]    末项是否追加「退出应用」
  * @param {boolean}  [o.exitDisabled=false] 追加了但手动禁用 (灰着, 按不动)
  * @returns {Object} 菜单树 (给 onKey 的 opts.menu 用)
@@ -103,6 +109,24 @@ export function buildVideoMenu(o) {
       ]
     }
   ];
+
+  // 「视频分辨率」三级菜单: 只有页面传了 onQuality 才有这一项
+  //   (视频详情页固定 240P, 全屏页才让用户调)
+  //   标题上写当前档位, 三级菜单里用 ✓ 标出当前档 (和设置页的写法一致)
+  if (typeof opt.onQuality === 'function' && Array.isArray(opt.qualities) && opt.qualities.length) {
+    let cur = null;
+    for (let i = 0; i < opt.qualities.length; i++) {
+      if (opt.qualities[i].value === opt.quality) { cur = opt.qualities[i]; break; }
+    }
+    // 放在「播放控制」后面 (都是播放相关的项, 挨在一起好找)
+    items.splice(2, 0, {
+      label: '视频分辨率' + (cur ? ' ' + cur.label : ''),
+      items: opt.qualities.map(q => ({
+        label: (q.value === opt.quality ? '✓ ' : '') + q.label,
+        action: () => opt.onQuality(q.value)
+      }))
+    });
+  }
 
   // 末项「退出应用」: 全局收口, 和主页三个 Tab 那套菜单保持一致。
   // 调用方可以关掉 (exit: false) 或手动禁用 (exitDisabled: true → 灰着按不动)。

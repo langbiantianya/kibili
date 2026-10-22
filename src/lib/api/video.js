@@ -66,10 +66,19 @@ export async function getPlayUrlWbi(bvid, cid, qn = 16) {
 
 // 播放地址 (非 wbi 旧版)
 // 端点: GET /x/player/playurl
-// qn=16 时加 platform=html5 拿到 mp4 单流
+//
+// platform=html5 + fnval=1 → 只要 **MP4 单流** (durl):
+//   KaiOS 2.4 (Gecko 48) 播普通 mp4 最稳 (DASH 的分片流在老 Gecko 上不稳)。
+//   清晰度跟着 qn 走: 6=240P, 16=360P, 32=480P, 64=720P。
+//   B 站给什么档就是什么档: 没登录、或视频本身没有的档会被抬到可用档
+//   (比如 qn=6 但这视频只有 360P/720P → 给回 360P)。
 export async function getPlayUrl(bvid, cid, qn = 16) {
-  const query = { bvid, cid, qn, type: '', otype: 'json' };
-  if (qn === 16) query.platform = 'html5';
+  const query = {
+    bvid, cid, qn, type: '', otype: 'json',
+    fnval: 1,                // 只要 MP4 单流
+    fnver: 0, fourk: 0,
+    platform: 'html5'        // 网页端 → 拿得到 mp4
+  };
   const data = await get('/x/player/playurl', {
     query,
     needCookie: true
@@ -86,6 +95,13 @@ export async function getPlayUrl(bvid, cid, qn = 16) {
 
 // DASH 流 (fnval=16) - 听视频模式
 // 端点: GET /x/player/wbi/playurl
+//
+// 视频流按**请求的清晰度**挑, 不是取 id 最小的那个:
+//   DASH 的 id 就是清晰度码 (16=360P, 32=480P, 64=720P, 80=1080P)。
+//   · 请求的档 DASH 里没有 (比如 240P 压根没有 DASH 档) → 视频流当没有,
+//     由调用方退回 MP4 单流 (只有 MP4 才有 240P)。
+//   · 视频本身没有请求的档 (要 720P 但这视频最高 360P) → 取不超过请求值的
+//     最大那档, 降级播, 不黑屏。
 export async function getDashUrls(bvid, cid, qn = 16) {
   const data = await get('/x/player/wbi/playurl', {
     query: {
@@ -109,8 +125,12 @@ export async function getDashUrls(bvid, cid, qn = 16) {
   if (data.dash) {
     if (data.dash.video && data.dash.video.length) {
       const vids = data.dash.video.slice().sort((a, b) => (a.id || 0) - (b.id || 0));
-      const v0 = vids[0];
-      result.videoUrl = v0.baseUrl || v0.base_url || (v0.backupUrl && v0.backupUrl[0]) || (v0.backup_url && v0.backup_url[0]) || '';
+      // 只留不超过请求清晰度的档, 取其中最大的一个
+      const fit = vids.filter(v => (v.id || 0) <= qn);
+      const pick = fit.length ? fit[fit.length - 1] : null;
+      if (pick) {
+        result.videoUrl = pick.baseUrl || pick.base_url || (pick.backupUrl && pick.backupUrl[0]) || (pick.backup_url && pick.backup_url[0]) || '';
+      }
     }
     if (data.dash.audio && data.dash.audio.length) {
       const a0 = data.dash.audio[0];
