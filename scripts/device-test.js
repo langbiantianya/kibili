@@ -491,13 +491,15 @@ if (!only.length || only.indexOf('menu') >= 0) {
   }
 }
 
-// 真机按键: 视频页的**分类菜单** (互动 / 播放控制 / 其它)
+// 真机按键: 视频页的**分类菜单** (UP 主页 / 播放控制 / 互动 / 其它)
 //
-// 视频页的二级菜单和菜单测试页不一样: 它按语义分了三组, 播放控制那组
-// 还带"长按 → 键"这样的副提示。这里验三件事:
+// 视频页的二级菜单和菜单测试页不一样: UP 主页排第一, 播放控制排第二 (那组
+// 还带"长按 → 键"这样的副提示), 互动的四个功能收在**三级菜单**里。
+// 这里验四件事:
 //   1) 分组标题 / 副提示 / 项的顺序都和代码里写的一致
-//   2) 菜单变长 (11 项 + 3 个组标题) 后高亮项依然可见 (自动滚动)
-//   3) 菜单里的「快进」真的把播放进度往前推了 5 秒
+//   2) 菜单变长 (8 项 + 2 个组标题) 后高亮项依然可见 (自动滚动)
+//   3) 「互动」能进三级菜单, 退格键能退回二级并还原高亮
+//   4) 菜单里的「快进」真的把播放进度往前推了 5 秒
 if (!only.length || only.indexOf('video-menu') >= 0) {
   const fails = [];
   const shot = name => (shotDir ? path.join(shotDir, 'video-menu-' + name + '.png') : '');
@@ -532,12 +534,14 @@ if (!only.length || only.indexOf('video-menu') >= 0) {
     if (m.bar.center !== '选择') fails.push('视频页菜单中键应该是「选择」实际「' + m.bar.center + '」');
     if (m.bar.right !== '') fails.push('视频页菜单右软键应该没有文案实际「' + m.bar.right + '」');
 
-    const wantItems = '一键三连,点赞,投币,收藏,快进,快退,音量加,音量减,UP 主页,分享,举报';
+    const wantItems = 'UP 主页,快进,快退,音量加,音量减,互动,分享,举报';
     if (m.items.join(',') !== wantItems) fails.push('视频页菜单的项不对: ' + m.items.join(','));
-    if (m.groups.join(',') !== '互动,播放控制,其它') fails.push('视频页菜单的分组不对: ' + m.groups.join(','));
+    if (m.groups.join(',') !== '播放控制,其它') fails.push('视频页菜单的分组不对: ' + m.groups.join(','));
     const wantHints = '长按 → 键,长按 ← 键,长按 ↑ 键,长按 ↓ 键';
     if (m.hints.join(',') !== wantHints) fails.push('视频页菜单的副提示不对: ' + m.hints.join(','));
-    if (m.selected !== 0) fails.push('默认应该高亮第一项(一键三连), 实际第 ' + (m.selected + 1) + ' 项');
+    if (m.selected !== 0) fails.push('默认应该高亮第一项(UP 主页), 实际第 ' + (m.selected + 1) + ' 项');
+    if (m.items[0] !== 'UP 主页') fails.push('第一个位置应该是「UP 主页」实际「' + m.items[0] + '」');
+    if (m.items[1] !== '快进') fails.push('第二个位置应该是「快进」实际「' + m.items[1] + '」');
     for (const c of (m.chevrons || [])) {
       if (!c.sameLine) fails.push('「' + c.label + '」的箭头掉到了下一行');
       if (!c.rightSide) fails.push('「' + c.label + '」的箭头压在文字上');
@@ -545,31 +549,50 @@ if (!only.length || only.indexOf('video-menu') >= 0) {
     }
     if (shot('level2')) await screenshot(shot('level2'));
 
-    // ── 2) ↓ 一路走到最后一项「举报」: 高亮项必须还在可视区里 ──────
-    //    菜单有 11 项 + 3 个组标题, 远超面板高度 → 列表必须自动跟着滚
-    for (let i = 0; i < 4; i++) { press(108); await delay(350); }
-    await delay(500);
-    m = await menuProbe();
-    if (m.selected !== 4) fails.push('按 4 次 ↓ 之后应该高亮「快进」(第 5 项), 实际第 ' + (m.selected + 1) + ' 项');
-    if (m.items[m.selected] !== '快进') fails.push('高亮的不是「快进」而是「' + m.items[m.selected] + '」');
-    if (!m.selectedVisible) fails.push('「快进」已经滚出可视区了 (列表没有自动跟着滚)');
-    if (shot('scroll')) await screenshot(shot('scroll'));
-
-    for (let i = 0; i < 6; i++) { press(108); await delay(350); }
+    // ── 2) ↓ 走到最后一项「举报」: 高亮项必须还在可视区里 ─────────
+    //    菜单有 8 项 + 2 个组标题, 超出面板高度 → 列表必须自动跟着滚
+    for (let i = 0; i < 7; i++) { press(108); await delay(320); }
     await delay(600);
     m = await menuProbe();
-    if (m.selected !== 10) fails.push('按 10 次 ↓ 之后应该高亮「举报」(第 11 项), 实际第 ' + (m.selected + 1) + ' 项');
+    if (m.selected !== 7) fails.push('按 7 次 ↓ 之后应该高亮「举报」(第 8 项), 实际第 ' + (m.selected + 1) + ' 项');
     if (m.items[m.selected] !== '举报') fails.push('高亮的不是「举报」而是「' + m.items[m.selected] + '」');
     if (!m.selectedVisible) fails.push('「举报」已经滚出可视区了 (列表没有自动跟着滚)');
     if (shot('scroll-end')) await screenshot(shot('scroll-end'));
 
-    // 回到「快进」(第 5 项), 验证它确实能执行
-    for (let i = 0; i < 6; i++) { press(103); await delay(300); }
+    // ── 3) ↑ 回到「互动」(第 6 项) → 中键进三级菜单 ────────────────
+    for (let i = 0; i < 2; i++) { press(103); await delay(320); }
     await delay(600);
     m = await menuProbe();
-    if (m.items[m.selected] !== '快进') fails.push('回到上面后高亮的不是「快进」而是「' + m.items[m.selected] + '」');
+    if (m.items[m.selected] !== '互动') fails.push('高亮的不是「互动」而是「' + m.items[m.selected] + '」');
+    if (!m.selectedVisible) fails.push('「互动」已经滚出可视区了 (列表没有自动跟着滚)');
 
-    // ── 3) 中键执行「快进」→ 播放进度 +5 秒 ───────────────────────
+    press(352);
+    await delay(1200);
+    m = await menuProbe();
+    if (!m.open) fails.push('按中键后三级菜单应该开着');
+    if (m.items.join(',') !== '一键三连,点赞,投币,收藏') fails.push('三级菜单的项不对: ' + m.items.join(','));
+    if (m.crumbs.join(',') !== '更多操作,互动') fails.push('三级面包屑不对: ' + m.crumbs.join(','));
+    if (m.bar.left !== '上一级') fails.push('三级菜单左软键应该是「上一级」实际「' + m.bar.left + '」');
+    if (m.dots !== 2) fails.push('层级点应该亮 2 个, 实际 ' + m.dots);
+    if (m.selected !== 0) fails.push('进三级后应该高亮第一项, 实际第 ' + (m.selected + 1) + ' 项');
+    if (shot('level3')) await screenshot(shot('level3'));
+
+    // 退格键 → 回到二级, 高亮还原到「互动」
+    press(14);
+    await delay(1200);
+    m = await menuProbe();
+    if (!m.open) fails.push('按退格键后应该回到二级菜单');
+    if (m.items[m.selected] !== '互动') fails.push('退格后高亮应该还原成「互动」实际「' + m.items[m.selected] + '」');
+    if (m.bar.left !== '关闭') fails.push('回到二级后左软键应该又是「关闭」实际「' + m.bar.left + '」');
+
+    // ── 4) 回到「快进」(第 2 项), 验证它确实能执行 ─────────────────
+    //    退格回来时高亮在「互动」(第 6 项), ↑ 四步才到「快进」
+    for (let i = 0; i < 4; i++) { press(103); await delay(320); }
+    await delay(600);
+    m = await menuProbe();
+    if (m.items[m.selected] !== '快进') fails.push('高亮的不是「快进」而是「' + m.items[m.selected] + '」');
+
+    // ── 5) 中键执行「快进」→ 播放进度 +5 秒 ───────────────────────
     const before = (m.media && m.media.time) || 0;
     const dur = (m.media && m.media.duration) || 0;
     press(352);
@@ -589,7 +612,7 @@ if (!only.length || only.indexOf('video-menu') >= 0) {
     results.push({ page: 'video-menu', fails });
     console.log((fails.length ? '✗' : '✓') + ' ' + 'video-menu'.padEnd(16) +
       (fails.length ? fails.join(' | ') :
-        '视频页分类菜单: 三组 11 项 + 副提示 + 自动滚动 + 快进 5 秒 全通过' +
+        '视频页分类菜单: UP主页/播放控制在前 + 互动三级菜单 + 自动滚动 + 快进 5 秒 全通过' +
         (canSeek ? '' : ' (视频没加载出来, 快进没验证)')));
   } catch (e) {
     results.push({ page: 'video-menu', fails: [String(e.message)] });
