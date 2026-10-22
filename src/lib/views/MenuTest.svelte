@@ -115,6 +115,23 @@
         title: "更多操作",
         items: []
       })
+    },
+    {
+      name: "分组 + 副提示",
+      desc: "组标题 + 「长按方向键」提示, 和视频页的菜单一个结构",
+      build: () => ({
+        slot: "right",
+        label: "更多",
+        title: "更多操作",
+        items: [
+          { group: "互动", label: "一键三连", action: () => act("一键三连") },
+          { group: "互动", label: "点赞", action: () => act("点赞") },
+          { group: "播放控制", label: "快进", hint: "长按 → 键", action: () => act("快进") },
+          { group: "播放控制", label: "快退", hint: "长按 ← 键", action: () => act("快退") },
+          { group: "其它", label: "UP 主页", action: () => act("UP 主页") },
+          { group: "其它", label: "分享", items: [{ label: "复制链接", action: () => act("复制链接") }] }
+        ]
+      })
     }
   ];
 
@@ -132,21 +149,30 @@
    * 把菜单树摊平成带缩进的行, 给页面画预览
    * @param {Array} items
    * @param {number} depth
-   * @returns {Array<{label: string, depth: number, sub: boolean, disabled: boolean}>}
+   * @param {string} group 当前生效的分组
+   * @returns {Array<{label: string, depth: number, sub: boolean, disabled: boolean, group: string, hint: string}>}
    */
-  function flatten(items, depth) {
+  function flatten(items, depth, group) {
     const out = [];
+    // 当前生效的分组 (group 只写在每组第一项, 后面的项继承它)
+    let lastGroup = group || "";
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
       const hasSub = !!(it.items && it.items.length);
+      const g = it.group || lastGroup;
+      // 组标题和实际菜单一致: 只在"换组"的那一项上出现一次
+      const showGroup = g && g !== lastGroup ? g : "";
+      lastGroup = g;
       out.push({
         label: it.label,
         depth: depth,
         sub: hasSub,
-        disabled: !!it.disabled
+        disabled: !!it.disabled,
+        group: showGroup,
+        hint: it.hint || ""
       });
       if (hasSub) {
-        const deeper = flatten(it.items, depth + 1);
+        const deeper = flatten(it.items, depth + 1, g);
         for (let j = 0; j < deeper.length; j++) out.push(deeper[j]);
       }
     }
@@ -154,7 +180,7 @@
   }
 
   // 预览跟着变体走 (菜单树是现算的, 不用真打开菜单)
-  $: preview = flatten(VARIANTS[variant].build().items || [], 0);
+  $: preview = flatten(VARIANTS[variant].build().items || [], 0, "");
 
   // 软键栏: 右软键交给菜单 (label 会被菜单树的 label 接管),
   // 中间提示中键的作用。菜单关着时中键 = 选中下面那行变体。
@@ -227,8 +253,12 @@
     <div class="tree">
       {#if preview.length}
         {#each preview as p}
+          {#if p.group}
+            <div class="tgroup">{p.group}</div>
+          {/if}
           <div class="trow" class:sub={p.sub} class:dis={p.disabled}>
             <span class="tlabel">{p.label}</span>
+            {#if p.hint}<span class="thint">{p.hint}</span>{/if}
             {#if p.disabled}<span class="tflag">禁用</span>{/if}
             {#if p.sub}<span class="tflag sub">有子项</span>{/if}
           </div>
@@ -365,6 +395,21 @@
     border-bottom: 1px solid var(--md-sys-color-outline-variant);
     font-size: var(--md-sys-typescale-body-medium-size);
     color: var(--md-sys-color-on-surface);
+  }
+
+  .tgroup {
+    padding: 4px 8px 2px;
+    font-size: var(--md-sys-typescale-label-small-size);
+    font-weight: 600;
+    color: var(--md-sys-color-primary);
+    background: var(--md-sys-color-surface-container-low);
+  }
+
+  .thint {
+    flex-shrink: 0;
+    margin-left: 6px;
+    font-size: var(--md-sys-typescale-label-small-size);
+    color: var(--md-sys-color-on-surface-variant);
   }
 
   .trow.sub {

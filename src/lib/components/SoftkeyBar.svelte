@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { ui } from '../stores/ui.js';
   import {
     softkeyMenu, openSoftkeyMenu,
@@ -94,6 +94,66 @@
     softkeyMenuActivate();
   }
 
+  /**
+   * 某一项所属的分组 (往回找最近一个带 group 的项)
+   * @param {Array} list
+   * @param {number} i
+   * @returns {string}
+   */
+  function groupInEffect(list, i) {
+    for (let k = i; k >= 0; k--) {
+      if (list[k] && list[k].group) return list[k].group;
+    }
+    return '';
+  }
+
+  /**
+   * 这一项要不要画分组标题
+   *
+   * 菜单树里只有**每组的第一项**带 group, 后面的项继承它 —— 数据不用重复写。
+   *
+   * @param {Array} list
+   * @param {number} i
+   * @returns {boolean}
+   */
+  function showGroup(list, i) {
+    const g = list[i] && list[i].group;
+    if (!g) return false;
+    return groupInEffect(list, i - 1) !== g;
+  }
+
+  // 菜单变长 (十几项 + 分组标题) 之后会超出面板高度, 高亮项可能跑到可视区外。
+  // 移动高亮时把选中项滚进视野 (居中, 和应用里列表的滚动习惯一致)。
+  let listEl = null;
+  let scrollToken = 0;
+
+  // 注意: 条件里必须出现 index —— 高亮下标变了就得重跑。
+  // 只依赖 menuOpen / listEl 的话, 高亮移动不会触发这段 (menuOpen 一直是 true,
+  // listEl 也没换), 选中项滚出可视区后就再也拉不回来了。
+  $: if (menuOpen && listEl && index >= 0) {
+    const token = ++scrollToken;
+    tick().then(() => {
+      // 已经有更新的滚动请求 → 这次作废
+      if (token !== scrollToken || !menuOpen || !listEl) return;
+      const el = listEl.querySelector('.menu-item.selected');
+      if (el) scrollSelectedIntoView(el, listEl);
+    });
+  }
+
+  /**
+   * 把选中项滚到列表可视区的中间
+   * @param {Element} el 选中项
+   * @param {Element} list 列表容器
+   */
+  function scrollSelectedIntoView(el, list) {
+    const er = el.getBoundingClientRect();
+    const lr = list.getBoundingClientRect();
+    if (!er.height || !lr.height) return;
+    const delta = (er.top - lr.top) - (lr.height - er.height) / 2;
+    const max = list.scrollHeight - list.clientHeight;
+    list.scrollTop = Math.max(0, Math.min(max, list.scrollTop + delta));
+  }
+
   onMount(() => {
     const offBar = onKey('softkey-bar', {
       SoftLeft: () => openBySlot('left'),
@@ -157,8 +217,11 @@
         {/if}
       </div>
       {#key depth}
-        <ul class="menu-list">
+        <ul class="menu-list" bind:this={listEl}>
           {#each items as item, i}
+            {#if showGroup(items, i)}
+              <li class="menu-group">{item.group}</li>
+            {/if}
             <li>
               <!-- 用 div 而不是 button:
                    KaiOS 2.4 (Gecko 48) 上 <button> 当 flex 容器时, 子元素**不会**
@@ -176,6 +239,7 @@
               >
                 {#if item.icon}<span class="menu-icon">{item.icon}</span>{/if}
                 <span class="menu-text">{item.label}</span>
+                {#if item.hint}<span class="menu-hint">{item.hint}</span>{/if}
                 {#if item.items && item.items.length}<i class="menu-sub"></i>{/if}
               </div>
             </li>
@@ -287,6 +351,8 @@
     /* 底边正好在软键栏上沿 —— 软键栏露出来当"关闭 / 选择"的提示 */
     bottom: var(--kai-softkey-height);
     z-index: 300;
+    /* 面板升起动画 (translateY) 万一被系统卡住, 也不许盖到软键栏上 */
+    overflow: hidden;
   }
 
   .menu-scrim {
@@ -384,8 +450,20 @@
     overflow-y: auto;
     flex: 1 1 auto;
     min-height: 0;
-    /* 换一级重画一次 → 动画重新播, 做出"从右边滑进来"的感觉 */
-    animation: sk-slide 0.18s ease;
+    /* 这里**不要**做横向滑入动画 (transform: translateX(12px)):
+       240px 的屏幕上横向挪 12px = 5% 宽度, 右边对齐的副提示和
+       子菜单箭头会被顶到屏幕边缘 (提示文字最后一个字被切掉),
+       动画没播完 / 被系统卡住时更是长期错位。
+       换一级的提示交给面包屑 + 层级圆点, 不靠位移。 */
+  }
+
+  /* 分组标题 (MD3 list subheader): 小号、粉色的分类标签 */
+  .menu-group {
+    padding: 5px 12px 2px;
+    font-size: var(--md-sys-typescale-label-small-size);
+    font-weight: 600;
+    color: var(--md-sys-color-primary);
+    background: var(--md-sys-color-surface-container-low);
   }
 
   .menu-item {
@@ -439,6 +517,22 @@
     text-overflow: ellipsis;
   }
 
+  /* 副提示: 告诉用户"这个功能还有更快的键" (例如 长按 → 键) */
+  .menu-hint {
+    flex: 0 0 auto;
+    margin-left: 6px;
+    font-size: var(--md-sys-typescale-label-small-size);
+    color: var(--md-sys-color-on-surface-variant);
+  }
+
+  .menu-item.selected .menu-hint {
+    color: var(--md-sys-color-on-primary-container);
+  }
+
+  .menu-item.disabled .menu-hint {
+    color: var(--md-sys-color-outline);
+  }
+
   /* 有子项 → 右边画个箭头 (同样是 CSS 三角, 不吃字体字形) */
   .menu-sub {
     width: 0;
@@ -462,10 +556,5 @@
   @keyframes sk-rise {
     from { transform: translateY(10px); }
     to { transform: translateY(0); }
-  }
-
-  @keyframes sk-slide {
-    from { transform: translateX(12px); }
-    to { transform: translateX(0); }
   }
 </style>

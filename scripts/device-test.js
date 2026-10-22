@@ -62,6 +62,37 @@ const MENU_PROBE = `(function () {
   }
   var last = document.querySelector('.last-main');
   if (last) out.last = txt(last);
+  // ── 分组标题 / 副提示 ────────────────────────────────────────────
+  // 视频页的菜单按语义分成 互动 / 播放控制 / 其它 三组, 播放控制那组
+  // 还带"长按 → 键"这样的副提示 (提示还有更快的键)。
+  out.groups = [];
+  out.hints = [];
+  if (layer) {
+    var gs = layer.querySelectorAll('.menu-group');
+    for (var g = 0; g < gs.length; g++) out.groups.push(txt(gs[g]));
+    var hs = layer.querySelectorAll('.menu-hint');
+    for (var h = 0; h < hs.length; h++) out.hints.push(txt(hs[h]));
+  }
+  // ── 播放进度: 用来验证菜单里的"快进/快退"真的动了进度 ──────────
+  var media = document.querySelector('video') || document.querySelector('audio');
+  out.media = { time: 0, duration: 0 };
+  if (media) {
+    out.media.time = Math.round((media.currentTime || 0) * 10) / 10;
+    out.media.duration = Math.round((media.duration || 0) * 10) / 10;
+  }
+  // ── 高亮项必须还在列表可视区里 ──────────────────────────────────
+  // 菜单有十几项, 超出面板高度; 高亮往下走时列表要自动跟着滚,
+  // 否则选中项会跑到屏幕外 (用户看不到自己选的是哪一项)。
+  out.selectedVisible = false;
+  if (layer) {
+    var selEl = layer.querySelector('.menu-item.selected');
+    var listEl = layer.querySelector('.menu-list');
+    if (selEl && listEl) {
+      var sr = selEl.getBoundingClientRect();
+      var lr = listEl.getBoundingClientRect();
+      out.selectedVisible = sr.top >= lr.top - 1 && sr.bottom <= lr.bottom + 1;
+    }
+  }
   // ── 箭头位置: 必须在文字**同一行**、且贴着右边 ─────────────────────
   //
   // 这是 KaiOS 2.4 (Gecko 48) 的一个坑: <button> 当 flex 容器时, 子元素
@@ -457,6 +488,112 @@ if (!only.length || only.indexOf('menu') >= 0) {
   } catch (e) {
     results.push({ page: 'menu', fails: [String(e.message)] });
     console.log('✗ ' + 'menu'.padEnd(16) + String(e.message));
+  }
+}
+
+// 真机按键: 视频页的**分类菜单** (互动 / 播放控制 / 其它)
+//
+// 视频页的二级菜单和菜单测试页不一样: 它按语义分了三组, 播放控制那组
+// 还带"长按 → 键"这样的副提示。这里验三件事:
+//   1) 分组标题 / 副提示 / 项的顺序都和代码里写的一致
+//   2) 菜单变长 (11 项 + 3 个组标题) 后高亮项依然可见 (自动滚动)
+//   3) 菜单里的「快进」真的把播放进度往前推了 5 秒
+if (!only.length || only.indexOf('video-menu') >= 0) {
+  const fails = [];
+  const shot = name => (shotDir ? path.join(shotDir, 'video-menu-' + name + '.png') : '');
+  try {
+    await goto('#/player?bvid=BV1ZqpE6uEKd');
+    await delay(9000);
+
+    const menuProbe = async () => {
+      const text = '(function(){return (\n' + MENU_PROBE + '\n);})()';
+      const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+      if (r.exception) throw new Error('菜单探针异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
+      return JSON.parse(r.result);
+    };
+
+    // ── 0) 先让视频真的加载出来 ────────────────────────────────────
+    // 设置里关了「打开视频立刻播放」时, 页面上根本没有 <video> 元素,
+    // 快进/快退就没有东西可推。按一下中键把流拉起来 (已经在播的话就是暂停,
+    // 不影响验证 seek)。
+    let pre = await menuProbe();
+    if (!(pre.media && pre.media.duration > 0)) {
+      press(352);
+      await delay(8000);
+      pre = await menuProbe();
+    }
+
+    // ── 1) 右软键 → 视频页的分类菜单 ───────────────────────────────
+    press(158);
+    await delay(1500);
+    let m = await menuProbe();
+    if (!m.open) fails.push('按右软键没有展开视频页菜单');
+    if (m.bar.left !== '关闭') fails.push('视频页菜单左软键应该是「关闭」实际「' + m.bar.left + '」');
+    if (m.bar.center !== '选择') fails.push('视频页菜单中键应该是「选择」实际「' + m.bar.center + '」');
+    if (m.bar.right !== '') fails.push('视频页菜单右软键应该没有文案实际「' + m.bar.right + '」');
+
+    const wantItems = '一键三连,点赞,投币,收藏,快进,快退,音量加,音量减,UP 主页,分享,举报';
+    if (m.items.join(',') !== wantItems) fails.push('视频页菜单的项不对: ' + m.items.join(','));
+    if (m.groups.join(',') !== '互动,播放控制,其它') fails.push('视频页菜单的分组不对: ' + m.groups.join(','));
+    const wantHints = '长按 → 键,长按 ← 键,长按 ↑ 键,长按 ↓ 键';
+    if (m.hints.join(',') !== wantHints) fails.push('视频页菜单的副提示不对: ' + m.hints.join(','));
+    if (m.selected !== 0) fails.push('默认应该高亮第一项(一键三连), 实际第 ' + (m.selected + 1) + ' 项');
+    for (const c of (m.chevrons || [])) {
+      if (!c.sameLine) fails.push('「' + c.label + '」的箭头掉到了下一行');
+      if (!c.rightSide) fails.push('「' + c.label + '」的箭头压在文字上');
+      if (!c.rightAligned) fails.push('「' + c.label + '」的箭头没贴着右边');
+    }
+    if (shot('level2')) await screenshot(shot('level2'));
+
+    // ── 2) ↓ 一路走到最后一项「举报」: 高亮项必须还在可视区里 ──────
+    //    菜单有 11 项 + 3 个组标题, 远超面板高度 → 列表必须自动跟着滚
+    for (let i = 0; i < 4; i++) { press(108); await delay(350); }
+    await delay(500);
+    m = await menuProbe();
+    if (m.selected !== 4) fails.push('按 4 次 ↓ 之后应该高亮「快进」(第 5 项), 实际第 ' + (m.selected + 1) + ' 项');
+    if (m.items[m.selected] !== '快进') fails.push('高亮的不是「快进」而是「' + m.items[m.selected] + '」');
+    if (!m.selectedVisible) fails.push('「快进」已经滚出可视区了 (列表没有自动跟着滚)');
+    if (shot('scroll')) await screenshot(shot('scroll'));
+
+    for (let i = 0; i < 6; i++) { press(108); await delay(350); }
+    await delay(600);
+    m = await menuProbe();
+    if (m.selected !== 10) fails.push('按 10 次 ↓ 之后应该高亮「举报」(第 11 项), 实际第 ' + (m.selected + 1) + ' 项');
+    if (m.items[m.selected] !== '举报') fails.push('高亮的不是「举报」而是「' + m.items[m.selected] + '」');
+    if (!m.selectedVisible) fails.push('「举报」已经滚出可视区了 (列表没有自动跟着滚)');
+    if (shot('scroll-end')) await screenshot(shot('scroll-end'));
+
+    // 回到「快进」(第 5 项), 验证它确实能执行
+    for (let i = 0; i < 6; i++) { press(103); await delay(300); }
+    await delay(600);
+    m = await menuProbe();
+    if (m.items[m.selected] !== '快进') fails.push('回到上面后高亮的不是「快进」而是「' + m.items[m.selected] + '」');
+
+    // ── 3) 中键执行「快进」→ 播放进度 +5 秒 ───────────────────────
+    const before = (m.media && m.media.time) || 0;
+    const dur = (m.media && m.media.duration) || 0;
+    press(352);
+    await delay(1500);
+    m = await menuProbe();
+    if (m.open) fails.push('执行「快进」之后菜单应该关掉');
+    if (m.bar.right !== '更多') fails.push('菜单关掉后右软键应该恢复成「更多」实际「' + m.bar.right + '」');
+    const after = (m.media && m.media.time) || 0;
+    // 已经放到片尾了就没法再往前推 5 秒, 这种情况下跳过这条断言
+    const canSeek = dur > 0 && before + 5 < dur - 0.5;
+    if (canSeek) {
+      // 播放中进度本来就会自己往前走, 所以只要比"执行前 + 5 秒"更靠前就行
+      if (after < before + 4) fails.push('「快进」应该把进度往前推 5 秒, 实际 ' + before + ' → ' + after);
+    }
+    if (shot('seek')) await screenshot(shot('seek'));
+
+    results.push({ page: 'video-menu', fails });
+    console.log((fails.length ? '✗' : '✓') + ' ' + 'video-menu'.padEnd(16) +
+      (fails.length ? fails.join(' | ') :
+        '视频页分类菜单: 三组 11 项 + 副提示 + 自动滚动 + 快进 5 秒 全通过' +
+        (canSeek ? '' : ' (视频没加载出来, 快进没验证)')));
+  } catch (e) {
+    results.push({ page: 'video-menu', fails: [String(e.message)] });
+    console.log('✗ ' + 'video-menu'.padEnd(16) + String(e.message));
   }
 }
 

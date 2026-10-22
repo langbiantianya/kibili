@@ -268,6 +268,9 @@
     counts.like += old ? -1 : 1;
     try {
       await likeVideo(currentBvid, !old);
+      // 播放器页没有点赞按钮 (InteractBar 那套 UI 没接进页面),
+      // 所以动作的结果得给个提示, 否则按了跟没按一样
+      showToast(status.like ? '✓ 已点赞' : '已取消点赞');
     } catch (e) {
       status.like = old;
       counts.like += old ? 1 : -1;
@@ -286,6 +289,7 @@
     counts.coin += old ? 0 : 1;
     try {
       await coinVideo(currentBvid, 1);
+      showToast('✓ 已投币');
     } catch (e) {
       status.coin = old;
       counts.coin += old ? 0 : -1;
@@ -308,6 +312,7 @@
       } else {
         await favVideo(currentBvid);
       }
+      showToast(status.fav ? '✓ 已收藏' : '已取消收藏');
     } catch (e) {
       status.fav = old;
       counts.fav += old ? 1 : -1;
@@ -478,6 +483,10 @@
         on:focuschange={onCommentFocusChange}
         on:fullscreen={onFullscreen}
         on:author={onAuthor}
+        on:like={doLike}
+        on:coin={doCoin}
+        on:fav={doFav}
+        on:triple={doTriple}
         on:loadmore={loadMoreReplies}
         on:playrequest={onPlayRequest}
       />

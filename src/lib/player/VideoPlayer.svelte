@@ -77,6 +77,7 @@
   // 长按检测 (由按键总线统一实现, 这里只保留阈值参数)
   const LONG_PRESS_MS = 400;   // 长按阈值
   const REPEAT_INTERVAL = 1000; // 长按重复触发间隔 (1秒)
+  const SEEK_STEP = 5;         // 一次快进/快退的秒数 (长按方向键和菜单里的快进/快退共用)
 
   // Tab 切换状态
   const tabs = [
@@ -339,9 +340,14 @@
   }
 
   // ── 软键菜单 (二级 / 三级) ─────────────────────────────────────────
-  // 视频页能派的动作有十来个 (进 UP 主页 / 分享 / 举报 / 收藏 / 稍后再看…),
+  // 视频页能派的动作有十来个 (互动 / 播放控制 / 分享 / 举报…),
   // 软键栏只有三个格子, 塞不下 → 右软键变成「更多」, 按它展开二级菜单;
   // 分享 / 举报 底下还有子项, 再展开一层就是三级菜单。
+  //
+  // 菜单按**语义**分成三组 (group 只有每组第一项写, 后面的项继承):
+  //   互动     —— 对这条视频表态: 一键三连 / 点赞 / 投币 / 收藏
+  //   播放控制 —— 看的时候调节: 快进 / 快退 / 音量加 / 音量减
+  //   其它     —— UP 主页 / 分享 / 举报
   //
   // 菜单树写成**函数**: 打开菜单的那一刻才求值, 菜单项能跟着 meta 走
   // (作者信息没到时「UP 主页」就是灰的, 按了没反应)。
@@ -356,12 +362,30 @@
       label: '更多',           // 右软键显示的文案
       title: '更多操作',       // 菜单面板标题 (面包屑第一级)
       items: [
+        // ── 互动 (对这条视频) ──────────────────────────────────────
+        // 点赞/投币/收藏/三连的接口逻辑在 Player.svelte (那里才有登录态和
+        // status/counts), 播放器这边派事件过去。
+        { group: '互动', label: '一键三连', action: () => dispatch('triple') },
+        { group: '互动', label: '点赞', action: () => dispatch('like') },
+        { group: '互动', label: '投币', action: () => dispatch('coin') },
+        { group: '互动', label: '收藏', action: () => dispatch('fav') },
+
+        // ── 播放控制 (看的时候调节) ────────────────────────────────
+        // hint 提示"还有更快的键": 方向键长按就是同样的事 (见上面的按键表)
+        { group: '播放控制', label: '快进', hint: '长按 → 键', action: () => seek(SEEK_STEP) },
+        { group: '播放控制', label: '快退', hint: '长按 ← 键', action: () => seek(-SEEK_STEP) },
+        { group: '播放控制', label: '音量加', hint: '长按 ↑ 键', action: () => bumpVolume(1) },
+        { group: '播放控制', label: '音量减', hint: '长按 ↓ 键', action: () => bumpVolume(-1) },
+
+        // ── 其它 ────────────────────────────────────────────────────
         {
+          group: '其它',
           label: 'UP 主页',
           disabled: !ownerMid,
           action: () => dispatch('author', { mid: ownerMid })
         },
         {
+          group: '其它',
           label: '分享',
           items: [
             {
@@ -372,6 +396,7 @@
           ]
         },
         {
+          group: '其它',
           label: '举报',
           items: [
             { label: '不友善', action: () => showToast('举报功能待实现') },
@@ -399,13 +424,13 @@
       },
       Left: {
         press: () => { if (activeTab > 0) changeTab(activeTab - 1); },
-        long: () => seek(-5),
+        long: () => seek(-SEEK_STEP),
         threshold: LONG_PRESS_MS,
         repeat: REPEAT_INTERVAL
       },
       Right: {
         press: () => { if (activeTab < tabs.length - 1) changeTab(activeTab + 1); },
-        long: () => seek(5),
+        long: () => seek(SEEK_STEP),
         threshold: LONG_PRESS_MS,
         repeat: REPEAT_INTERVAL
       },
