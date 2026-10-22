@@ -556,6 +556,22 @@ check('输入框聚焦时: 数字键不触发页面作用域 (留给输入法)',
   clearKeys();
 });
 
+check('输入框聚焦时: 空输入框的退格键仍然交给页面 (当返回用)', () => {
+  clearKeys();
+  resetDom();
+  let hit = 0;
+  onKey('page', { Back: () => { hit++; } });
+  const input = new FakeElement('input');
+  doc.body.appendChild(input);
+  input.focus();
+  press('Back');
+  eq(hit, 1, '空输入框没有字可删, 退格键 (=返回键) 应该交给页面');
+  input.value = 'abc';
+  press('Back');
+  eq(hit, 1, '输入框里有字时, 退格键留给输入法删字, 不交给页面');
+  clearKeys();
+});
+
 check('输入框聚焦时: 方向键仍然交给页面 (可以跳到列表)', () => {
   clearKeys();
   resetDom();

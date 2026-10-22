@@ -370,13 +370,15 @@ console.log('');
 for (const page of PAGES) {
   if (only.length && only.indexOf(page.name) < 0) continue;
   const fails = [];
-  await goto(page.hash);
-  await delay(page.wait);
   let snap;
   try {
+    await goto(page.hash);
+    await delay(page.wait);
     snap = await probe();
   } catch (e) {
+    // 设备偶尔漏回包 (调试 socket 卡住) —— 判这一项失败, 别让整个脚本崩掉
     results.push({ page: page.name, fails: [String(e.message)] });
+    console.log('✗ ' + page.name.padEnd(16) + String(e.message));
     continue;
   }
 
@@ -410,7 +412,10 @@ for (const page of PAGES) {
 
   if (shotDir) {
     const file = path.join(shotDir, page.name + '.png');
-    if (await screenshot(file)) console.log('   截图: ' + file);
+    // 截图失败 (设备卡住) 不影响这一项的结论
+    try {
+      if (await screenshot(file)) console.log('   截图: ' + file);
+    } catch (e) {}
   }
 }
 
@@ -992,6 +997,53 @@ if (!only.length || only.indexOf('tab-menu') >= 0) {
   } catch (e) {
     results.push({ page: 'tab-menu', fails: [String(e.message)] });
     console.log('✗ ' + 'tab-menu'.padEnd(16) + String(e.message));
+  }
+}
+
+// 真机: 主页菜单里跳到搜索页后, **返回键要能退回主页**
+//
+// 老毛病: 搜索页一进来就自动聚焦输入框, 而框架把"文字键"喂给输入法 ——
+// 退格键 (就是返回键) 被**空**输入框吃掉, 用户按返回键没反应, 直接卡在那一页。
+// 跳过去的路由本身没问题 (history.length 确实 +1), 是按键被吞了。
+// 现在空输入框的退格键会交给页面 → 返回键正常退回上一页。
+if (!only.length || only.indexOf('search-back') >= 0) {
+  const fails = [];
+  const shot = name => (shotDir ? path.join(shotDir, 'search-back-' + name + '.png') : '');
+  const evalJS = async text => {
+    const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+    if (r.exception) throw new Error('探针异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
+    return String(r.result == null ? '' : r.result);
+  };
+  try {
+    await goto('#/home');
+    await delay(4000);
+    // 右软键 → 二级菜单 → 中键选「搜索」
+    press(158);
+    await delay(1500);
+    press(352);
+    await delay(3000);
+    let hash = await evalJS('location.hash');
+    if (hash !== '#/search') fails.push('菜单里点「搜索」应该跳到搜索页, 实际「' + hash + '」');
+    const focus = await evalJS('(function(){var a=document.activeElement;return a?a.tagName:"none";})()');
+    if (focus !== 'INPUT') fails.push('搜索页的焦点应该落在输入框上, 实际「' + focus + '」');
+    const empty = await evalJS('(function(){var i=document.querySelector("input");return i?String(i.value===""):"no input";})()');
+    if (empty !== 'true') fails.push('搜索页刚进来时输入框应该是空的 (否则测不到"空输入框"这条路径)');
+    if (shot('search')) await screenshot(shot('search'));
+
+    // 空输入框 + 返回键 → 应该退回主页
+    press(14);
+    await delay(2500);
+    hash = await evalJS('location.hash');
+    if (hash !== '#/home') fails.push('在搜索页按返回键应该退回主页, 实际「' + hash + '」');
+    if (shot('back')) await screenshot(shot('back'));
+
+    results.push({ page: 'search-back', fails });
+    console.log((fails.length ? '✗' : '✓') + ' ' + 'search-back'.padEnd(16) +
+      (fails.length ? fails.join(' | ') :
+        '菜单跳搜索页后返回键能退回主页 全通过'));
+  } catch (e) {
+    results.push({ page: 'search-back', fails: [String(e.message)] });
+    console.log('✗ ' + 'search-back'.padEnd(16) + String(e.message));
   }
 }
 

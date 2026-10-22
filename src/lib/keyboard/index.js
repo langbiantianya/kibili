@@ -154,7 +154,14 @@ function onKeyDown(e) {
 
   // 2) 输入框聚焦时的文字键让给输入法
   const target = e.target;
-  if (isTextField(target) && isTextKey(key)) return;
+  if (isTextField(target) && isTextKey(key)) {
+    // ⚠️ 例外: **空**输入框里的退格键没有字可删, 别喂给输入法 ——
+    // 应用的返回键就是退格键 (规范名 Back): 搜索页一进来焦点就落在输入框上,
+    // 要是被空输入框吃掉, 用户按返回键就没反应, 直接卡在那一页出不去
+    // (主页菜单里点「搜索」跳过去后回不来的老毛病就是这个)。
+    // 输入框里有字的时候照旧交给输入法删字。
+    if (key !== 'Back' || target.value) return;
+  }
 
   // 3) 按优先级找能处理该键的 scope
   //    处理器返回 false 表示"我没处理" → 继续找优先级更低的作用域
