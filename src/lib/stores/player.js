@@ -65,6 +65,27 @@ export function addToPlaylist(item) {
 }
 
 /**
+ * 把某个视频**放到播放列表最顶上**
+ *
+ * 已经在列表里的 → 挪到最前; 不在的 → 插到最前。
+ * (从视频详情页点「听视频」时用: 想听的这首就该排在第一个)
+ *
+ * @param {Object} item
+ * @returns {number} 它在列表里的下标 (正常是 0)
+ */
+export function moveToPlaylistTop(item) {
+  if (!item || !item.bvid) return -1;
+  const it = normalize(item);
+  let idx = -1;
+  playlist.update(p => {
+    const rest = p.items.filter(v => v.bvid !== it.bvid);
+    idx = 0;
+    return { ...p, items: [it].concat(rest) };
+  });
+  return idx;
+}
+
+/**
  * 用一整个列表**替换**播放列表 (收藏夹 → 播放列表走这条)
  *
  * @param {Array} items

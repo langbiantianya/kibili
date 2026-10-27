@@ -2054,6 +2054,24 @@ check('播放列表: 追加 (去重) 与 替换 是两回事', async () => {
   replacePlaylist([], '');
 });
 
+
+check('播放列表: 把某个视频放到最顶上 (已在列表里的挪到最前)', async () => {
+  const { playlist, moveToPlaylistTop, replacePlaylist } = await import('../src/lib/stores/player.js');
+  replacePlaylist([{ bvid: 'BV1xx', title: 'A' }, { bvid: 'BV2xx', title: 'B' }], '歌单');
+
+  // 不在列表里的 → 插到最前
+  eq(moveToPlaylistTop({ bvid: 'BV3xx', title: 'C' }), 0, '新的应该排在第 1 位');
+  eq(get(playlist).items[0].bvid, 'BV3xx', '最前面应该是新加的');
+  eq(get(playlist).items.length, 3, '应该还是 3 项');
+
+  // 已经在列表里的 → 挪到最前, 不重复加
+  eq(moveToPlaylistTop({ bvid: 'BV2xx', title: 'B' }), 0, '挪到最前');
+  eq(get(playlist).items.length, 3, '不该多一项');
+  eq(get(playlist).items[0].bvid, 'BV2xx', '应该挪到最前');
+  eq(get(playlist).items[2].bvid, 'BV1xx', '原来排第一的挪到后面');
+  replacePlaylist([], '');
+});
+
 // ── 运行 ────────────────────────────────────────────────────────────────
 // 顺序执行 (测试之间共用全局的按键总线, 并发/交叠会互相污染)
 for (const t of tests) {

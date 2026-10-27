@@ -30,7 +30,7 @@
     playlist, nowPlaying, playState, currentIndex, miniVisible
   } from '../stores/player.js';
   import {
-    playItem, playIndex, togglePlay, seekBy, setRate, stopPlayback
+    playItemOnTop, playIndex, togglePlay, seekBy, setRate, stopPlayback
   } from '../player/engine.js';
   import { buildListenMenu } from '../menu/listenMenu.js';
   import { biliImg } from '../utils/platform.js';
@@ -112,7 +112,8 @@
       const d = await getVideoInfo(bvid);
       info = d;
       if (!onlyInfo) {
-        await playItem({
+        // 直接用 URL 进听视频页 → 这首放到播放列表最顶上, 然后开始播
+        await playItemOnTop({
           bvid: d.bvid || bvid,
           cid: d.cid,
           title: d.title,

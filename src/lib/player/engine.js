@@ -13,7 +13,8 @@
 import { get } from 'svelte/store';
 import { getVideoInfo, getDashUrls } from '../api/video.js';
 import {
-  playlist, nowPlaying, playState, currentIndex, miniVisible, miniProgress
+  playlist, nowPlaying, playState, currentIndex, miniVisible, miniProgress,
+  moveToPlaylistTop
 } from '../stores/player.js';
 
 /** @type {HTMLAudioElement|null} */
@@ -97,6 +98,30 @@ export async function playItem(item) {
   }
   nowPlaying.set(item);
   await loadAndPlay(item);
+}
+
+/**
+ * 把这个视频**放到播放列表最顶上**并立刻播它
+ *
+ * 详情页点「听视频」走这条: 想听的那首就该排在第一个,
+ * 后面的歌顺着往后排, 播完接着往下走。
+ *
+ * @param {Object} item { bvid, cid, title, pic, owner, duration }
+ */
+export async function playItemOnTop(item) {
+  if (!item || !item.bvid) return;
+  const it = {
+    bvid: item.bvid,
+    cid: item.cid || 0,
+    title: item.title || '',
+    pic: item.pic || '',
+    owner: item.owner || null,
+    duration: item.duration || 0
+  };
+  moveToPlaylistTop(it);
+  currentIndex.set(0);
+  nowPlaying.set(it);
+  await loadAndPlay(it);
 }
 
 /**

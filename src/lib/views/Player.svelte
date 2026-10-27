@@ -7,6 +7,7 @@
   import { navigate } from '../router/index.js';
   import { setSoftkeys, showToast } from '../stores/ui.js';
   import { addLocal } from '../stores/history.js';
+  import { playItemOnTop } from '../player/engine.js';
   import VideoPlayer from '../player/VideoPlayer.svelte';
   import Loading from '../components/Loading.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -449,9 +450,18 @@
   /** 进听视频页 (纯音频播放) */
   function onListen(e) {
     const bvid = e.detail && e.detail.bvid;
-    if (bvid) {
-      navigate('/listen?bvid=' + encodeURIComponent(bvid));
-    }
+    if (!bvid) return;
+    // 详情页点「听视频」→ 这首放到播放列表**最顶上**, 然后开始播,
+    // 再跳到听视频页 (页面进来时已经在放了, 不会又从头起一次)
+    playItemOnTop({
+      bvid: bvid,
+      cid: meta && meta.cid,
+      title: meta && meta.title,
+      pic: meta && meta.pic,
+      owner: meta && meta.owner ? { mid: meta.owner.mid, name: meta.owner.name } : null,
+      duration: meta && meta.duration
+    });
+    navigate('/listen?bvid=' + encodeURIComponent(bvid));
   }
 
   onMount(() => {
