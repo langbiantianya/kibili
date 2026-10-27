@@ -446,6 +446,14 @@
     }
   }
 
+  /** 进听视频页 (纯音频播放) */
+  function onListen(e) {
+    const bvid = e.detail && e.detail.bvid;
+    if (bvid) {
+      navigate('/listen?bvid=' + encodeURIComponent(bvid));
+    }
+  }
+
   onMount(() => {
     updateSoftkeys();
     loadVideo();
@@ -492,6 +500,7 @@
         on:focuschange={onCommentFocusChange}
         on:fullscreen={onFullscreen}
         on:author={onAuthor}
+        on:listen={onListen}
         on:like={doLike}
         on:coin={doCoin}
         on:fav={doFav}

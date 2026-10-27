@@ -133,8 +133,8 @@ const PAGES = [
   { name: 'home', hash: '#/home', wait: 6000, softkeys: { left: '刷新', right: '更多' } },
   { name: 'following', hash: '#/following', wait: 6000, softkeys: { left: '刷新', center: '打开', right: '更多' } },
   { name: 'profile', hash: '#/profile', wait: 4000, softkeys: { left: '', center: '打开', right: '更多' } },
-  { name: 'history', hash: '#/history', wait: 7000, softkeys: { left: '刷新' } },
-  { name: 'favorites', hash: '#/favorites', wait: 6000, softkeys: {} },
+  { name: 'history', hash: '#/history', wait: 7000, softkeys: { left: '刷新', right: '更多' } },
+  { name: 'favorites', hash: '#/favorites', wait: 6000, softkeys: { right: '更多' } },
   { name: 'settings', hash: '#/settings', wait: 3000, softkeys: {} },
   { name: 'about', hash: '#/about', wait: 3000, softkeys: {} },
   // 按键检测页: 不绑任何软键快捷键, 软键栏只有中键提示
@@ -142,7 +142,7 @@ const PAGES = [
   // 菜单测试页: 右软键 = 「更多」菜单 (二级/三级)
   { name: 'menu-test', hash: '#/menu-test', wait: 3000, softkeys: { left: '', center: '选择', right: '更多' } },
   { name: 'search', hash: '#/search', wait: 5000, softkeys: { left: '刷新', center: '', right: '搜索' } },
-  { name: 'search-results', hash: '#/search-results?keyword=%E5%8E%9F%E7%A5%9E', wait: 8000, softkeys: {} },
+  { name: 'search-results', hash: '#/search-results?keyword=%E5%8E%9F%E7%A5%9E', wait: 8000, softkeys: { right: '更多' } },
   // 用户主页: 路由带 uid, 自己的主页和别人的主页同一条路由
   // (切 tab 走左右方向键, 右软键不占这一格; 中间软键随 tab 变, 所以不写 center 断言)
   { name: 'user', hash: '#/user?uid=946974', wait: 9000, softkeys: { left: '刷新', right: '' } },
@@ -151,6 +151,10 @@ const PAGES = [
   // 左软键 = 显示/隐藏软键栏 (文案跟着栏的显隐走, 见 fullscreen-menu 用例);
   // 中键提示跟着播放状态走 (播放/暂停), 所以这里不写 center / left 断言
   { name: 'fullscreen', hash: '#/fullscreen?bvid=BV1ZqpE6uEKd&t=0', wait: 9000, softkeys: { right: '更多' } },
+  // 听视频页 (纯音频): 左软键 = 最小化, 右软键 = 「更多」;
+  // 中键提示跟着播放状态走 (播放/暂停), 所以不写 center 断言。
+  // 放最后: 这一页会一直放声音 (后面还要跑用例, 声音不能乱串)
+  { name: 'listen', hash: '#/listen?bvid=BV1ZqpE6uEKd', wait: 12000, softkeys: { left: '最小化', right: '更多' } },
 ];
 
 function sh(cmd, args) {
@@ -193,6 +197,19 @@ function press(linuxKey) {
   const ev = k => spawnSync('adb', ['shell', `sendevent /dev/input/event1 1 ${k} 1; sendevent /dev/input/event1 0 0 0; sendevent /dev/input/event1 1 ${k} 0; sendevent /dev/input/event1 0 0 0`], { encoding: 'utf8' });
   ev(linuxKey);
   return KEYS[linuxKey] || String(linuxKey);
+}
+
+/**
+ * 长按一个键: 只发 down, 按住一会儿, 再发 up
+ *
+ * 用来验长按的行为 (比如听视频页"长按 → 键 = 2 倍速"):
+ * 只发 down 不会触发长按, 得真的按住。
+ */
+function pressHold(linuxKey, ms) {
+  const run = cmd => spawnSync('adb', ['shell', cmd], { encoding: 'utf8' });
+  run(`sendevent /dev/input/event1 1 ${linuxKey} 1; sendevent /dev/input/event1 0 0 0`);
+  run(`sleep ${(ms / 1000).toFixed(1)}`);
+  run(`sendevent /dev/input/event1 1 ${linuxKey} 0; sendevent /dev/input/event1 0 0 0`);
 }
 
 /**
@@ -1203,6 +1220,138 @@ if (!only.length || only.indexOf('search-back') >= 0) {
   } catch (e) {
     results.push({ page: 'search-back', fails: [String(e.message)] });
     console.log('✗ ' + 'search-back'.padEnd(16) + String(e.message));
+  }
+}
+
+// 真机按键: 听视频页 (纯音频)
+//
+// 验这几件事:
+//   1) 页面能按 URL 里的 bvid 加载出封面, 进度条在走, 声音真的在放
+//   2) ← / → 快退快进, 长按 → 键 = 2 倍速 (松手恢复)
+//   3) 右软键菜单: UP主页/播放列表/点赞/投币/收藏/一键三连/查看评论/退出播放
+//   4) 左软键 = 最小化: 页面收起, 底部浮出迷你条, 声音继续
+//   5) 任意页面的「更多」菜单里有「正在播放」(能跳回听视频页, 还能控制播放)
+if (!only.length || only.indexOf('listen') >= 0) {
+  const fails = [];
+  const shot = name => (shotDir ? path.join(shotDir, 'listen-' + name + '.png') : '');
+  const menuProbe = async () => {
+    const text = '(function(){return (\n' + MENU_PROBE + '\n);})()';
+    const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+    if (r.exception) throw new Error('菜单探针异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
+    return JSON.parse(r.result);
+  };
+  // 听视频页的 DOM + 音频元素状态
+  const pageProbe = async () => {
+    const text = '(function(){' +
+      'var img=document.querySelector(".cover-wrap img");' +
+      'var a=document.querySelector("audio");' +
+      'var mini=document.querySelector(".mini-player");' +
+      'var t=document.querySelector(".listen .title");' +
+      'return JSON.stringify({' +
+      'cover: !!(img&&img.complete&&img.naturalWidth>0),' +
+      'title: t?String(t.innerText||"").trim():"",' +
+      'audio: !!a, paused: a?a.paused:true, rate: a?(a.playbackRate||1):0,' +
+      'at: a?Math.round((a.currentTime||0)*10)/10:-1, dur: a?Math.round((a.duration||0)*10)/10:-1,' +
+      'audioSrc: a?String(a.currentSrc||a.src||"").split("/").pop().slice(0,40):"",' +
+      'mini: !!mini, hash: location.hash});' +
+      '})()';
+    const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+    if (r.exception) throw new Error('页面探针异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
+    return JSON.parse(r.result);
+  };
+
+  try {
+    // ── 1) 进听视频页 ─────────────────────────────────────────────
+    await goto('#/listen?bvid=BV1ZqpE6uEKd');
+    await delay(14000);
+    let p = await pageProbe();
+    let m = await menuProbe();
+    if (m.bar.left !== '最小化') fails.push('听视频页左软键应该是「最小化」实际「' + m.bar.left + '」');
+    if (m.bar.right !== '更多') fails.push('听视频页右软键应该是「更多」实际「' + m.bar.right + '」');
+    if (!p.cover) fails.push('封面图没加载出来');
+    if (!p.audio) fails.push('页面里没有 audio 元素');
+    if (p.paused) fails.push('声音没在放 (audio 是暂停的)');
+    if (p.at <= 0) fails.push('播放进度没走 (t=' + p.at + ')');
+    if (!p.title) fails.push('标题是空的');
+    if (shot('page')) await screenshot(shot('page'));
+
+    // ── 2) → 快进 10 秒 ───────────────────────────────────────────
+    const at0 = p.at;
+    press(163);           // 右方向键
+    await delay(1500);
+    p = await pageProbe();
+    if (p.at < at0 + 5) fails.push('按 → 应该快进 10 秒, 实际 ' + at0 + ' → ' + p.at);
+
+    // 长按 → 键 = 2 倍速 (按住 700ms), 松手恢复 1 倍
+    pressHold(163, 700);
+    await delay(200);
+    p = await pageProbe();
+    const rateDuring = p.rate;
+    await delay(1200);
+    p = await pageProbe();
+    if (rateDuring < 1.5 && p.rate < 1.5) {
+      fails.push('长按 → 键应该变 2 倍速, 实际 ' + rateDuring + ' → ' + p.rate);
+    }
+    if (p.rate > 1.5) fails.push('松开后倍速应该恢复 1 倍, 实际 ' + p.rate);
+
+    // ── 3) 右软键菜单 ─────────────────────────────────────────────
+    press(158);
+    await delay(1500);
+    m = await menuProbe();
+    if (!m.open) fails.push('按右软键没有展开菜单');
+    const wantListen = 'UP 主页,播放列表,点赞,投币,收藏,一键三连,查看评论,退出播放';
+    if ((m.items || []).join(',') !== wantListen) {
+      fails.push('听视频菜单的项不对: ' + (m.items || []).join(','));
+    }
+    if (shot('menu')) await screenshot(shot('menu'));
+    // 关掉菜单
+    press(14);
+    await delay(1000);
+    press(14);
+    await delay(1000);
+
+    // ── 4) 左软键 = 最小化 → 迷你条浮出来, 声音继续 ───────────────
+    await pressJs('SoftLeft');
+    await delay(2000);
+    p = await pageProbe();
+    if (!p.mini) fails.push('最小化之后底部应该浮出迷你播放条');
+    if (p.hash.indexOf('/listen') >= 0) fails.push('最小化之后应该离开听视频页, 实际 ' + p.hash);
+    if (p.paused) fails.push('最小化之后声音应该继续放');
+    if (shot('mini')) await screenshot(shot('mini'));
+
+    // ── 5) 任意页面的「更多」菜单里有「正在播放」 ───────────────────
+    await goto('#/home');
+    await delay(5000);
+    press(158);
+    await delay(1500);
+    m = await menuProbe();
+    const npIdx = (m.items || []).map((t, i) => (t.indexOf('正在播放') >= 0 ? i : -1)).filter(i => i >= 0)[0];
+    if (npIdx === undefined) {
+      fails.push('主页菜单里没有「正在播放」: ' + (m.items || []).join(','));
+    } else {
+      for (let i = 0; i < npIdx; i++) { press(108); await delay(320); }
+      await delay(400);
+      press(352);
+      await delay(1200);
+      m = await menuProbe();
+      const wantNp = '回到听视频,播放,下一个,上一个';
+      if ((m.items || []).join(',') !== wantNp) {
+        fails.push('「正在播放」的三级菜单项不对: ' + (m.items || []).join(','));
+      }
+      if (shot('now-playing')) await screenshot(shot('now-playing'));
+      press(14);
+      await delay(1000);
+      press(14);
+      await delay(1000);
+    }
+
+    results.push({ page: 'listen', fails });
+    console.log((fails.length ? '✗' : '✓') + ' ' + 'listen'.padEnd(16) +
+      (fails.length ? fails.join(' | ') :
+        '听视频: 封面+进度条+放音 + 快进/2倍速 + 二级菜单 + 最小化迷你条 + 「正在播放」 全通过'));
+  } catch (e) {
+    results.push({ page: 'listen', fails: [String(e.message)] });
+    console.log('✗ ' + 'listen'.padEnd(16) + String(e.message));
   }
 }
 

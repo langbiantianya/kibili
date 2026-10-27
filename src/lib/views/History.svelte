@@ -3,6 +3,8 @@
   import { history as histStore, refreshHistory } from "../stores/history.js";
   import { navigate } from "../router/index.js";
   import { onKey, moveFocus } from "../keyboard/index.js";
+  import { buildAppMenu } from "../menu/appMenu.js";
+  import { addFocusedToPlaylist } from "../player/playlistActions.js";
   import Loading from "../components/Loading.svelte";
   import EmptyState from "../components/EmptyState.svelte";
   import FeedList from "../components/FeedList.svelte";
@@ -32,7 +34,13 @@
       Down: () => moveFocus(+1),
       Up: () => moveFocus(-1),
       SoftLeft: () => load()
-    }, { softkeys: ["刷新", "", "播放"] });
+    }, {
+      softkeys: ["刷新", "更多", "播放"],
+      // 右软键 = 更多: 把当前选中的视频加进听视频播放列表
+      menu: () => buildAppMenu([
+        { label: "添加到播放列表", action: () => addFocusedToPlaylist($histStore.items) }
+      ])
+    });
   });
 </script>
 

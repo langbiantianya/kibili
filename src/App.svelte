@@ -6,6 +6,8 @@
   import { request } from "./lib/api/bili.js";
   import SoftkeyBar from "./lib/components/SoftkeyBar.svelte";
   import Toast from "./lib/components/Toast.svelte";
+  import MiniPlayer from "./lib/components/MiniPlayer.svelte";
+  import { setAudioElement } from "./lib/player/engine.js";
 
   // Route definitions
   import MainLayout from "./lib/views/MainLayout.svelte";
@@ -24,9 +26,14 @@
   import About from "./lib/views/About.svelte";
   import KeyTest from "./lib/views/KeyTest.svelte";
   import MenuTest from "./lib/views/MenuTest.svelte";
+  import Listen from "./lib/views/Listen.svelte";
+  import ListenComments from "./lib/views/ListenComments.svelte";
 
   // 主 Tab 的路径 (都由 MainLayout 内部渲染, 路由表里走 "*" 兜底)
   const MAIN_PATHS = ["/home", "/following", "/profile"];
+
+  /** @type {HTMLAudioElement|null} */
+  let audioEl = null;
 
   // 路由表
   //
@@ -56,6 +63,10 @@
     "/keytest": KeyTest,
     // 软键菜单 (二级/三级) 手动测试页
     "/menu-test": MenuTest,
+    // 听视频 (纯音频): #/listen?bvid=xxx
+    "/listen": Listen,
+    // 听视频的评论页 (单独一页)
+    "/listen-comments": ListenComments,
     // 主 Tab + 兜底都走 MainLayout (内部按 /home /following /profile 分发)
     "*": MainLayout,
   };
@@ -68,6 +79,11 @@
   // 这里不再单独监听 keydown, 避免同一个按键被处理两遍。
 
   onMount(() => {
+    // 音频元素交给播放引擎 —— 它**不能**属于听视频页:
+    // 那个页面一最小化, 元素就被销毁, 声音会断。
+    // 挂在根组件里, 跨路由不销毁, 迷你条浮着的时候声音照旧。
+    setAudioElement(audioEl);
+
     // 启动时预加载 WBI keys (即使未登录也需要, B站多数接口强制 WBI 签名)
     refreshWbiKeys();
 
@@ -100,6 +116,10 @@
 
 <div class="app-root">
   <Router {routes} />
+  <!-- 迷你播放条: 听视频页最小化后浮在软键栏上方 -->
+  <MiniPlayer />
+  <!-- 全局音频元素: 跨路由不销毁, 最小化之后声音不断 -->
+  <audio bind:this={audioEl} preload="metadata" audio-channel="content" style="display: none;"></audio>
   <SoftkeyBar />
   <Toast />
 </div>

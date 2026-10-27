@@ -66,6 +66,7 @@
 <div
   class="feed-card"
   data-navable
+  data-bvid={video.bvid || ''}
   tabindex="0"
   on:focus={onFocus}
   on:click={() => dispatch('play', video)}

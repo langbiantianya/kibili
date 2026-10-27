@@ -9,6 +9,8 @@
   import EmptyState from "../components/EmptyState.svelte";
   import FeedList from "../components/FeedList.svelte";
   import { setIndex } from "../stores/queue.js";
+  import { buildAppMenu } from "../menu/appMenu.js";
+  import { addFocusedToPlaylist } from "../player/playlistActions.js";
 
   // 搜索状态
   let keyword = "";
@@ -113,7 +115,13 @@
       Down: () => roam(+1, () => loadMore()),
       Up: () => roam(-1),
       SoftLeft: () => doSearch(1)
-    }, { softkeys: ["刷新", "", "打开"] });
+    }, {
+      softkeys: ["刷新", "更多", "打开"],
+      // 右软键 = 更多: 把当前选中的视频加进听视频播放列表
+      menu: () => buildAppMenu([
+        { label: "添加到播放列表", action: () => addFocusedToPlaylist(searchResults) }
+      ])
+    });
   });
 </script>
 

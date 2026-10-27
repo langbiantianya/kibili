@@ -1965,6 +1965,76 @@ check('视频菜单: 选某一档会回调 onQuality (带上那档的值)', () =
   eq(got, 64, '应该回调 onQuality(64)');
 });
 
+
+// ── 听视频 (纯音频) ───────────────────────────────────────────────────
+check('播放列表: 加一项 / 重复不加 / 整个替换', async () => {
+  const { playlist, addToPlaylist, replacePlaylist } = await import('../src/lib/stores/player.js');
+  replacePlaylist([], '');
+  eq(addToPlaylist({ bvid: 'BV1xx', title: '第一首' }), true, '第一次加应该成功');
+  eq(addToPlaylist({ bvid: 'BV1xx', title: '第一首' }), false, '同一个 bvid 不该重复加');
+  eq(get(playlist).items.length, 1, '播放列表应该 1 项');
+  eq(get(playlist).items[0].title, '第一首', '标题要存下来');
+
+  replacePlaylist([{ bvid: 'BV2xx', title: 'A' }, { bvid: 'BV3xx', title: 'B' }], '收藏夹');
+  eq(get(playlist).items.length, 2, '替换之后应该有 2 项');
+  eq(get(playlist).label, '收藏夹', '列表名要存下来');
+  replacePlaylist([], '');
+});
+
+check('听视频菜单: 8 个入口, 播放列表空着时置灰', async () => {
+  const { buildListenMenu } = await import('../src/lib/menu/listenMenu.js');
+  const m = buildListenMenu({});
+  eq(m.items.length, 8, '听视频菜单应该有 8 项');
+  eq(m.items[0].label, 'UP 主页', '第一项是 UP 主页');
+  eq(m.items[1].label, '播放列表', '第二项是播放列表');
+  eq(m.items[1].disabled, true, '播放列表空着应该置灰');
+  eq(m.items[2].label, '点赞', '第三项是点赞');
+  eq(m.items[7].label, '退出播放', '最后一项是退出播放');
+
+  const m2 = buildListenMenu({
+    playlist: [{ title: '第一首' }, { title: '第二首' }],
+    currentIndex: 1
+  });
+  eq(m2.items[1].disabled, false, '有歌就不该置灰');
+  eq(m2.items[1].items.length, 2, '三级菜单该有 2 首');
+  eq(m2.items[1].items[1].label, '✓ 第二首', '当前这首要用 ✓ 标出来');
+});
+
+check('全局菜单: 有在放的东西才有「正在播放」', async () => {
+  const { buildAppMenu } = await import('../src/lib/menu/appMenu.js');
+  const { nowPlaying, playState } = await import('../src/lib/stores/player.js');
+  nowPlaying.set(null);
+  const m0 = buildAppMenu([]);
+  eq(m0.items.some(i => i.label === '正在播放'), false, '没在放东西时不该有这一项');
+
+  nowPlaying.set({ bvid: 'BV1xx', title: '在放' });
+  playState.set({ playing: true, time: 0, duration: 0, rate: 1, loading: false });
+  const m1 = buildAppMenu([]);
+  const np = m1.items.filter(i => i.label === '正在播放')[0];
+  ok(!!np, '在放东西时应该有「正在播放」');
+  eq(np.items.length, 4, '三级菜单该有 4 项');
+  eq(np.items[0].label, '回到听视频', '第一项是回到听视频');
+  eq(np.items[1].label, '暂停', '正在播的时候写「暂停」(写的是按下之后会做什么)');
+
+  playState.set({ playing: false, time: 0, duration: 0, rate: 1, loading: false });
+  const m2 = buildAppMenu([]);
+  const np2 = m2.items.filter(i => i.label === '正在播放')[0];
+  eq(np2.items[1].label, '播放', '暂停着的时候写「播放」');
+  nowPlaying.set(null);
+});
+
+check('视频菜单: 传了 onListen / onAddToPlaylist 才有这两项', async () => {
+  const plain = buildVideoMenu({});
+  eq(plain.items.some(i => i.label === '听视频'), false, '不传就不该有「听视频」');
+  eq(plain.items.some(i => i.label === '添加到播放列表'), false, '不传就不该有「添加到播放列表」');
+
+  const m = buildVideoMenu({ onListen: () => {}, onAddToPlaylist: () => {} });
+  eq(m.items.some(i => i.label === '听视频'), true, '传了应该有「听视频」');
+  eq(m.items.some(i => i.label === '添加到播放列表'), true, '传了应该有「添加到播放列表」');
+  // 末项还是「退出应用」
+  eq(m.items[m.items.length - 1].label, '退出应用', '末项应该是「退出应用」');
+});
+
 // ── 运行 ────────────────────────────────────────────────────────────────
 // 顺序执行 (测试之间共用全局的按键总线, 并发/交叠会互相污染)
 for (const t of tests) {

@@ -7,6 +7,7 @@
   import { reportProgress } from '../api/interact.js';
   import { showToast } from '../stores/ui.js';
   import { buildVideoMenu } from './videoMenu.js';
+  import { addToPlaylist } from '../stores/player.js';
   import { formatCount } from '../utils/format.js';
   import { biliImg } from '../utils/platform.js';
   import CommentSection from '../components/CommentSection.svelte';
@@ -373,6 +374,24 @@
         like: () => dispatch('like'),
         coin: () => dispatch('coin'),
         fav: () => dispatch('fav')
+      },
+      // 纯音频播放 (听视频页) —— 导航交给父组件 (播放器自己不碰路由)
+      onListen: () => {
+        if (!meta || !meta.bvid) return;
+        dispatch('listen', { bvid: meta.bvid });
+      },
+      // 加进听视频的播放列表 (本地持久化)
+      onAddToPlaylist: () => {
+        if (!meta || !meta.bvid) return;
+        const added = addToPlaylist({
+          bvid: meta.bvid,
+          cid: meta.cid,
+          title: meta.title,
+          pic: meta.pic,
+          owner: meta.owner ? { mid: meta.owner.mid, name: meta.owner.name } : null,
+          duration: meta.duration
+        });
+        showToast(added ? '✓ 已添加到播放列表' : '已经在播放列表里了');
       }
     });
   }

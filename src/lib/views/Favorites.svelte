@@ -5,7 +5,9 @@
   import { user, isLogin } from "../stores/user.js";
   import { navigate } from "../router/index.js";
   import { onKey, moveFocus } from "../keyboard/index.js";
-  import { setSoftkeys } from "../stores/ui.js";
+  import { setSoftkeys, showToast } from "../stores/ui.js";
+  import { buildAppMenu } from "../menu/appMenu.js";
+  import { focusedAttr, replacePlaylistWithFolder } from "../player/playlistActions.js";
   import Loading from "../components/Loading.svelte";
   import EmptyState from "../components/EmptyState.svelte";
 
@@ -38,9 +40,25 @@
     navigate("/folder?fid=" + f.id + "&title=" + encodeURIComponent(f.title));
   }
 
+  /**
+   * 把当前选中的收藏夹整个换成听视频播放列表
+   *
+   * 收藏夹项上带 data-fid → 读最近获得焦点的那个元素就知道选中的是哪个。
+   */
+  function addFolderToPlaylist() {
+    const fid = focusedAttr("fid");
+    const f = folders.find(x => String(x.id) === fid);
+    if (!f) {
+      showToast("先选中一个收藏夹");
+      return;
+    }
+    replacePlaylistWithFolder(f);
+  }
+
 
   onMount(() => {
-    setSoftkeys($isLogin ? "刷新" : "登录", "", "打开");
+    // setSoftkeys(左, 右, 中)
+    setSoftkeys($isLogin ? "刷新" : "登录", "更多", "打开");
     load();
     // onKey() 返回自己的注销函数, 直接交给 onMount 的返回值 → 组件销毁时
     // 只移除"本实例"注册的作用域 (同名实例之间不会互相踩)。
@@ -52,7 +70,13 @@
         if ($isLogin) load();
         else navigate("/login");
       }
-    }, { softkeys: true });
+    }, {
+      softkeys: true,
+      // 右软键 = 更多: 把当前选中的收藏夹整个换成听视频播放列表
+      menu: () => buildAppMenu([
+        { label: "添加到播放列表", action: () => addFolderToPlaylist() }
+      ])
+    });
   });
 </script>
 
@@ -71,6 +95,7 @@
           <div
             class="folder-item"
             data-navable
+            data-fid={f.id}
             tabindex="0"
             on:click={() => openFolder(f)}
           >

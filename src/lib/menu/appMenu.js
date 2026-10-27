@@ -16,6 +16,10 @@
 // 软键栏的兜底作用域 (优先级 50) 接管这个键, 优先级高于页面 (10),
 // 免得软键栏写着「更多」按下去却是页面自己的动作 (文案和行为必须对得上)。
 
+import { get } from 'svelte/store';
+import { nowPlaying, playState } from '../stores/player.js';
+import { togglePlay, nextTrack, prevTrack } from '../player/engine.js';
+
 /**
  * 退出应用
  *
@@ -59,6 +63,38 @@ export function buildExitItem(opts) {
 }
 
 /**
+ * 造「正在播放」这一项 (有在放的东西才有)
+ *
+ * 放在任意页面的「更多」菜单里: 能跳回听视频页, 也能直接控制播放。
+ * 文案写的是**按下之后会做什么** (本项目的硬规矩):
+ * 正在播 → 「暂停」, 暂停着 → 「播放」。
+ *
+ * @returns {Object|null} 菜单项 (没在放东西时返回 null)
+ */
+export function buildNowPlayingItem() {
+  const cur = get(nowPlaying);
+  if (!cur || !cur.bvid) return null;
+  const playing = get(playState).playing;
+  return {
+    label: '正在播放',
+    items: [
+      {
+        label: '回到听视频',
+        // 直接改 hash (和 exitApp 同一做法): 这个文件不引 router 模块 ——
+        // 菜单构造器会被无头自测直接 import, 引了 svelte-spa-router 就跑不起来
+        action: () => { location.hash = '#/listen?bvid=' + encodeURIComponent(cur.bvid); }
+      },
+      {
+        label: playing ? '暂停' : '播放',
+        action: () => togglePlay()
+      },
+      { label: '下一个', action: () => nextTrack(false) },
+      { label: '上一个', action: () => prevTrack() }
+    ]
+  };
+}
+
+/**
  * 构造全局二级菜单
  *
  * @param {Array} [items] 页面自己的动作 (放前面)
@@ -67,11 +103,16 @@ export function buildExitItem(opts) {
  * @param {string} [opts.title='更多操作'] 面板标题 / 面包屑第一级
  * @param {boolean} [opts.exit=true]     最后是否追加「退出应用」
  * @param {boolean} [opts.exitDisabled=false] 追加了但手动禁用 (灰着, 按不动)
+ * @param {boolean} [opts.nowPlaying=true] 是否追加「正在播放」(有在放的东西时)
  * @returns {Object} 菜单树 (给 onKey 的 opts.menu 用)
  */
 export function buildAppMenu(items, opts) {
   const o = opts || {};
   const list = (items || []).slice();
+  if (o.nowPlaying !== false) {
+    const np = buildNowPlayingItem();
+    if (np) list.push(np);
+  }
   if (o.exit !== false) {
     list.push(buildExitItem({ disabled: !!o.exitDisabled }));
   }

@@ -128,6 +128,22 @@ export function buildVideoMenu(o) {
     });
   }
 
+  // 「听视频」: 页面传了才有 (纯音频播放, 听视频页)
+  if (typeof opt.onListen === 'function') {
+    items.push({
+      label: '听视频',
+      action: () => opt.onListen()
+    });
+  }
+
+  // 「添加到播放列表」: 页面传了才有 (详情页/全屏页传的是当前这个视频)
+  if (typeof opt.onAddToPlaylist === 'function') {
+    items.push({
+      label: '添加到播放列表',
+      action: () => opt.onAddToPlaylist()
+    });
+  }
+
   // 末项「退出应用」: 全局收口, 和主页三个 Tab 那套菜单保持一致。
   // 调用方可以关掉 (exit: false) 或手动禁用 (exitDisabled: true → 灰着按不动)。
   if (opt.exit !== false) {
