@@ -6,6 +6,7 @@
   import { onKey, roam, getFocusables, focusAt, focusFirst } from '../keyboard/index.js';
   import { setSoftkeys } from '../stores/ui.js';
   import { buildAppMenu } from '../menu/appMenu.js';
+  import { addFocusedToPlaylist } from '../player/playlistActions.js';
   import { following, followingFocus, resetFollowingData, loadFollowing } from '../stores/following.js';
   import TabBar from '../components/TabBar.svelte';
   import FeedList from '../components/FeedList.svelte';
@@ -173,6 +174,11 @@
           label: $following.activeTab === 0 ? '切到动态' : '切到视频',
           action: () => changeTab($following.activeTab === 0 ? 1 : 0),
         },
+        // 只有视频 Tab 才有视频可加 (动态 Tab 里是动态, 不是视频)
+        ...($following.activeTab === 1 ? [{
+          label: '添加到播放列表',
+          action: () => addFocusedToPlaylist($following.videos),
+        }] : []),
       ]),
     });
     return () => {

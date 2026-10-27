@@ -10,6 +10,7 @@
   import { onKey, roam, getFocusables, focusAt, focusFirst } from "../keyboard/index.js";
   import { setSoftkeys, showToast } from "../stores/ui.js";
   import { buildAppMenu } from "../menu/appMenu.js";
+  import { addFocusedToPlaylist } from "../player/playlistActions.js";
 
   // 数据、加载状态在模块级 store 里 (见 stores/home.js):
   // 组件销毁也不丢 —— 从播放器/二级页返回时直接用缓存, 不重新发请求。
@@ -126,13 +127,17 @@
       // 右软键不绑了: 收进二级菜单 (软键栏的兜底作用域接管这个键)
     }, {
       softkeys: true,
-      // 二级菜单: 搜索 + 退出应用 (最后一项)
+      // 二级菜单: 搜索 + 添加到播放列表 (当前选中的那个) + 退出应用 (最后一项)
       menu: () => buildAppMenu([
         {
           label: "搜索",
           // 没登录时搜索页去不了 —— 灰掉, 按中键没反应
           disabled: !$isLogin,
           action: () => navigate("/search"),
+        },
+        {
+          label: "添加到播放列表",
+          action: () => addFocusedToPlaylist($homeFeed.items),
         },
       ]),
     });

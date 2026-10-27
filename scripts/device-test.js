@@ -1132,7 +1132,9 @@ if (!only.length || only.indexOf('tab-menu') >= 0) {
     await delay(1500);
     m = await menuProbe();
     if (!m.open) fails.push('首页按右软键没有展开菜单');
-    if (m.items.join(',') !== '搜索,退出应用') fails.push('首页菜单的项不对: ' + m.items.join(','));
+    if (m.items.join(',') !== '搜索,添加到播放列表,退出应用') {
+      fails.push('首页菜单的项不对: ' + m.items.join(','));
+    }
     if (m.bar.right !== '') fails.push('菜单打开后右软键应该没有文案实际「' + m.bar.right + '」');
     if (m.bar.center !== '选择') fails.push('菜单打开后中软键应该是「选择」实际「' + m.bar.center + '」');
     if (shot('home')) await screenshot(shot('home'));
@@ -1147,10 +1149,20 @@ if (!only.length || only.indexOf('tab-menu') >= 0) {
     m = await menuProbe();
     if (!m.open) fails.push('关注页按右软键没有展开菜单');
     const items = m.items || [];
-    if (items.length !== 2) fails.push('关注页菜单应该两项, 实际: ' + items.join(','));
+    // 视频 Tab 三项 (切到动态/添加到播放列表/退出应用), 动态 Tab 两项
+    if (items.length !== 2 && items.length !== 3) {
+      fails.push('关注页菜单项数不对, 实际: ' + items.join(','));
+    }
     else {
       if (items[0].indexOf('切到') !== 0) fails.push('关注页菜单第一项应该是「切到…」实际「' + items[0] + '」');
-      if (items[1] !== '退出应用') fails.push('关注页菜单最后一项应该是「退出应用」实际「' + items[1] + '」');
+      if (items[items.length - 1] !== '退出应用') {
+        fails.push('关注页菜单最后一项应该是「退出应用」实际「' + items[items.length - 1] + '」');
+      }
+      // 视频 Tab 才有「添加到播放列表」(动态 Tab 里是动态, 不是视频)
+      const mid = items.slice(1, items.length - 1);
+      if (mid.length && mid[0] !== '添加到播放列表') {
+        fails.push('关注页菜单中间项应该是「添加到播放列表」实际「' + mid.join(',') + '」');
+      }
     }
     if (shot('following')) await screenshot(shot('following'));
     await pressJs('SoftLeft');
