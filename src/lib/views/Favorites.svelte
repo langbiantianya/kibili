@@ -7,7 +7,9 @@
   import { onKey, moveFocus } from "../keyboard/index.js";
   import { setSoftkeys, showToast } from "../stores/ui.js";
   import { buildAppMenu } from "../menu/appMenu.js";
-  import { focusedAttr, replacePlaylistWithFolder } from "../player/playlistActions.js";
+  import {
+    focusedAttr, appendFolderToPlaylist, replacePlaylistWithFolder
+  } from "../player/playlistActions.js";
   import Loading from "../components/Loading.svelte";
   import EmptyState from "../components/EmptyState.svelte";
 
@@ -41,13 +43,28 @@
   }
 
   /**
-   * 把当前选中的收藏夹整个换成听视频播放列表
+   * 找到当前选中的收藏夹
    *
    * 收藏夹项上带 data-fid → 读最近获得焦点的那个元素就知道选中的是哪个。
    */
-  function addFolderToPlaylist() {
+  function focusedFolder() {
     const fid = focusedAttr("fid");
-    const f = folders.find(x => String(x.id) === fid);
+    return folders.find(x => String(x.id) === fid) || null;
+  }
+
+  /** 把收藏夹里的视频**追加**到播放列表末尾 (已有的跳过) */
+  function addFolderToPlaylist() {
+    const f = focusedFolder();
+    if (!f) {
+      showToast("先选中一个收藏夹");
+      return;
+    }
+    appendFolderToPlaylist(f);
+  }
+
+  /** 用整个收藏夹**替换**当前播放列表 */
+  function replaceWithFolder() {
+    const f = focusedFolder();
     if (!f) {
       showToast("先选中一个收藏夹");
       return;
@@ -72,9 +89,10 @@
       }
     }, {
       softkeys: true,
-      // 右软键 = 更多: 把当前选中的收藏夹整个换成听视频播放列表
+      // 右软键 = 更多: 收藏夹整个进来 —— 追加 还是 替换, 两个动作分开摆
       menu: () => buildAppMenu([
-        { label: "添加到播放列表", action: () => addFolderToPlaylist() }
+        { label: "添加到播放列表", action: () => addFolderToPlaylist() },
+        { label: "替换当前播放列表", action: () => replaceWithFolder() }
       ])
     });
   });

@@ -7,7 +7,7 @@
 // (roving.js 的 lastFocusedElement() 记着最后被聚焦的元素)
 
 import { lastFocusedElement } from '../keyboard/roving.js';
-import { addToPlaylist, replacePlaylist } from '../stores/player.js';
+import { addToPlaylist, appendToPlaylist, replacePlaylist } from '../stores/player.js';
 import { showToast } from '../stores/ui.js';
 import { getFavResources } from '../api/user.js';
 
@@ -72,6 +72,34 @@ export async function loadFolderItems(media_id) {
     owner: m.upper ? { mid: m.upper.mid, name: m.upper.name } : null,
     duration: m.duration
   })).filter(v => v.bvid);
+}
+
+/**
+ * 把整个收藏夹**追加**到播放列表末尾 (已经在列表里的跳过)
+ *
+ * @param {Object} folder { id, title }
+ * @returns {Promise<number>} 加进去几个
+ */
+export async function appendFolderToPlaylist(folder) {
+  if (!folder || !folder.id) {
+    showToast('先选中一个收藏夹');
+    return 0;
+  }
+  showToast('正在添加收藏夹...');
+  let items = [];
+  try {
+    items = await loadFolderItems(folder.id);
+  } catch (e) {
+    showToast('收藏夹加载失败');
+    return 0;
+  }
+  if (!items.length) {
+    showToast('这个收藏夹是空的');
+    return 0;
+  }
+  const added = appendToPlaylist(items);
+  showToast(added ? '✓ 已添加 ' + added + ' 首到播放列表' : '这些视频已经在播放列表里了');
+  return added;
 }
 
 /**

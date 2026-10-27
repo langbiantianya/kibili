@@ -2035,6 +2035,25 @@ check('视频菜单: 传了 onListen / onAddToPlaylist 才有这两项', async (
   eq(m.items[m.items.length - 1].label, '退出应用', '末项应该是「退出应用」');
 });
 
+
+check('播放列表: 追加 (去重) 与 替换 是两回事', async () => {
+  const { playlist, addToPlaylist, appendToPlaylist, replacePlaylist } = await import('../src/lib/stores/player.js');
+  replacePlaylist([{ bvid: 'BV1xx', title: '第一首' }], '我的歌单');
+  addToPlaylist({ bvid: 'BV1xx', title: '第一首' });
+
+  // 追加: 已经有的跳过, 新的接在末尾, 列表名不动
+  eq(appendToPlaylist([{ bvid: 'BV1xx', title: '第一首' }, { bvid: 'BV2xx', title: '第二首' }]), 1, '只应该加进去 1 首');
+  eq(get(playlist).items.length, 2, '追加之后应该有 2 项');
+  eq(get(playlist).items[1].title, '第二首', '新的接在末尾');
+  eq(get(playlist).label, '我的歌单', '追加不该改列表名');
+
+  // 替换: 整个换掉, 列表名也跟着换
+  replacePlaylist([{ bvid: 'BV9xx', title: '只有这首' }], '收藏夹');
+  eq(get(playlist).items.length, 1, '替换之后只剩 1 项');
+  eq(get(playlist).label, '收藏夹', '替换会改列表名');
+  replacePlaylist([], '');
+});
+
 // ── 运行 ────────────────────────────────────────────────────────────────
 // 顺序执行 (测试之间共用全局的按键总线, 并发/交叠会互相污染)
 for (const t of tests) {

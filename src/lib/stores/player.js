@@ -76,6 +76,25 @@ export function replacePlaylist(items, label) {
 }
 
 /**
+ * 把一批视频**并进**播放列表末尾 (已经在里面的跳过, 不重复加)
+ *
+ * @param {Array} items
+ * @returns {number} 实际加进去几个
+ */
+export function appendToPlaylist(items) {
+  const list = (items || []).map(normalize).filter(v => v.bvid);
+  let added = 0;
+  playlist.update(p => {
+    const have = new Set(p.items.map(v => v.bvid));
+    const add = list.filter(v => !have.has(v.bvid));
+    added = add.length;
+    if (!add.length) return p;
+    return { ...p, items: p.items.concat(add) };
+  });
+  return added;
+}
+
+/**
  * 播放列表里删掉一项
  *
  * @param {number} index
