@@ -38,6 +38,9 @@ function extractKey(url) {
   return m ? m[1] : '';
 }
 
+/** 正在刷 keys 的 promise (并发去重: 别重复发 nav 请求) */
+let refreshPromise = null;
+
 // 主动从 getNav 拉一次 (用户登录或 app 启动时调用)
 // 注意: getNav 在未登录时返回 code=-101, 但 wbi_img 仍然可用
 // 所以这里用 rawRequest 绕过 code 校验, 直接提取 wbi_img
@@ -45,6 +48,16 @@ export async function refreshWbiKeys() {
   if (wbiKeys.imgKey && wbiKeys.subKey && (Date.now() - wbiKeys.updatedAt) < WBI_KEYS_TTL) {
     return wbiKeys;
   }
+  // 已经在刷了 → 等它那一次, 别再发一遍 nav
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = doRefreshWbiKeys().then(
+    (r) => { refreshPromise = null; return r; },
+    (e) => { refreshPromise = null; throw e; }
+  );
+  return refreshPromise;
+}
+
+async function doRefreshWbiKeys() {
   try {
     // 直接请求 nav 接口, 不走 getNav (getNav 会因 code!==0 抛异常, 导致拿不到 wbi_img)
     const isProd = process.env.NODE_ENV === 'production';

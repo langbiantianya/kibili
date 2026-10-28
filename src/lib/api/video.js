@@ -2,12 +2,36 @@
 // 端点参考: alittlehuaji/bilibili-api-collect-mirror/docs/video/
 
 import { get } from './bili.js';
+import { hasWbiKeys, refreshWbiKeys } from './wbi.js';
 
 // 视频详情 (web 端)
-// 端点: GET /x/web-interface/view
+//
+// ⚠️ **走带 wbi 签名的那个端点**: B 站现在对 web 端点加了 wbi 反爬校验,
+// 不带签名的请求会被风控拦下来 (code=-352「风控校验失败」)。
+//
+//   /x/web-interface/wbi/view  ← 现在用这个 (带 wts + w_rid 签名)
+//   /x/web-interface/view      ← 老端点, 兜底用
+//
+// 两个端点返回的**字段和大小完全一样** (实测都是 127,722 字节, bvid/aid/
+// cid/duration/title/pic/owner/stat 都在), 所以调用方一行都不用改。
+//
+// 兜底: 万一 wbi 的 keys 还没拿到 (启动时那次 nav 还没回来), 或者签名请求
+// 本身失败 (风控/网络), 就退回老端点 —— 至少不会比原来更差。
+//
 // 认证方式: Cookie(SESSDATA)
 // 限制游客访问的视频需要登录
 export async function getVideoInfo(bvid) {
+  try {
+    if (!hasWbiKeys()) await refreshWbiKeys();
+    if (hasWbiKeys()) {
+      const d = await get('/x/web-interface/wbi/view', {
+        query: { bvid }, wbi: true, needCookie: true
+      });
+      if (d && d.bvid) return d;
+    }
+  } catch (e) {
+    // 风控 / 网络错误 → 走下面的兜底
+  }
   return get('/x/web-interface/view', { query: { bvid }, needCookie: true });
 }
 
@@ -25,18 +49,6 @@ export async function getVideoStat(bvid) {
   const info = await getVideoInfo(bvid);
   const st = (info && info.stat) || {};
   return { play: st.view || 0, like: st.like || 0 };
-}
-
-// 视频超详细信息 (wbi 增强版)
-// 端点: GET /x/web-interface/wbi/view/detail
-// 鉴权方式: Wbi 签名
-// 一次拉取 view + UP + tags + 热评 + 相关
-export async function getVideoInfoDetail(bvid) {
-  return get('/x/web-interface/wbi/view/detail', {
-    query: { bvid },
-    wbi: true,
-    needCookie: true
-  });
 }
 
 // 拉取多分 P
