@@ -1981,23 +1981,46 @@ check('播放列表: 加一项 / 重复不加 / 整个替换', async () => {
   replacePlaylist([], '');
 });
 
-check('听视频菜单: 8 个入口, 播放列表空着时置灰', async () => {
+check('听视频菜单: 11 个入口, 播放列表空着时置灰', async () => {
   const { buildListenMenu } = await import('../src/lib/menu/listenMenu.js');
   const m = buildListenMenu({});
-  eq(m.items.length, 8, '听视频菜单应该有 8 项');
+  eq(m.items.length, 11, '听视频菜单应该有 11 项');
   eq(m.items[0].label, 'UP 主页', '第一项是 UP 主页');
   eq(m.items[1].label, '播放列表', '第二项是播放列表');
   eq(m.items[1].disabled, true, '播放列表空着应该置灰');
-  eq(m.items[2].label, '点赞', '第三项是点赞');
-  eq(m.items[7].label, '退出播放', '最后一项是退出播放');
+  eq(m.items[2].label, '播放模式', '第三项是播放模式');
+  eq(m.items[3].label, '上一首', '第四项是上一首');
+  eq(m.items[3].disabled, true, '列表空着 → 上一首置灰');
+  eq(m.items[4].label, '下一首', '第五项是下一首');
+  eq(m.items[4].disabled, true, '列表空着 → 下一首置灰');
+  eq(m.items[5].label, '点赞', '第六项是点赞');
+  eq(m.items[10].label, '退出播放', '最后一项是退出播放');
 
   const m2 = buildListenMenu({
     playlist: [{ title: '第一首' }, { title: '第二首' }],
     currentIndex: 1
   });
   eq(m2.items[1].disabled, false, '有歌就不该置灰');
+  eq(m2.items[3].disabled, false, '有歌 → 上一首不该置灰');
+  eq(m2.items[4].disabled, false, '有歌 → 下一首不该置灰');
   eq(m2.items[1].items.length, 2, '三级菜单该有 2 首');
   eq(m2.items[1].items[1].label, '✓ 第二首', '当前这首要用 ✓ 标出来');
+});
+
+check('听视频菜单: 播放模式四项, 当前那个用 ✓ 标出', async () => {
+  const { buildListenMenu } = await import('../src/lib/menu/listenMenu.js');
+  let got = '';
+  const m = buildListenMenu({
+    playMode: 'shuffle',
+    onPlayMode: id => { got = id; }
+  });
+  const sub = m.items[2].items;
+  eq(sub.length, 4, '播放模式该有 4 项');
+  eq(sub.map(i => i.label).join(','), '单曲循环,列表循环,顺序播放,✓ 随机播放', '四项的顺序 (当前那个带 ✓)');
+  eq(sub[3].label, '✓ 随机播放', '当前模式要用 ✓ 标出来');
+  eq(m.items[2].hint, '随机播放', '右边的小字写当前模式');
+  sub[0].action();
+  eq(got, 'repeat-one', '点某一项要回调那项的模式 id');
 });
 
 check('全局菜单: 有在放的东西才有「正在播放」', async () => {
@@ -2121,6 +2144,68 @@ check('safeSeek: 媒体还没准备好时设 currentTime 会抛, 兜住', async 
   };
   eq(safeSeek(bad, 10), false, '抛异常应该返回 false 而不是往外抛');
   eq(safeSeek(null, 10), false, 'null 元素应该返回 false');
+});
+
+// ── 播放模式 ────────────────────────────────────────────────────────────
+check('播放模式: 四种模式 / 存进 localStorage / 存坏了回落默认', async () => {
+  const { PLAY_MODES, DEFAULT_PLAY_MODE, isPlayMode } = await import('../src/lib/player/playmode.js');
+  eq(PLAY_MODES.length, 4, '应该有四种播放模式');
+  eq(PLAY_MODES.map(m => m.label).join(','), '单曲循环,列表循环,顺序播放,随机播放', '菜单里的顺序');
+  eq(DEFAULT_PLAY_MODE, 'order', '默认是顺序播放');
+  eq(isPlayMode('shuffle'), true, 'shuffle 是认识的');
+  eq(isPlayMode('瞎写的'), false, '不认识的模式不算');
+
+  // 假 localStorage: 里头像坏值
+  const store = new Map([['player:playmode:v1', JSON.stringify('乱写的')]]);
+  globalThis.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => { store.set(k, v); },
+    removeItem: (k) => { store.delete(k); }
+  };
+  // 加个 query 重新 import 一份 —— 让它**重新走一遍"从 localStorage 读"**的路径
+  const mod = await import('../src/lib/stores/player.js?mode=1');
+  const { get } = await import('svelte/store');
+  eq(get(mod.playMode), 'order', '存坏了应该回落成顺序播放');
+
+  // 切一个模式 → 要写回 localStorage
+  eq(mod.setPlayMode('repeat-one'), true, '切模式应该成功');
+  eq(get(mod.playMode), 'repeat-one', '切完 store 要变');
+  eq(JSON.parse(store.get('player:playmode:v1')), 'repeat-one', '要写进 localStorage');
+  eq(mod.setPlayMode('瞎写的'), false, '不认识的模式不该切');
+  eq(get(mod.playMode), 'repeat-one', '切失败时模式不变');
+});
+
+check('播放模式: 下一首/上一首的算法 (顺序/列表循环/单曲/随机)', async () => {
+  const { nextAction, prevAction } = await import('../src/lib/player/playmode.js');
+
+  // 顺序播放: 播完最后一首就停
+  eq(nextAction('order', 0, 3, true).index, 1, '顺序播放: 0 → 1');
+  eq(nextAction('order', 2, 3, true).type, 'stop', '顺序播放: 播完最后就停');
+  eq(nextAction('order', 2, 3, false).index, 0, '手动点下一首 → 回到第一首');
+
+  // 列表循环: 播完最后绕回第一首
+  eq(nextAction('repeat-list', 2, 3, true).index, 0, '列表循环: 绕回第一首');
+
+  // 单曲循环: 播完重播这首; 手动点下一首还是往下走
+  eq(nextAction('repeat-one', 1, 3, true).type, 'replay', '单曲循环: 重播当前这首');
+  eq(nextAction('repeat-one', 1, 3, true).index, 1, '单曲循环: 重播的是当前这首');
+  eq(nextAction('repeat-one', 1, 3, false).index, 2, '单曲循环: 手动下一首还是往下走');
+
+  // 随机播放: 不会又选中正在放的这首
+  const r = nextAction('shuffle', 1, 3, true, () => 0.5);
+  eq(r.index !== 1, true, '随机播放: 不该又选中当前这首');
+  eq(nextAction('shuffle', 1, 3, true, () => 0).index, 0, '随机播放: rnd=0 → 第 0 首');
+  eq(nextAction('shuffle', 1, 3, true, () => 0.99).index, 2, '随机播放: rnd≈1 → 最后一首');
+
+  // 上一首
+  eq(prevAction('order', 1, 3).index, 0, '上一首: 1 → 0');
+  eq(prevAction('order', 0, 3).index, 0, '上一首: 本来就是第一首就停着');
+  eq(prevAction('repeat-list', 0, 3).index, 2, '列表循环: 从第一首往回绕到最后一首');
+
+  // 边界
+  eq(nextAction('order', -1, 0, true).type, 'stop', '列表空着 → 停');
+  eq(nextAction('order', -1, 3, true).index, 0, '还没开始 → 从第一首放');
+  eq(nextAction('shuffle', 0, 1, true).type, 'replay', '就一首 → 重播这一首');
 });
 
 // ── 运行 ────────────────────────────────────────────────────────────────

@@ -1287,7 +1287,8 @@ if (!only.length || only.indexOf('search-back') >= 0) {
 // 验这几件事:
 //   1) 页面能按 URL 里的 bvid 加载出封面, 进度条在走, 声音真的在放
 //   2) ← / → 快退快进, 长按 → 键 = 2 倍速 (松手恢复)
-//   3) 右软键菜单: UP主页/播放列表/点赞/投币/收藏/一键三连/查看评论/退出播放
+//   3) 右软键菜单: UP主页/播放列表/播放模式/上一首/下一首/点赞/投币/收藏/一键三连/查看评论/退出播放
+//      以及「播放模式」的三级菜单 (单曲循环/列表循环/顺序播放/随机播放, 当前那个带 ✓)
 //   4) 左软键 = 最小化: 页面收起, 底部浮出迷你条, 声音继续
 //   5) 任意页面的「更多」菜单里有「正在播放」(能跳回听视频页, 还能控制播放)
 if (!only.length || only.indexOf('listen') >= 0) {
@@ -1306,9 +1307,12 @@ if (!only.length || only.indexOf('listen') >= 0) {
       'var a=document.querySelector("#media-engine");' +
       'var mini=document.querySelector(".mini-player");' +
       'var t=document.querySelector(".listen .title");' +
+      'var md=document.querySelector(".listen .mode");' +
       'return JSON.stringify({' +
       'cover: !!(img&&img.complete&&img.naturalWidth>0),' +
       'title: t?String(t.innerText||"").trim():"",' +
+      // 页面上那个播放模式小标签
+      'mode: md?String(md.innerText||"").trim():"",' +
       'audio: !!a, paused: a?a.paused:true, rate: a?(a.playbackRate||1):0,' +
       'at: a?Math.round((a.currentTime||0)*10)/10:-1, dur: a?Math.round((a.duration||0)*10)/10:-1,' +
       'audioSrc: a?String(a.currentSrc||a.src||"").split("/").pop().slice(0,40):"",' +
@@ -1322,6 +1326,13 @@ if (!only.length || only.indexOf('listen') >= 0) {
     const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
     if (r.exception) throw new Error('页面探针异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
     return JSON.parse(r.result);
+  };
+  // localStorage 里的播放模式 (选完模式要落盘)
+  const modeProbe = async () => {
+    const text = '(function(){try{return String(localStorage.getItem("player:playmode:v1")||"");}catch(e){return "";}})()';
+    const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+    if (r.exception) return '';
+    return String(r.result || '');
   };
 
   try {
@@ -1393,14 +1404,42 @@ if (!only.length || only.indexOf('listen') >= 0) {
     await delay(1500);
     m = await menuProbe();
     if (!m.open) fails.push('按右软键没有展开菜单');
-    const wantListen = 'UP 主页,播放列表,点赞,投币,收藏,一键三连,查看评论,退出播放';
+    const wantListen = 'UP 主页,播放列表,播放模式,上一首,下一首,点赞,投币,收藏,一键三连,查看评论,退出播放';
     if ((m.items || []).join(',') !== wantListen) {
       fails.push('听视频菜单的项不对: ' + (m.items || []).join(','));
     }
     if (shot('menu')) await screenshot(shot('menu'));
-    // 关掉菜单 (只按一次: 菜单关着时再按退格会触发全局返回, 把这一页退掉)
-    press(14);
-    await delay(1200);
+
+    // ── 3b) 播放模式 (三级菜单) ────────────────────────────────────
+    //
+    // 菜单还开着: 往下移到第 3 项「播放模式」→ 中键进去, 看那四种模式,
+    // 当前的那个要带 ✓; 选一项之后要存进 localStorage, 页面上的小标签也要跟着变。
+    for (let i = 0; i < 2; i++) { press(108); await delay(320); }
+    await delay(400);
+    press(352);
+    await delay(1500);
+    m = await menuProbe();
+    const modeItems = (m.items || []).map(t => t.replace('✓ ', ''));
+    if (modeItems.join(',') !== '单曲循环,列表循环,顺序播放,随机播放') {
+      fails.push('播放模式的三级菜单项不对: ' + (m.items || []).join(','));
+    }
+    const checked = (m.items || []).filter(t => t.indexOf('✓ ') === 0);
+    if (checked.length !== 1) {
+      fails.push('播放模式里应该只有一项带 ✓, 实际 ' + (m.items || []).join(','));
+    }
+    if (shot('playmode')) await screenshot(shot('playmode'));
+    // 高亮停在第 1 项 (单曲循环) → 中键选中它 (菜单随之关闭)
+    press(352);
+    await delay(1500);
+    const savedMode = await modeProbe();
+    if (savedMode.indexOf('repeat-one') < 0) {
+      fails.push('选完播放模式应该存成 repeat-one, 实际 ' + savedMode);
+    }
+    p = await pageProbe();
+    if (p.mode !== '单曲循环') {
+      fails.push('页面上的播放模式标签应该变成「单曲循环」, 实际「' + p.mode + '」');
+    }
+    // 菜单已被叶子项的动作关掉了, 不用再按返回键
 
     // ── 4) 左软键 = 最小化 → 迷你条浮出来, 声音继续 ───────────────
     await pressJs('SoftLeft');
@@ -1441,7 +1480,7 @@ if (!only.length || only.indexOf('listen') >= 0) {
     results.push({ page: 'listen', fails });
     console.log((fails.length ? '✗' : '✓') + ' ' + 'listen'.padEnd(16) +
       (fails.length ? fails.join(' | ') :
-        '听视频: 封面+进度条+放音 + 快进/2倍速 + 二级菜单 + 最小化迷你条 + 「正在播放」 全通过'));
+        '听视频: 封面+进度条+放音 + 快进/2倍速 + 二级菜单 + 播放模式 + 最小化迷你条 + 「正在播放」 全通过'));
   } catch (e) {
     results.push({ page: 'listen', fails: [String(e.message)] });
     console.log('✗ ' + 'listen'.padEnd(16) + String(e.message));

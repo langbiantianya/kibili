@@ -18,10 +18,11 @@ import { get } from 'svelte/store';
 import { getVideoInfo, getAudioUrl } from '../api/video.js';
 import { safePlay, safeSeek, seekableEnd, waitLoaded } from './media.js';
 import { fetchBlob, makeBlobUrl, revokeBlobUrl } from './cache.js';
+import { nextAction, prevAction } from './playmode.js';
 import { showToast } from '../stores/ui.js';
 import {
   playlist, nowPlaying, playState, currentIndex, miniVisible, miniProgress,
-  moveToPlaylistTop
+  moveToPlaylistTop, playMode
 } from '../stores/player.js';
 
 /** @type {HTMLVideoElement|null} */
@@ -237,32 +238,61 @@ export function togglePlay() {
   }
 }
 
-/** 下一首 (播完自动切下一首也走这里) */
+/**
+ * 下一首 (播完自动切下一首也走这里)
+ *
+ * 走哪一首由**播放模式**决定 (顺序 / 列表循环 / 单曲循环 / 随机),
+ * 规则写在 player/playmode.js 里 (纯逻辑, 有自测)。
+ *
+ * @param {boolean} [auto] true = 播完自动接的; false = 用户手动点的
+ */
 export function nextTrack(auto) {
   const items = get(playlist).items;
   if (!items.length) return;
-  let idx = get(currentIndex);
-  if (idx < 0) idx = 0;
-  else idx = idx + 1;
-  if (idx >= items.length) {
-    // 到底了: 自动连播就停在这, 手动点"下一首"就回到第一首
-    if (auto) {
-      patchState({ playing: false });
-      return;
-    }
-    idx = 0;
+  const act = nextAction(get(playMode), get(currentIndex), items.length, !!auto);
+  if (act.type === 'stop') {
+    // 顺序播放: 播到最后一首就停在这儿
+    patchState({ playing: false });
+    return;
   }
-  playIndex(idx);
+  if (act.type === 'replay') {
+    // 单曲循环: 这首从头再放一遍 (不重新拉流, 直接跳回 0)
+    replayCurrent();
+    return;
+  }
+  playIndex(act.index);
 }
 
 /** 上一首 */
 export function prevTrack() {
   const items = get(playlist).items;
   if (!items.length) return;
-  let idx = get(currentIndex);
-  if (idx <= 0) idx = 0;
-  else idx = idx - 1;
-  playIndex(idx);
+  const act = prevAction(get(playMode), get(currentIndex), items.length);
+  if (act.type === 'stop') return;
+  if (act.type === 'replay') {
+    replayCurrent();
+    return;
+  }
+  playIndex(act.index);
+}
+
+/**
+ * 把当前这首从头再放一遍
+ *
+ * 单曲循环用得到: 不重新拉流 (省一次请求, 也快), 直接跳回 0 接着播。
+ */
+function replayCurrent() {
+  const idx = get(currentIndex);
+  if (!el || !el.src) {
+    // 元素上什么都没有 → 只能重新拉一遍
+    if (idx >= 0) playIndex(idx);
+    return;
+  }
+  advanced = false;
+  safeSeek(el, 0);
+  safePlay(el).then(ok => {
+    patchState({ playing: ok && !el.paused, time: 0 });
+  });
 }
 
 /**

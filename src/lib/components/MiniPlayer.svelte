@@ -21,7 +21,8 @@
     {#if coverUrl}
       <img class="cover" src={coverUrl} alt="" />
     {:else}
-      <div class="cover placeholder">♪</div>
+      <!-- 没有封面时画一个播放三角 (CSS 画的, 不吃字体字形) -->
+      <div class="cover placeholder"><i class="tri-r"></i></div>
     {/if}
     <div class="info">
       <div class="title">{cur.title || '正在播放'}</div>
@@ -55,8 +56,16 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
     color: var(--md-sys-color-on-surface-variant);
+  }
+
+  /* 播放三角 (CSS 画的: 设备字体里不一定有 ♪ 这个字形) */
+  .tri-r {
+    width: 0;
+    height: 0;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    border-left: 6px solid currentColor;
   }
 
   .info {

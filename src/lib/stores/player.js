@@ -6,13 +6,18 @@
 // 2) nowPlaying / playState —— 当前在放什么、放得怎么样 (不持久化)
 // 3) miniVisible —— 听视频页被"最小化"后, 底部浮一条迷你播放条
 //
+// 另外 playMode (播放模式) 也是**本地持久化**的: 顺序 / 列表循环 /
+// 单曲循环 / 随机, 关掉应用再打开还是用户上次选的那个。
+//
 // 播放列表里存的是**视频信息** (bvid/cid/标题/封面), 不是播放地址 ——
 // B 站的流地址带有效期 (deadline), 存下来过阵子就失效了, 每次播都重新拉。
 
 import { writable, get } from 'svelte/store';
 import { persist } from './persist.js';
+import { DEFAULT_PLAY_MODE, isPlayMode } from '../player/playmode.js';
 
 const LIST_KEY = 'player:playlist:v1';
+const MODE_KEY = 'player:playmode:v1';
 
 // ── 播放列表 (持久化) ────────────────────────────────────────────────
 // items: [{ bvid, cid, title, pic, owner: {mid, name}, duration }]
@@ -47,6 +52,27 @@ export const currentIndex = writable(-1);
 
 /** 迷你条上显示的进度 (不跟 playState 同步更新, 免得整条列表都重渲染) */
 export const miniProgress = writable(0);
+
+// ── 播放模式 (持久化) ──────────────────────────────────────────────────
+// 顺序播放 / 列表循环 / 单曲循环 / 随机播放。
+// 存进 localStorage —— 关掉应用再打开, 还是用户上次选的那个模式。
+const savedMode = persist.load(MODE_KEY, DEFAULT_PLAY_MODE);
+export const playMode = writable(
+  isPlayMode(savedMode) ? savedMode : DEFAULT_PLAY_MODE
+);
+playMode.subscribe(v => persist.save(MODE_KEY, v));
+
+/**
+ * 切播放模式
+ *
+ * @param {string} id 模式 id (不认识的不切, 免得存进去一个坏值)
+ * @returns {boolean} 有没有真的切了
+ */
+export function setPlayMode(id) {
+  if (!isPlayMode(id)) return false;
+  playMode.set(id);
+  return true;
+}
 
 // ── 播放列表操作 ──────────────────────────────────────────────────────
 
