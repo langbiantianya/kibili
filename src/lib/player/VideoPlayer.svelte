@@ -9,6 +9,7 @@
   import { showToast } from '../stores/ui.js';
   import { buildVideoMenu } from './videoMenu.js';
   import { addToPlaylist } from '../stores/player.js';
+  import { stopPlayback } from './engine.js';
   import { formatCount } from '../utils/format.js';
   import { biliImg } from '../utils/platform.js';
   import CommentSection from '../components/CommentSection.svelte';
@@ -174,6 +175,11 @@
   }
 
   function onPlay() {
+    // 开始播视频 → 把"听视频"停掉。
+    //
+    // 两边同时放就是**两路声音叠在一起**(听视频那条 + 视频自带音轨),
+    // 迷你条也该跟着收起来 —— 正在放的东西都没了, 条还挂着没意义。
+    stopPlayback();
     dispatch('playstate', { playing: true });
     // 开始播放时启动上报
     startReportTimer();

@@ -1448,6 +1448,76 @@ if (!only.length || only.indexOf('listen') >= 0) {
   }
 }
 
+// 真机: 听视频放到最小化之后, 又去播视频 → 听视频要停, 迷你条要收
+//
+// 不这样的话就是**两路声音叠在一起**: 听视频那条 m4s 还在放, 视频页的
+// mp4 自带音轨也放起来了, 声音一高一低互相盖; 迷你条还挂着也不对
+// (正在放的东西都没了)。
+if (!only.length || only.indexOf('listen-video') >= 0) {
+  const fails = [];
+  const shot = name => (shotDir ? path.join(shotDir, 'listen-video-' + name + '.png') : '');
+  const probe = async () => {
+    const text = '(function(){' +
+      'var e=document.querySelector("#media-engine");' +
+      'var mini=document.querySelector(".mini-player");' +
+      'var v=document.querySelector("video:not(#media-engine)");' +
+      'return JSON.stringify({' +
+      'enginePaused: e?e.paused:true,' +
+      // 停了之后 el.src 会被解析成文档路径 (index.html), 所以看的是"还挂没挂着媒体流"
+      'engineMedia: e?/(\\.m4s|\\.mp4|blob:)/.test(String(e.currentSrc||e.src||"")):false,' +
+      'engineT: e?Math.round((e.currentTime||0)*10)/10:-1,' +
+      'mini: !!mini, hash: location.hash,' +
+      'videoPlaying: v?!v.paused:false,' +
+      'videoT: v?Math.round((v.currentTime||0)*10)/10:-1});' +
+      '})()';
+    const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+    if (r.exception) throw new Error('探针异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
+    return JSON.parse(r.result);
+  };
+  try {
+    // 1) 进听视频页, 让它放起来
+    await goto('#/home');
+    await delay(3000);
+    await goto('#/listen?bvid=BV1ZqpE6uEKd');
+    await delay(16000);
+    let p = await probe();
+    if (p.enginePaused) fails.push('听视频页里声音没在放');
+
+    // 2) 最小化 → 迷你条浮出来
+    await pressJs('SoftLeft');
+    await delay(2000);
+    p = await probe();
+    if (!p.mini) fails.push('最小化之后应该浮出迷你播放条');
+
+    // 3) 去详情页, 按中键开始播视频
+    await goto('#/player?bvid=BV1ZqpE6uEKd');
+    await delay(6000);
+    press(352);              // 中键: 拉流并播放 (设置里关了"打开视频立刻播放")
+    await delay(12000);
+    p = await probe();
+    if (!p.videoPlaying) {
+      fails.push('详情页的视频没播起来 (没法验后面的)');
+    } else {
+      // 4) 听视频该停了, 迷你条该收了
+      if (!p.enginePaused) fails.push('开始播视频之后, 听视频还在放 (两路声音叠着)');
+      if (p.engineMedia) fails.push('开始播视频之后, 听视频的流还挂着没停');
+      if (p.mini) fails.push('开始播视频之后, 迷你条没收起来');
+      if (shot('video')) await screenshot(shot('video'));
+    }
+    // 收尾: 把声音停掉
+    await goto('#/home');
+    await delay(2500);
+
+    results.push({ page: 'listen-video', fails });
+    console.log((fails.length ? '✗' : '✓') + ' ' + 'listen-video'.padEnd(16) +
+      (fails.length ? fails.join(' | ') :
+        '开始播视频 → 听视频停掉 + 迷你条收起 全通过'));
+  } catch (e) {
+    results.push({ page: 'listen-video', fails: [String(e.message)] });
+    console.log('✗ ' + 'listen-video'.padEnd(16) + String(e.message));
+  }
+}
+
 // 真机: 「退出应用」—— 菜单最后一项
 //
 // 退出前先把路由重置到 '/' (首页), 再关掉应用窗口。

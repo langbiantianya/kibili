@@ -9,6 +9,7 @@
   import { setSoftkeys, setSoftkeysHidden, showToast } from '../stores/ui.js';
   import { isLogin } from '../stores/user.js';
   import { buildVideoMenu } from '../player/videoMenu.js';
+  import { stopPlayback } from '../player/engine.js';
   import { navigate } from '../router/index.js';
   import { biliImg } from '../utils/platform.js';
 
@@ -289,6 +290,8 @@
 
   function onPlay() {
     playing = true;
+    // 开始播视频 → 把"听视频"停掉 (不然两路声音叠在一起, 迷你条也该收起来)
+    stopPlayback();
   }
 
   function onPause() {
