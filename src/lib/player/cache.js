@@ -29,8 +29,17 @@
 // 缓存里的东西只在**这一次运行**里有效 (blob: URL 关掉应用就没了),
 // 所以不用管"清缓存"按钮, 应用重启自然就没了。
 
+import { writable } from 'svelte/store';
+
 /** 默认上限: 50MB */
 export const DEFAULT_CACHE_LIMIT = 50 * 1024 * 1024;
+
+/**
+ * 缓存的实时状态 (给设置页显示"现在占了多少")
+ *
+ * @type {import('svelte/store').Writable<{count: number, size: number, limit: number, active: string}>}
+ */
+export const cacheInfo = writable({ count: 0, size: 0, limit: DEFAULT_CACHE_LIMIT, active: '' });
 
 /** 缓存条目: key → { url, size } (Map 保持插入顺序 = 最早缓存的在最前面) */
 const entries = new Map();
@@ -55,11 +64,24 @@ export function setCacheLimit(bytes) {
   const n = Number(bytes);
   limitBytes = isFinite(n) && n > 0 ? n : DEFAULT_CACHE_LIMIT;
   evict(activeKey);
+  syncInfo();
 }
 
-/** 现在的上限 (字节) */
+/**
+ * 现在的上限 (字节)
+ */
 export function getCacheLimit() {
   return limitBytes;
+}
+
+/** 把当前状态同步给订阅者 (设置页显示用) */
+function syncInfo() {
+  cacheInfo.set({
+    count: entries.size,
+    size: totalSize,
+    limit: limitBytes,
+    active: activeKey
+  });
 }
 
 /**
@@ -85,6 +107,7 @@ export function cacheStats() {
  */
 export function cacheSetActive(key) {
   activeKey = key || '';
+  syncInfo();
 }
 
 /**
@@ -129,6 +152,7 @@ export function cacheTrack(key, url, onProgress) {
       totalSize += blob.size || 0;
       // 刚缓存好的这首先留着, 别的按"最早缓存的先删"回收
       evict(key);
+      syncInfo();
       return u;
     })
     .catch(() => '')
@@ -163,12 +187,32 @@ function evict(keepKey) {
   }
 }
 
-/** 全清 (退出播放/调试用) */
-export function clearCache() {
-  entries.forEach(e => revokeBlobUrl(e.url));
-  entries.clear();
-  inflight.clear();
-  totalSize = 0;
+/**
+ * 清缓存
+ *
+ * @param {boolean} [keepActive] true = 正在播的那首不清
+ *   (它正被媒体元素用着, revoke 掉那个 blob: URL 声音会断)
+ * @returns {{freed: number, count: number}} 清掉了多少字节 / 几首
+ */
+export function clearCache(keepActive) {
+  let freed = 0;
+  let count = 0;
+  const keys = [];
+  entries.forEach((v, k) => keys.push(k));
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    if (keepActive && k === activeKey) continue;
+    const e = entries.get(k);
+    if (!e) continue;
+    revokeBlobUrl(e.url);
+    freed += e.size || 0;
+    count++;
+    entries.delete(k);
+  }
+  totalSize -= freed;
+  if (totalSize < 0) totalSize = 0;
+  syncInfo();
+  return { freed: freed, count: count };
 }
 
 /**

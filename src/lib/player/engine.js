@@ -17,7 +17,7 @@
 import { get } from 'svelte/store';
 import { getVideoInfo, getAudioUrl } from '../api/video.js';
 import { safePlay, safeSeek, seekableEnd, waitLoaded } from './media.js';
-import { cacheTrack, cacheGet, cacheSetActive } from './cache.js';
+import { cacheTrack, cacheGet, cacheSetActive, clearCache } from './cache.js';
 import { nextAction, prevAction } from './playmode.js';
 import { showToast } from '../stores/ui.js';
 import {
@@ -474,6 +474,18 @@ function cacheWholeTrack(key, url) {
     patchState({ cacheRatio: u ? 1 : 0 });
     return u;
   });
+}
+
+/**
+ * 清理整段音频缓存 (设置里那个入口走这条)
+ *
+ * 正在播的那首**不清**: 它正被媒体元素用着, revoke 掉那个 blob: URL 声音会断。
+ * 想连它一起清, 先「退出播放」。
+ *
+ * @returns {{freed: number, count: number}} 清掉了多少字节 / 几首
+ */
+export function clearAudioCache() {
+  return clearCache(true);
 }
 
 /**

@@ -3,6 +3,8 @@
   import { onKey, moveFocus } from "../keyboard/index.js";
   import { showToast } from "../stores/ui.js";
   import { settings, DEFAULT_CACHE_LIMIT_MB } from "../stores/settings.js";
+  import { cacheInfo } from "../player/cache.js";
+  import { clearAudioCache } from "../player/engine.js";
   import { navigate } from "../router/index.js";
 
   // 分辨率选项
@@ -50,6 +52,32 @@
     settings.update(s => ({ ...s, cacheLimit: option.value }));
     showToast(`听视频缓存上限: ${option.label}`);
     showCacheDropdown = false;
+  }
+
+  // 缓存现在占了多少 (设置页右边那一栏显示)
+  $: cacheSizeText = $cacheInfo.count
+    ? fmtMB($cacheInfo.size) + " / " + fmtMB($cacheInfo.limit)
+    : "空";
+
+  function fmtMB(bytes) {
+    const mb = (bytes || 0) / 1024 / 1024;
+    if (mb >= 10) return Math.round(mb) + "MB";
+    return (Math.round(mb * 10) / 10) + "MB";
+  }
+
+  // 清缓存: 正在播的那首不清 (它正被媒体元素用着, revoke 掉声音会断)
+  function clearCacheNow() {
+    const before = $cacheInfo;
+    const r = clearAudioCache();
+    if (!r.count) {
+      // 一首都没缓存过 / 只剩正在播的那首 (清不掉)
+      showToast(before.count ? "正在播的那首没法清, 退出播放后再清" : "缓存本来就是空的");
+      return;
+    }
+    showToast(
+      "已清理 " + r.count + " 首 (" + fmtMB(r.freed) + ")" +
+      ($cacheInfo.count ? ", 正在播的那首还留着" : "")
+    );
   }
 
   // 打开视频是否立刻播放
@@ -132,6 +160,11 @@
           {/each}
         </div>
       {/if}
+      <!-- 清理听视频缓存: 整段缓存的音频 (为了精确快进而下的那一份) -->
+      <div class="menu-item" data-navable tabindex="0" on:click={clearCacheNow}>
+        <span class="label">清理听视频缓存</span>
+        <span class="value">{cacheSizeText}</span>
+      </div>
       <!-- 按键检测: 在真机上核对实体按键与框架按键映射是否对得上 -->
       <div class="menu-item" data-navable tabindex="0" on:click={() => navigate("/keytest")}>
         <span class="label">按键检测</span>

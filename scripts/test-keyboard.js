@@ -2300,6 +2300,20 @@ check('音频缓存: 上限 / 最早优先回收 / 正在播的不删 / 单首�
 
   clearCache();
   eq(cacheStats().count, 0, '清完就没了');
+
+  // 清理时正在播的那首要留着 (它正被媒体元素用着, revoke 掉声音会断)
+  clearCache();
+  setCacheLimit(1000);
+  cacheSetActive('a2');
+  await cacheTrack('a2', 'http://x/a2');
+  await cacheTrack('b2', 'http://x/b2');
+  eq(cacheStats().count, 2, '两首都在缓存里');
+  const cleared = clearCache(true);
+  eq(cleared.count, 1, '只清掉一首 (正在播的那首留着)');
+  eq(cacheGet('a2') !== '', true, '正在播的那首还在');
+  eq(cacheGet('b2'), '', '别的那首被清掉了');
+  eq(cacheStats().count, 1, '只剩正在播的那首');
+  clearCache();
 });
 
 // ── 运行 ────────────────────────────────────────────────────────────────

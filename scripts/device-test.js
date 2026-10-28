@@ -142,10 +142,29 @@ const only = (opt('--only') || '').split(',').filter(Boolean);
 const PAGES = [
   { name: 'home', hash: '#/home', wait: 6000, softkeys: { left: '刷新', right: '更多' } },
   { name: 'following', hash: '#/following', wait: 6000, softkeys: { left: '刷新', center: '打开', right: '更多' } },
-  { name: 'profile', hash: '#/profile', wait: 4000, softkeys: { left: '', center: '打开', right: '更多' } },
+  { name: 'profile', hash: '#/profile', wait: 4000, softkeys: { left: '', center: '打开', right: '更多' },
+    // 「听视频」入口要排在「历史记录」上边
+    check: async () => {
+      const labels = await menuItemLabels();
+      const li = labels.indexOf('听视频');
+      const hi = labels.indexOf('历史记录');
+      if (li < 0) return '「我的」页没有「听视频」入口: ' + labels.join(',');
+      if (hi < 0) return '「我的」页没有「历史记录」入口: ' + labels.join(',');
+      if (li > hi) return '「听视频」要排在「历史记录」上边, 实际: ' + labels.join(',');
+      return '';
+    }
+  },
   { name: 'history', hash: '#/history', wait: 7000, softkeys: { left: '刷新', right: '更多' } },
   { name: 'favorites', hash: '#/favorites', wait: 6000, softkeys: { right: '更多' } },
-  { name: 'settings', hash: '#/settings', wait: 3000, softkeys: {} },
+  { name: 'settings', hash: '#/settings', wait: 3000, softkeys: {},
+    // 听视频的缓存上限 + 清理入口
+    check: async () => {
+      const labels = await menuItemLabels();
+      if (labels.indexOf('听视频缓存限制') < 0) return '设置里没有「听视频缓存限制」: ' + labels.join(',');
+      if (labels.indexOf('清理听视频缓存') < 0) return '设置里没有「清理听视频缓存」: ' + labels.join(',');
+      return '';
+    }
+  },
   { name: 'about', hash: '#/about', wait: 3000, softkeys: {} },
   // 按键检测页: 不绑任何软键快捷键, 软键栏只有中键提示
   { name: 'keytest', hash: '#/keytest', wait: 3000, softkeys: { center: '选择' } },
@@ -364,6 +383,20 @@ if (!consoleActor) {
 if (!consoleActor) { console.error('✗ 拿不到应用 console actor (确认应用已安装并在运行)'); process.exit(1); }
 await req(consoleActor, 'startListeners', { listeners: ['PageError'] });
 
+/**
+ * 读页面上 .menu-item .label 的文案 (按显示顺序)
+ *
+ * "我的"页和设置页的入口项都是这个结构。
+ */
+async function menuItemLabels() {
+  const text = '(function(){var out=[];var els=document.querySelectorAll(".menu-item .label");' +
+    'for(var i=0;i<els.length;i++){out.push(String(els[i].innerText||"").trim());}' +
+    'return JSON.stringify(out);})()';
+  const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+  if (r.exception) return [];
+  try { return JSON.parse(r.result); } catch (e) { return []; }
+}
+
 async function probe(timeoutMs = DEFAULT_TIMEOUT) {
   // evaluateJS 按语句执行, 顶层不能写 return, 所以整体包一层 IIFE
   const text = '(function(){return (\n' + PROBE + '\n);})()';
@@ -452,6 +485,16 @@ for (const page of PAGES) {
     else if (it.t === 'outOfViewportX' && page.name !== 'fullscreen') fails.push(`超出 240px 视口: ${it.el}`);
   }
   if (snap.focus && snap.focus.inViewport === false) fails.push('焦点元素不在可视区: ' + snap.focus.el);
+
+  // 某些页面还有额外的内容断言 (入口项 / 顺序)
+  if (page.check) {
+    try {
+      const extra = await page.check();
+      if (extra) fails.push(extra);
+    } catch (e) {
+      fails.push('页面内容检查出错: ' + String(e.message));
+    }
+  }
 
   results.push({ page: page.name, fails, snap });
   console.log((fails.length ? '✗' : '✓') + ' ' + page.name.padEnd(16) +

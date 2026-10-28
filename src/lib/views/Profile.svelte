@@ -1,7 +1,9 @@
 <script>
   import { onMount, onDestroy, tick } from "svelte";
+  import { get } from "svelte/store";
   import { user, isLogin, userLogout, hydrateFromNav } from "../stores/user.js";
   import { navigate } from "../router/index.js";
+  import { playlist, nowPlaying } from "../stores/player.js";
   import {
     onKey,
     moveFocus,
@@ -52,6 +54,7 @@
   });
 
   $: visibleMenuItems = [
+    { key: "listen", label: "听视频", action: () => openListen() },
     { key: "history", label: "历史记录", action: () => navigate("/history") },
     {
       key: "favorites",
@@ -64,6 +67,21 @@
       ? [{ key: "logout", label: "登出", action: () => onLogoutClick() }]
       : []),
   ];
+
+  // 进听视频页 (纯音频播放页)
+  //
+  // 优先进**正在放的那首**: 声音本来就在放, 进去是接着放, 不会重来一遍。
+  // 一首都没放过 → 进播放列表的第一首。
+  function openListen() {
+    const cur = get(nowPlaying);
+    const items = get(playlist).items;
+    const bvid = cur && cur.bvid ? cur.bvid : items.length ? items[0].bvid : "";
+    if (!bvid) {
+      showToast("播放列表是空的, 先加几首吧");
+      return;
+    }
+    navigate("/listen?bvid=" + bvid);
+  }
 
   // 登出: 需要连续按两次 (第一次提示, 3 秒内再按一次才执行)。
   // 不用 confirm(): KaiOS 的系统确认框是嵌套事件循环, 一次误按/随后任意按键就可能直接确认登出。
