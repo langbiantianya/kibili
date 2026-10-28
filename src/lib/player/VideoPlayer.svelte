@@ -2,6 +2,7 @@
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { releaseWakeLock } from './wake.js';
   import { requestSystemVolume } from './volume.js';
+  import { safePlay, safeSeek } from './media.js';
   import { settings } from '../stores/settings.js';
   import { moveFocus, onKey, activateFocused } from '../keyboard/index.js';
   import { reportProgress } from '../api/interact.js';
@@ -14,10 +15,14 @@
 
   // 双模式播放器:
   //  - mode='video': 用 <video> 播放视频流 (含画面)
-  //  - mode='audio': 用 <audio> 播放独立音频流 (听视频模式, 不解码视频帧)
-  // mode 切换由父组件 Player.svelte 控制, 通过 src / audioSrc 传入
-  export let src = '';            // 视频流 URL (mp4)
-  export let audioSrc = '';       // 音频流 URL (m4s / m4a, 听视频模式)
+  //  - mode='audio': 用 <audio> 播**同一个流** (听视频模式, 不解码视频帧)
+  // mode 切换由父组件 Player.svelte 控制
+  //
+  // ⚠️ **不要再额外挂一条 DASH 音频流**: 视频流 (durl 的 mp4) 自带音轨,
+  // 两条一起放就是**双声道叠加** (声音一高一低互相盖)。
+  // 以前那条音频是 display:none 的, 老 Gecko 上根本不播, 所以没人发现;
+  // 改成 .offscreen-media (能播了) 之后立刻暴露出来 —— 真机实测确认。
+  export let src = '';            // 视频流 URL (mp4, 自带音轨)
   export let poster = '';
   export let title = '';
   export let mode = 'video';      // 'video' | 'audio'
@@ -44,7 +49,6 @@
 
   let video;
   let audio;
-  let dashAudio = /** @type {HTMLAudioElement|null} */ (null);
   /** @type {any} */
   let root;
   let showControls = false;
@@ -98,11 +102,6 @@
     try { media.muted = muted; } catch (e) {}
   }
 
-  // DASH 模式下, 同步播放独立音频流
-  $: if (dashAudio && mode === 'video') {
-    dashAudio.muted = muted;
-  }
-
   // 当前激活的媒体元素
   $: media = mode === 'audio' ? audio : video;
 
@@ -115,15 +114,9 @@
     duration = m.duration || 0;
     // 音量不设: 交给系统音量管, 应用不叠第二层增益
     m.muted = muted;
-    // DASH 模式下, 同步播放独立音频流
-    if (mode === 'video' && dashAudio && audioSrc) {
-      dashAudio.muted = muted;
-      dashAudio.currentTime = m.currentTime;
-      dashAudio.play().catch(() => {});
-    }
     // 从历史/收藏恢复播放进度 (video / audio 两种模式都要应用)
     applyResume();
-    m.play().catch(() => {});
+    safePlay(m);
   }
 
   // loadedmetadata 时缓冲通常还没到目标位置, 直接 seek 会被夹到已缓冲边缘;
@@ -140,9 +133,6 @@
     try {
       m.currentTime = Math.max(0, Math.min(resumeAt, seekableEnd - 1));
       resumeApplied = true;
-      if (mode === 'video' && dashAudio) {
-        try { dashAudio.currentTime = m.currentTime; } catch (e) {}
-      }
     } catch (e) { /* ignore */ }
   }
 
@@ -153,13 +143,6 @@
       // 更新缓冲进度
       if (m.buffered && m.buffered.length > 0) {
         buffered = m.buffered.end(m.buffered.length - 1);
-      }
-      // DASH 模式下同步音频时间
-      if (mode === 'video' && dashAudio && audioSrc) {
-        const diff = Math.abs(dashAudio.currentTime - m.currentTime);
-        if (diff > 0.3) {
-          dashAudio.currentTime = m.currentTime;
-        }
       }
     }
   }
@@ -191,18 +174,12 @@
   }
 
   function onPlay() {
-    if (mode === 'video' && dashAudio && audioSrc) {
-      dashAudio.play().catch(() => {});
-    }
     dispatch('playstate', { playing: true });
     // 开始播放时启动上报
     startReportTimer();
   }
 
   function onPause() {
-    if (mode === 'video' && dashAudio && audioSrc) {
-      dashAudio.pause();
-    }
     dispatch('playstate', { playing: false });
     // 暂停时停止上报，并立即上报一次当前进度
     stopReportTimer();
@@ -211,9 +188,6 @@
 
   function onMediaError(e) {
     error = mode === 'audio' ? '音频错误' : '视频错误';
-    if (dashAudio) {
-      dashAudio.pause();
-    }
     dispatch('error', error);
   }
 
@@ -223,9 +197,6 @@
     dispatch('ended');
   }
   function onVideoEnded() {
-    if (dashAudio) {
-      dashAudio.pause();
-    }
     // 播放结束时上报最终进度
     doReportProgress();
     dispatch('ended');
@@ -235,15 +206,9 @@
     const m = mode === 'audio' ? audio : video;
     if (!m) return;
     if (m.paused) {
-      m.play().catch(() => {});
-      if (mode === 'video' && dashAudio && audioSrc) {
-        dashAudio.play().catch(() => {});
-      }
+      safePlay(m);
     } else {
       m.pause();
-      if (mode === 'video' && dashAudio && audioSrc) {
-        dashAudio.pause();
-      }
     }
   }
 
@@ -272,10 +237,7 @@
     const m = mode === 'audio' ? audio : video;
     if (!m) return;
     const newTime = Math.max(0, Math.min(m.duration || 0, m.currentTime + delta));
-    m.currentTime = newTime;
-    if (mode === 'video' && dashAudio && audioSrc) {
-      dashAudio.currentTime = newTime;
-    }
+    safeSeek(m, newTime);
   }
 
   // 调音量 = 只调系统音量
@@ -489,10 +451,6 @@
     stopReportTimer();
     doReportProgress();
     releaseWakeLock();
-    if (dashAudio) {
-      dashAudio.pause();
-      dashAudio.src = '';
-    }
   });
 </script>
 
@@ -523,20 +481,12 @@
           -->
           <img class="cover" src={posterUrl} alt="" />
         {/if}
-        <!-- DASH 模式下同步播放独立音频流 -->
-        {#if audioSrc}
-          <audio
-            bind:this={dashAudio}
-            src={audioSrc}
-            preload="metadata"
-            style="display: none;"
-          ></audio>
-        {/if}
       {:else}
-        <!-- 听视频模式: 仅渲染 <audio>, 不画任何画面, 真正省电省带宽 -->
+        <!-- 听视频模式: 同一个流换用 <audio> 播 (只解码音频, 不画画面) -->
         <audio
           bind:this={audio}
-          src={audioSrc}
+          class="offscreen-media"
+          src={src}
           preload="metadata"
           audio-channel="content"
           on:loadedmetadata={onMediaLoaded}

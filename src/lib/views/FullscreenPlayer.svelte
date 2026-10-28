@@ -1,9 +1,10 @@
 <script>
-  import { onMount, onDestroy, tick } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { getVideoInfo, getPlayUrl, getDashUrls } from '../api/video.js';
   import { getStatus, likeVideo, coinVideo, favVideo, unfavVideo, tripleAction } from '../api/interact.js';
   import { settings } from '../stores/settings.js';
   import { requestSystemVolume } from '../player/volume.js';
+  import { safePlay, safeSeek } from '../player/media.js';
   import { onKey } from '../keyboard/index.js';
   import { setSoftkeys, setSoftkeysHidden, showToast } from '../stores/ui.js';
   import { isLogin } from '../stores/user.js';
@@ -12,7 +13,6 @@
   import { biliImg } from '../utils/platform.js';
 
   let videoSrc = '';
-  let audioSrc = '';
   let title = '';
   let poster = '';
   let loading = true;
@@ -25,8 +25,6 @@
 
   /** @type {any} */
   let video;
-  /** @type {HTMLAudioElement|null} */
-  let dashAudio = null;
 
   let currentBvid = '';        // 当前播放视频的 bvid
   let currentCid = 0;          // 当前视频的 cid (拉播放地址要用)
@@ -115,7 +113,6 @@
   // (系统音量接口在 KaiOS 2.4 上没有静音方法, 静音只能由应用把媒体元素 muted 置位)
   $: muted = $settings.muted;
   $: if (video) { try { video.muted = muted; } catch (e) {} }
-  $: if (dashAudio) { try { dashAudio.muted = muted; } catch (e) {} }
 
   function getBvidFromUrl() {
     const hash = location.hash || '';
@@ -143,22 +140,21 @@
    */
   async function fetchStream(bvid, cid, qn) {
     let src = '';
-    let audio = '';
     try {
       src = await getPlayUrl(bvid, cid, qn);
     } catch (e) {
       // MP4 拉取失败
     }
-    try {
-      const dash = await getDashUrls(bvid, cid, qn);
-      if (dash) {
-        audio = dash.audioUrl;
-        if (!src && dash.videoUrl) src = dash.videoUrl;
+    // MP4 单流也没拿到时, 视频流退回 DASH
+    if (!src) {
+      try {
+        const dash = await getDashUrls(bvid, cid, qn);
+        if (dash && dash.videoUrl) src = dash.videoUrl;
+      } catch (e) {
+        // ignore
       }
-    } catch (e) {
-      // DASH 拉取失败
     }
-    return { src, audio };
+    return { src };
   }
 
   /**
@@ -196,7 +192,6 @@
       // 直接换 src (不清空): <video> 元素不重建, 不会闪一下封面
       pendingSeek = at;
       videoSrc = s.src;
-      audioSrc = s.audio;
       await tick();
     } catch (e) {
       streamError = e.message || '加载失败';
@@ -247,8 +242,7 @@
           return;
         }
         videoSrc = s.src;
-        audioSrc = s.audio;
-      }
+        }
       // 不立刻播放的话: 只显示封面, 等用户按播放再拉流
     } catch (e) {
       error = e.message || '加载失败';
@@ -272,7 +266,6 @@
         return;
       }
       videoSrc = s.src;
-      audioSrc = s.audio;
     } catch (e) {
       streamError = e.message || '加载失败';
     } finally {
@@ -288,30 +281,18 @@
     if (video) {
       duration = video.duration || 0;
       if (at > 0 && at < duration) {
-        video.currentTime = at;
+        safeSeek(video, at);
       }
-      video.play().catch(() => {});
-    }
-    if (dashAudio) {
-      if (at > 0 && video && video.duration && at < video.duration) {
-        dashAudio.currentTime = at;
-      }
-      dashAudio.play().catch(() => {});
+      safePlay(video);
     }
   }
 
   function onPlay() {
     playing = true;
-    if (dashAudio) {
-      dashAudio.play().catch(() => {});
-    }
   }
 
   function onPause() {
     playing = false;
-    if (dashAudio) {
-      dashAudio.pause();
-    }
   }
 
   function onVideoError() {
@@ -321,9 +302,6 @@
 
   function onEnded() {
     playing = false;
-    if (dashAudio) {
-      dashAudio.pause();
-    }
   }
 
   function onTimeUpdate() {
@@ -332,12 +310,6 @@
       // 更新缓冲进度
       if (video.buffered && video.buffered.length > 0) {
         buffered = video.buffered.end(video.buffered.length - 1);
-      }
-    }
-    if (video && dashAudio && audioSrc) {
-      const diff = Math.abs(dashAudio.currentTime - video.currentTime);
-      if (diff > 0.3) {
-        dashAudio.currentTime = video.currentTime;
       }
     }
   }
@@ -350,7 +322,7 @@
     }
     if (!video) return;
     if (video.paused) {
-      video.play().catch(() => {});
+      safePlay(video);
     } else {
       video.pause();
     }
@@ -360,10 +332,7 @@
   function seek(delta) {
     if (!video) return;
     const newTime = Math.max(0, Math.min(video.duration || 0, video.currentTime + delta));
-    video.currentTime = newTime;
-    if (dashAudio) {
-      dashAudio.currentTime = newTime;
-    }
+    safeSeek(video, newTime);
   }
 
   // 倍速播放
@@ -588,12 +557,6 @@
   // 封面地址跟着屏幕尺寸走 (横屏宽度 = 视口长边)
   $: posterUrl = poster ? biliImg(poster, posterW, posterH, 'jpg') : '';
 
-  onDestroy(() => {
-    if (dashAudio) {
-      dashAudio.pause();
-      dashAudio.src = '';
-    }
-  });
 </script>
 
 <div class="fullscreen-player" class:landscape={isLandscape}>
@@ -614,9 +577,6 @@
       on:ended={onEnded}
       on:error={onVideoError}
     ></video>
-    {#if audioSrc}
-      <audio bind:this={dashAudio} src={audioSrc} preload="metadata" style="display: none;"></audio>
-    {/if}
     {#if playError}
       <div class="error play-error">{playError}</div>
     {/if}

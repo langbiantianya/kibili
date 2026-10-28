@@ -76,7 +76,17 @@ const MENU_PROBE = `(function () {
     for (var h = 0; h < hs.length; h++) out.hints.push(txt(hs[h]));
   }
   // ── 播放进度: 用来验证菜单里的"快进/快退"真的动了进度 ──────────
-  var media = document.querySelector('video') || document.querySelector('audio');
+  //
+  // ⚠️ 只认这页自己的 <video>: 根组件里那个全局媒体元素 (#media-engine, 听视频用的)
+  //    **任何页面都在**, 拿它兜底的话, 它的 duration 一有值, 测试就会以为
+  //    "这页的视频已经加载好了", 于是跳过"按中键加载视频"这一步 —— 后面快进当然没东西可推。
+  var media = null;
+  var vids = document.querySelectorAll('video');
+  for (var mv = 0; mv < vids.length; mv++) {
+    if (vids[mv].id === 'media-engine') continue;   // 全局听视频元素, 不是这页的视频
+    media = vids[mv];
+    break;
+  }
   out.media = { time: 0, duration: 0 };
   if (media) {
     out.media.time = Math.round((media.currentTime || 0) * 10) / 10;
@@ -206,10 +216,19 @@ function press(linuxKey) {
  * 只发 down 不会触发长按, 得真的按住。
  */
 function pressHold(linuxKey, ms) {
-  const run = cmd => spawnSync('adb', ['shell', cmd], { encoding: 'utf8' });
-  run(`sendevent /dev/input/event1 1 ${linuxKey} 1; sendevent /dev/input/event1 0 0 0`);
-  run(`sleep ${(ms / 1000).toFixed(1)}`);
-  run(`sendevent /dev/input/event1 1 ${linuxKey} 0; sendevent /dev/input/event1 0 0 0`);
+  keyDown(linuxKey);
+  spawnSync('adb', ['shell', `sleep ${(ms / 1000).toFixed(1)}`], { encoding: 'utf8' });
+  keyUp(linuxKey);
+}
+
+/** 按下不放 (只发 down) —— 用来在"还按着"的时候去探状态 */
+function keyDown(linuxKey) {
+  spawnSync('adb', ['shell', `sendevent /dev/input/event1 1 ${linuxKey} 1; sendevent /dev/input/event1 0 0 0`], { encoding: 'utf8' });
+}
+
+/** 松开 (只发 up) */
+function keyUp(linuxKey) {
+  spawnSync('adb', ['shell', `sendevent /dev/input/event1 1 ${linuxKey} 0; sendevent /dev/input/event1 0 0 0`], { encoding: 'utf8' });
 }
 
 /**
@@ -419,8 +438,9 @@ for (const page of PAGES) {
       fails.push(`软键 ${side} 期望「${want}」实际「${got}」`);
     }
   }
-  // 全屏/播放器/设置页本来就没有可聚焦元素
-  if (!snap.navables && !['player', 'fullscreen', 'settings'].includes(page.name)) {
+  // 全屏/播放器/设置/听视频页本来就没有可聚焦元素
+  // (听视频页是纯展示 + 按键控制, 没有列表可漫游)
+  if (!snap.navables && !['player', 'fullscreen', 'settings', 'listen'].includes(page.name)) {
     fails.push('没有可聚焦元素 (data-navable)');
   }
   for (const g of snap.missingGlyphs) fails.push('字体无字形: ' + g);
@@ -444,6 +464,16 @@ for (const page of PAGES) {
       if (await screenshot(file)) console.log('   截图: ' + file);
     } catch (e) {}
   }
+}
+
+// 页面循环里最后一个是听视频页 (它会开始放声音) → 把声音停掉,
+// 免得后面的用例都带着声音和迷你条跑 (截图会多一条浮层)
+try {
+  await withActor(a => req(a, 'evaluateJS', {
+    text: '(function(){var a=document.querySelector("#media-engine");if(a){a.pause();}return 1;})()'
+  }, DEFAULT_TIMEOUT));
+} catch (e) {
+  // ignore
 }
 
 // 真机按键: 软键菜单 (软键栏的二级/三级操作) 的完整交互
@@ -584,7 +614,7 @@ if (!only.length || only.indexOf('video-menu') >= 0) {
     if (m.bar.right !== '') fails.push('视频页菜单右软键应该没有文案实际「' + m.bar.right + '」');
 
     // 二级菜单 5 个入口, 顺序按顺手程度: UP 主页 → 播放控制 → 互动 → 分享 → 退出应用
-    const wantItems = 'UP 主页,播放控制,互动,分享,退出应用';
+    const wantItems = 'UP 主页,播放控制,互动,分享,听视频,添加到播放列表,退出应用';
     if (m.items.join(',') !== wantItems) fails.push('视频页菜单的项不对: ' + m.items.join(','));
     if (m.groups.length) fails.push('二级菜单不该有分组标题: ' + m.groups.join(','));
     if (m.hints.length) fails.push('二级菜单不该有副提示: ' + m.hints.join(','));
@@ -807,12 +837,16 @@ if (!only.length || only.indexOf('fullscreen-menu') >= 0) {
     if (!(pre.media && pre.media.duration > 0)) {
       press(352);
       await delay(8000);
+      pre = await menuProbe();
     }
-    const before = ((await menuProbe()).media || {}).time || 0;
+    const before = (pre.media && pre.media.time) || 0;
     press(108);
     await delay(1200);
     const after = ((await menuProbe()).media || {}).time || 0;
-    if (after <= before) fails.push('按 ↓ 键应该快进 (提示写着「短按 ↓ 键」), 进度没动: ' + before + ' → ' + after);
+    // 视频没加载出来 (设置关了自动播放 / 流没拉到) → 这条没东西可验, 别误报
+    if (pre.media && pre.media.duration > 0) {
+      if (after <= before) fails.push('按 ↓ 键应该快进 (提示写着「短按 ↓ 键」), 进度没动: ' + before + ' → ' + after);
+    }
 
     // ── 5) 中键提示跟着播放状态走: 播放中显示「暂停」, 暂停中显示「播放」 ──
     // 文案必须和行为一致: 提示写「暂停」的时候按下去就该暂停。
@@ -1132,8 +1166,14 @@ if (!only.length || only.indexOf('tab-menu') >= 0) {
     await delay(1500);
     m = await menuProbe();
     if (!m.open) fails.push('首页按右软键没有展开菜单');
-    if (m.items.join(',') !== '搜索,添加到播放列表,退出应用') {
-      fails.push('首页菜单的项不对: ' + m.items.join(','));
+    // 「正在播放」只有真的在放东西时才有 → 不写死, 只查关键几项
+    const hm = m.items || [];
+    if (hm[0] !== '搜索') fails.push('首页菜单第一项应该是「搜索」实际「' + hm[0] + '」');
+    if (hm.indexOf('添加到播放列表') < 0) {
+      fails.push('首页菜单里应该有「添加到播放列表」实际: ' + hm.join(','));
+    }
+    if (hm[hm.length - 1] !== '退出应用') {
+      fails.push('首页菜单最后一项应该是「退出应用」实际「' + hm[hm.length - 1] + '」');
     }
     if (m.bar.right !== '') fails.push('菜单打开后右软键应该没有文案实际「' + m.bar.right + '」');
     if (m.bar.center !== '选择') fails.push('菜单打开后中软键应该是「选择」实际「' + m.bar.center + '」');
@@ -1149,19 +1189,23 @@ if (!only.length || only.indexOf('tab-menu') >= 0) {
     m = await menuProbe();
     if (!m.open) fails.push('关注页按右软键没有展开菜单');
     const items = m.items || [];
-    // 视频 Tab 三项 (切到动态/添加到播放列表/退出应用), 动态 Tab 两项
-    if (items.length !== 2 && items.length !== 3) {
-      fails.push('关注页菜单项数不对, 实际: ' + items.join(','));
-    }
-    else {
-      if (items[0].indexOf('切到') !== 0) fails.push('关注页菜单第一项应该是「切到…」实际「' + items[0] + '」');
+    // 关注页的菜单: 第一项「切到…」+ 中间项(视频 Tab 有「添加到播放列表」) + 末项「退出应用」
+    // 「正在播放」只有真的在放东西时才有, 不写死它的存在
+    if (!items.length || items[0].indexOf('切到') !== 0) {
+      fails.push('关注页菜单第一项应该是「切到…」实际「' + (items[0] || '') + '」');
+    } else {
       if (items[items.length - 1] !== '退出应用') {
         fails.push('关注页菜单最后一项应该是「退出应用」实际「' + items[items.length - 1] + '」');
       }
-      // 视频 Tab 才有「添加到播放列表」(动态 Tab 里是动态, 不是视频)
+      // 「切到动态」= 现在在视频 Tab (activeTab 0); 「切到视频」= 现在在动态 Tab
+      const onVideoTab = items[0].indexOf('切到动态') === 0;
       const mid = items.slice(1, items.length - 1);
-      if (mid.length && mid[0] !== '添加到播放列表') {
-        fails.push('关注页菜单中间项应该是「添加到播放列表」实际「' + mid.join(',') + '」');
+      if (onVideoTab) {
+        if (mid.indexOf('添加到播放列表') < 0) {
+          fails.push('关注页(视频 Tab)菜单里应该有「添加到播放列表」实际「' + mid.join(',') + '」');
+        }
+      } else if (mid.indexOf('添加到播放列表') >= 0) {
+        fails.push('关注页(动态 Tab)菜单里不该有「添加到播放列表」实际「' + mid.join(',') + '」');
       }
     }
     if (shot('following')) await screenshot(shot('following'));
@@ -1175,7 +1219,10 @@ if (!only.length || only.indexOf('tab-menu') >= 0) {
     await delay(1500);
     m = await menuProbe();
     if (!m.open) fails.push('我的页按右软键没有展开菜单');
-    if (m.items.join(',') !== '退出应用') fails.push('我的页菜单的项不对: ' + m.items.join(','));
+    const pm = m.items || [];
+    if (pm[pm.length - 1] !== '退出应用') {
+      fails.push('我的页菜单最后一项应该是「退出应用」实际: ' + pm.join(','));
+    }
     if (shot('profile')) await screenshot(shot('profile'));
 
     results.push({ page: 'tab-menu', fails });
@@ -1256,7 +1303,7 @@ if (!only.length || only.indexOf('listen') >= 0) {
   const pageProbe = async () => {
     const text = '(function(){' +
       'var img=document.querySelector(".cover-wrap img");' +
-      'var a=document.querySelector("audio");' +
+      'var a=document.querySelector("#media-engine");' +
       'var mini=document.querySelector(".mini-player");' +
       'var t=document.querySelector(".listen .title");' +
       'return JSON.stringify({' +
@@ -1265,6 +1312,11 @@ if (!only.length || only.indexOf('listen') >= 0) {
       'audio: !!a, paused: a?a.paused:true, rate: a?(a.playbackRate||1):0,' +
       'at: a?Math.round((a.currentTime||0)*10)/10:-1, dur: a?Math.round((a.duration||0)*10)/10:-1,' +
       'audioSrc: a?String(a.currentSrc||a.src||"").split("/").pop().slice(0,40):"",' +
+      // 快进失败时要看得见"能 seek 到哪": 老 Gecko 对 DASH 的 m4s 只能往后播
+      'seekable: a&&a.seekable?a.seekable.length+"["+Math.round(a.seekable.start(0)*10)/10+"~"+Math.round(a.seekable.end(a.seekable.length-1)*10)/10+"]":"",' +
+      'buffered: a&&a.buffered?a.buffered.length+"["+Math.round(a.buffered.start(0)*10)/10+"~"+Math.round(a.buffered.end(a.buffered.length-1)*10)/10+"]":"",' +
+      // 整段缓存的进度 (页面上那句"准备可快进的音频 xx%")
+      'cache: (function(){var c=document.querySelector(".listen .cache");return c?String(c.innerText||"").trim():"";})(),' +
       'mini: !!mini, hash: location.hash});' +
       '})()';
     const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
@@ -1273,36 +1325,66 @@ if (!only.length || only.indexOf('listen') >= 0) {
   };
 
   try {
+    // 可能残留着上一轮用例开着的菜单 (上一轮被杀在菜单打开的状态) →
+    // 菜单开着的时候软键栏是"关闭/选择", 断言会全乱, 先关掉
+    const pre = await menuProbe();
+    if (pre.open) {
+      press(14);
+      await delay(1000);
+    }
     // ── 1) 进听视频页 ─────────────────────────────────────────────
+    //
+    // ⚠️ 先离开再进来: 页面循环 (PAGES) 的最后一项就是听视频页, 循环收尾会把
+    // 声音暂停掉。如果直接 goto 同一个 hash, 路由不变化 → 组件不会重新挂载 →
+    // 不会重新起播 → 一直测到的是暂停状态。所以先去首页, 再进听视频页。
+    await goto('#/home');
+    await delay(3000);
     await goto('#/listen?bvid=BV1ZqpE6uEKd');
-    await delay(14000);
+    await delay(18000);
     let p = await pageProbe();
     let m = await menuProbe();
     if (m.bar.left !== '最小化') fails.push('听视频页左软键应该是「最小化」实际「' + m.bar.left + '」');
     if (m.bar.right !== '更多') fails.push('听视频页右软键应该是「更多」实际「' + m.bar.right + '」');
     if (!p.cover) fails.push('封面图没加载出来');
-    if (!p.audio) fails.push('页面里没有 audio 元素');
-    if (p.paused) fails.push('声音没在放 (audio 是暂停的)');
+    if (!p.audio) fails.push('页面里没有全局媒体元素');
+    if (p.paused) fails.push('声音没在放 (媒体元素是暂停的)');
     if (p.at <= 0) fails.push('播放进度没走 (t=' + p.at + ')');
     if (!p.title) fails.push('标题是空的');
     if (shot('page')) await screenshot(shot('page'));
 
     // ── 2) → 快进 10 秒 ───────────────────────────────────────────
+    //
+    // ⚠️ 老 Gecko (Gecko 48) 边下边播 DASH 的 m4s 纯音频时, 会把它当**直播流**:
+    //   duration 跟着播放头走, seekable 只有"已经播到的那一段" → 快不进去。
+    //   应用的做法: 快进时把整段缓存下来, 换成整段播 (解封装器一次拿到整个文件,
+    //   时长和可跳范围都算得对) → 落点就准了。
+    //   真机实测: 整段缓存完 (1.85MB) 后, 位置准确落到 +10 秒。
+    //
+    // 所以这里要**轮询等它落点** (要先下完整段), 而不是死等两秒。
     const at0 = p.at;
-    press(163);           // 右方向键
-    await delay(1500);
-    p = await pageProbe();
-    if (p.at < at0 + 5) fails.push('按 → 应该快进 10 秒, 实际 ' + at0 + ' → ' + p.at);
+    press(106);           // 右方向键 (Linux input: ←105 ↑103 ↓108 →106)
+    let moved = false;
+    for (let i = 0; i < 16; i++) {
+      await delay(1500);
+      p = await pageProbe();
+      if (p.at >= at0 + 8) { moved = true; break; }
+    }
+    if (!moved) {
+      fails.push('按 → 应该快进 10 秒, 实际 ' + at0 + ' → ' + p.at +
+        ' (可seek ' + p.seekable + ', 已缓冲 ' + p.buffered + ', 缓存 ' + (p.cache || '无') + ')');
+    }
 
-    // 长按 → 键 = 2 倍速 (按住 700ms), 松手恢复 1 倍
-    pressHold(163, 700);
-    await delay(200);
+    // 长按 → 键 = 2 倍速。倍速只在**按住期间**生效, 松手就恢复 1 倍,
+    // 所以要在还按着的时候读 playbackRate (长按阈值 400ms, 按住 700ms 足够)。
+    keyDown(106);
+    await delay(700);
     p = await pageProbe();
     const rateDuring = p.rate;
-    await delay(1200);
+    keyUp(106);
+    await delay(600);
     p = await pageProbe();
-    if (rateDuring < 1.5 && p.rate < 1.5) {
-      fails.push('长按 → 键应该变 2 倍速, 实际 ' + rateDuring + ' → ' + p.rate);
+    if (rateDuring < 1.5) {
+      fails.push('长按 → 键应该变 2 倍速, 实际 ' + rateDuring);
     }
     if (p.rate > 1.5) fails.push('松开后倍速应该恢复 1 倍, 实际 ' + p.rate);
 
@@ -1316,11 +1398,9 @@ if (!only.length || only.indexOf('listen') >= 0) {
       fails.push('听视频菜单的项不对: ' + (m.items || []).join(','));
     }
     if (shot('menu')) await screenshot(shot('menu'));
-    // 关掉菜单
+    // 关掉菜单 (只按一次: 菜单关着时再按退格会触发全局返回, 把这一页退掉)
     press(14);
-    await delay(1000);
-    press(14);
-    await delay(1000);
+    await delay(1200);
 
     // ── 4) 左软键 = 最小化 → 迷你条浮出来, 声音继续 ───────────────
     await pressJs('SoftLeft');
@@ -1346,7 +1426,8 @@ if (!only.length || only.indexOf('listen') >= 0) {
       press(352);
       await delay(1200);
       m = await menuProbe();
-      const wantNp = '回到听视频,播放,下一个,上一个';
+      // 正在播的时候第三项写「暂停」(写的是按下之后会做什么)
+      const wantNp = '回到听视频,暂停,下一个,上一个';
       if ((m.items || []).join(',') !== wantNp) {
         fails.push('「正在播放」的三级菜单项不对: ' + (m.items || []).join(','));
       }

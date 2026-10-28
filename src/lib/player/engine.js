@@ -1,32 +1,68 @@
 // 听视频 (纯音频) 的播放引擎
 //
-// ── 为什么音频元素要常驻 ──────────────────────────────────────────────
+// ── 为什么媒体元素要常驻 ──────────────────────────────────────────────
 // 听视频页可以被"最小化": 收起页面, 底部浮一条迷你条, **音频继续放**。
-// 所以 <audio> 元素不能属于那个页面 —— 页面一卸载, 声音就断了。
+// 所以媒体元素不能属于那个页面 —— 页面一卸载, 声音就断了。
 // 它挂在根组件 (App.svelte) 里, 跨路由不销毁; 引擎通过 setAudioElement()
 // 拿到引用。
+//
+// ⚠️ 这个元素是 **<video>** 而不是 <audio>: 真机 (Gecko 48) 实测, 同一条
+// DASH 纯音频 (m4s) 装进 <audio> 会被当成直播流 (快不了), 装进 <video>
+// 才是一正常的可跳媒体。详见 App.svelte 里 mediaEl 的注释。
 //
 // ── 流地址每次重新拉 ──────────────────────────────────────────────────
 // B 站的音频地址带有效期 (deadline 参数), 存进播放列表过阵子就失效。
 // 播放列表里只存视频信息 (bvid/cid/标题/封面), 每次真正播的时候才去拉地址。
 
 import { get } from 'svelte/store';
-import { getVideoInfo, getDashUrls } from '../api/video.js';
+import { getVideoInfo, getAudioUrl } from '../api/video.js';
+import { safePlay, safeSeek, seekableEnd, waitLoaded } from './media.js';
+import { fetchBlob, makeBlobUrl, revokeBlobUrl } from './cache.js';
+import { showToast } from '../stores/ui.js';
 import {
   playlist, nowPlaying, playState, currentIndex, miniVisible, miniProgress,
   moveToPlaylistTop
 } from '../stores/player.js';
 
-/** @type {HTMLAudioElement|null} */
+/** @type {HTMLVideoElement|null} */
 let el = null;
 let bound = false;
 /** 拉流时的请求序号 (用户连点换歌时, 只认最后一次) */
 let loadSeq = 0;
 
 /**
- * 把根组件里的 <audio> 交给引擎
+ * 当前这一首的时长 (秒)
  *
- * @param {HTMLAudioElement|null} e
+ * ⚠️ **用 API 给的值, 不用元素报的 duration**: 老 Gecko (Gecko 48) 对这条
+ * DASH 纯音频 (m4s) 的 duration 报得没准过 —— 装在 <audio> 元素里时它跟着
+ * 播放头走 (播到 40 秒就报 40 秒), 快进之后还会缩水 (236 秒能缩成 87 秒)。
+ * 播放列表项里存着 API 给的 duration, 最稳。
+ */
+let trackDuration = 0;
+
+/** 本首已经推进到下一首了 (防止 'ended' 事件和进度兜底 重复推进) */
+let advanced = false;
+
+/** 正在换源 (换成整段缓存的音频) */
+let switching = false;
+
+/** 当前在播的流地址 (要整段缓存时用) */
+let streamUrl = '';
+
+/**
+ * 整段缓存好的音频 (blob: URL)
+ *
+ * 边下边播 m4s 时老 Gecko 把它当直播流 (快不进去), 整段下下来换成整段播就行。
+ * 见 player/cache.js。
+ */
+let cachedBlobUrl = '';
+/** 正在缓存的 promise */
+let cachePromise = null;
+
+/**
+ * 把根组件里的媒体元素交给引擎
+ *
+ * @param {HTMLVideoElement|null} e
  */
 export function setAudioElement(e) {
   el = e;
@@ -36,14 +72,16 @@ export function setAudioElement(e) {
     el.addEventListener('durationchange', onDurationChange);
     el.addEventListener('play', () => patchState({ playing: true }));
     el.addEventListener('pause', () => patchState({ playing: false }));
-    el.addEventListener('ended', () => { nextTrack(true); });
+    el.addEventListener('ended', () => {
+      if (advanced) return;
+      // 只认"当前这一首的结尾": 换歌之后元素会归零, 这时补过来的旧 'ended'
+      // 不该再推一次 (不然会**跳过一首歌**)。
+      if (trackDuration > 0 && el.currentTime < trackDuration - 3) return;
+      advanced = true;
+      nextTrack(true);
+    });
     el.addEventListener('error', () => { patchState({ playing: false, loading: false }); });
   }
-}
-
-/** @returns {HTMLAudioElement|null} */
-export function getAudioElement() {
-  return el;
 }
 
 function patchState(patch) {
@@ -55,13 +93,18 @@ function patchState(patch) {
 function onTimeUpdate() {
   if (!el) return;
   const time = el.currentTime || 0;
-  const duration = el.duration && isFinite(el.duration) ? el.duration : 0;
+  // 时长用 API 的值 (元素报的 duration 在 m4s 上不可信, 见 trackDuration)
+  const duration = trackDuration > 0
+    ? trackDuration
+    : (el.duration && isFinite(el.duration) ? el.duration : 0);
   patchState({ time, duration, playing: !el.paused });
   miniProgress.set(duration > 0 ? Math.min(1, time / duration) : 0);
 }
 
 function onDurationChange() {
   if (!el) return;
+  // 已经有 API 的时长了就不听元素的 (老 Gecko 对这条 m4s 的 duration 报得没准过)
+  if (trackDuration > 0) return;
   const duration = el.duration && isFinite(el.duration) ? el.duration : 0;
   patchState({ duration });
 }
@@ -133,6 +176,7 @@ async function loadAndPlay(item) {
   if (!el) return;
   const seq = ++loadSeq;
   patchState({ loading: true });
+  advanced = false;
   try {
     let cid = item.cid;
     if (!cid) {
@@ -141,17 +185,30 @@ async function loadAndPlay(item) {
       cid = info && info.cid;
     }
     if (!cid) throw new Error('拿不到 cid');
-    // 听视频只要音频: DASH 的 audio 流 (m4s), 老 Gecko 播得动
-    const dash = await getDashUrls(item.bvid, cid, 16);
+
+    // 时长用 API 的 (元素报的 duration 在 m4s 上不可信)
+    trackDuration = item.duration || 0;
+
+    // 听视频只要音频: DASH 的 **纯音频流** (m4s)。
+    // 同样的时长只要 1/6 的流量 (真机实测: 4 分钟音频 m4s 约 1.85MB,
+    // 音视频合一的 mp4 要 10.7MB)。
+    const url = await getAudioUrl(item.bvid, cid);
     if (seq !== loadSeq) return;
-    const url = dash && dash.audioUrl;
     if (!url) throw new Error('拿不到音频地址');
     el.src = url;
-    el.currentTime = 0;
+    streamUrl = url;
+    // 换歌了 → 上一首的整段缓存用不上了
+    dropCache();
     el.playbackRate = 1;
-    patchState({ rate: 1 });
-    await el.play();
-    patchState({ playing: true, loading: false, time: 0 });
+    safeSeek(el, 0);
+    patchState({ rate: 1, duration: trackDuration });
+    // play() 走 safePlay: 老 Gecko 的 play() 不返回 Promise, 而且可能同步抛。
+    // 这里不自己判"播没播起来" —— 那是 'play' / 'pause' / 'error' 事件的事
+    // (见 setAudioElement): 新设的 src 还在加载时, play() 返回了媒体也还没开始播。
+    const ok = await safePlay(el);
+    if (seq !== loadSeq) return;
+    if (!ok) throw new Error('播不起来');
+    patchState({ loading: false, time: el.currentTime || 0 });
   } catch (e) {
     if (seq !== loadSeq) return;
     patchState({ playing: false, loading: false });
@@ -172,8 +229,8 @@ export function togglePlay() {
     return;
   }
   if (el.paused) {
-    el.play().catch(() => {});
-    patchState({ playing: true });
+    // 元素已经加载好了, 这会儿 el.paused 是准的
+    safePlay(el).then(ok => patchState({ playing: ok && !el.paused }));
   } else {
     el.pause();
     patchState({ playing: false });
@@ -209,17 +266,153 @@ export function prevTrack() {
 }
 
 /**
+ * 引擎里"这一首"现在是什么状态
+ *
+ * 进入听视频页时要知道该怎么办:
+ *   'playing'  正在放   → 什么都不用做 (别打断)
+ *   'loading'  正在拉流 → 等着就行 (别重复拉一次)
+ *   'paused'   暂停着 → 接着放 (从当前位置, 不回到开头)
+ *   'none'     不是这首/还没开始 → 从头起播
+ *
+ * ⚠️ 不能只看 nowPlaying: 那只是"当前选中的是哪首", 暂停着的时候它也有值。
+ * 真机上就踩过这个坑: 同一个 bvid 再进听视频页, 因为 nowPlaying 还指着它,
+ * 页面以为"已经在放了"就跳过了起播 → 进去是个哑巴播放器。
+ *
+ * @param {string} bvid
+ * @returns {'playing'|'loading'|'paused'|'none'}
+ */
+export function currentTrackState(bvid) {
+  const cur = get(nowPlaying);
+  if (!cur || cur.bvid !== bvid) return 'none';
+  if (get(playState).loading) return 'loading';
+  if (!el || !el.src) return 'none';
+  return el.paused ? 'paused' : 'playing';
+}
+
+/**
+ * 接着放引擎里这一首 (还在, 只是暂停了) —— 不重新拉流, 也不回到开头
+ *
+ * @param {string} bvid
+ * @returns {boolean} 有没有可接着放的
+ */
+export function resumeTrack(bvid) {
+  if (!el || !el.src) return false;
+  const cur = get(nowPlaying);
+  if (!cur || cur.bvid !== bvid) return false;
+  const restart = () => {
+    patchState({ playing: false });
+    const again = get(nowPlaying);
+    if (again && again.bvid === bvid) loadAndPlay(again);
+  };
+  // 播不起来 (地址过期 / 老 Gecko 抽风) → 重新拉一遍接着放
+  safePlay(el, restart).then(ok => {
+    // 元素是加载好的, 这会儿 el.paused 是准的
+    if (ok) patchState({ playing: !el.paused });
+  });
+  return true;
+}
+
+/**
  * 跳一段 (快进/快退)
  *
  * @param {number} sec 正数快进, 负数快退
  */
 export function seekBy(sec) {
   if (!el || !el.src) return;
-  const dur = el.duration && isFinite(el.duration) ? el.duration : 0;
   let t = (el.currentTime || 0) + sec;
   if (t < 0) t = 0;
+  // 总时长用 API 的值 (元素报的 duration 在 m4s 上不可信, 见 trackDuration)
+  const dur = trackDuration > 0
+    ? trackDuration
+    : (el.duration && isFinite(el.duration) ? el.duration : 0);
   if (dur > 0 && t > dur) t = dur;
-  try { el.currentTime = t; } catch (e) {}
+  // 能不能直接跳过去? 看 **seekable** (不是 buffered):
+  //   seekable = 媒体允许跳到的范围。
+  //   边下边播的 m4s 被老 Gecko 当直播流 → seekable 末端就是"已经播到的位置",
+  //   往后快进根本去不了 (真机实测: 播到 41 秒, 快进 60 秒 → 位置纹丝不动)。
+  const sEnd = seekableEnd(el);
+  if (sEnd > 0 && t > sEnd + 0.5) {
+    // 去不了 → 把整段缓存下来, 换成整段播, 再精确跳过去
+    seekBeyond(t).catch(() => {});
+    return;
+  }
+  safeSeek(el, t);
+}
+
+/**
+ * 快进到当前流去不了的位置 → 整段缓存 → 换成整段播 → 精确跳
+ *
+ * @param {number} t 目标位置 (秒)
+ */
+async function seekBeyond(t) {
+  if (switching) return;
+  const item = get(nowPlaying);
+  if (!item || !item.bvid) return;
+  switching = true;
+  const rate = get(playState).rate || 1;
+  patchState({ loading: true });
+  try {
+    let u = cachedBlobUrl;
+    if (!u) {
+      // 整段下下来 (要下完才能精确跳) —— 进度摆在听视频页上
+      u = await cacheWholeTrack(streamUrl);
+    }
+    if (!u) {
+      // 缓存失败 → 这条流只能往回跳 (不硬来)
+      // 说一声, 不然用户按了快进没反应, 只当是坏了
+      showToast('这条音频暂时没法快进');
+      return;
+    }
+    // 换成整段音频: 时长和"能跳到的范围"这时才算得对
+    el.src = u;
+    await waitLoaded(el, 15000);
+    safeSeek(el, t);
+    await safePlay(el);
+    try { if (el) el.playbackRate = rate; } catch (e) {}
+    patchState({ rate });
+  } finally {
+    switching = false;
+    patchState({ loading: false });
+  }
+}
+
+/**
+ * 整段缓存当前这条流 (为了能精确快进)
+ *
+ * @param {string} url
+ * @returns {Promise<string>} blob: URL, 失败返回空串
+ */
+function cacheWholeTrack(url) {
+  if (cachePromise) return cachePromise;
+  if (!url) return Promise.resolve('');
+  patchState({ cacheRatio: 0 });
+  cachePromise = fetchBlob(url, r => patchState({ cacheRatio: r }))
+    .then(blob => {
+      const u = makeBlobUrl(blob);
+      // 下到一半换歌了 → 这份缓存作废 (别让上一首的音频顶上来)
+      if (url !== streamUrl) {
+        revokeBlobUrl(u);
+        return '';
+      }
+      cachedBlobUrl = u;
+      patchState({ cacheRatio: u ? 1 : 0 });
+      return u;
+    })
+    .catch(() => {
+      patchState({ cacheRatio: 0 });
+      return '';
+    });
+  return cachePromise;
+}
+
+/** 丢掉缓存好的整段音频 (换歌时) */
+function dropCache() {
+  if (cachedBlobUrl) {
+    revokeBlobUrl(cachedBlobUrl);
+    cachedBlobUrl = '';
+  }
+  cachePromise = null;
+  patchState({ cacheRatio: 0 });
 }
 
 /**
@@ -242,6 +435,10 @@ export function stopPlayback() {
     try { el.src = ''; } catch (e) {}
   }
   loadSeq++;
+  dropCache();
+  streamUrl = '';
+  trackDuration = 0;
+  advanced = false;
   nowPlaying.set(null);
   currentIndex.set(-1);
   miniVisible.set(false);

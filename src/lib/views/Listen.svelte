@@ -30,7 +30,8 @@
     playlist, nowPlaying, playState, currentIndex, miniVisible
   } from '../stores/player.js';
   import {
-    playItemOnTop, playIndex, togglePlay, seekBy, setRate, stopPlayback
+    playItemOnTop, playIndex, togglePlay, seekBy, setRate, stopPlayback,
+    currentTrackState, resumeTrack
   } from '../player/engine.js';
   import { buildListenMenu } from '../menu/listenMenu.js';
   import { biliImg } from '../utils/platform.js';
@@ -43,8 +44,6 @@
   let loading = true;
   let error = '';
   let status = { like: 0, coin: 0, fav: 0 };
-  /** 从迷你条回来说明"这次不是新开的一首", 别重复起播 */
-  let resumed = false;
 
   // ── 播放进度 (来自引擎) ────────────────────────────────────────────
   $: time = $playState.time;
@@ -73,24 +72,48 @@
   }
 
   // ── 进入页面 ────────────────────────────────────────────────────────
+  //
+  // ⚠️ 整个 body 包在 try/catch 里: 这一页的 onMount 一旦抛异常, 就会把
+  // Svelte 的 flush 打断 —— flush 抛错后内部的 update_scheduled 不会复位,
+  // 整个应用从此不再更新 (页面冻在"加载中", 连路由都换不了), 而且不报任何错。
+  // 真机上就因为 play() 抛过一次, 所以这里必须兜住。
   onMount(() => {
-    // 从 URL 读 bvid
-    const hash = location.hash || '';
-    const m = /[?&]bvid=([^&]+)/.exec(hash);
-    bvid = m ? decodeURIComponent(m[1]) : '';
+    try {
+      // 从 URL 读 bvid
+      const hash = location.hash || '';
+      const m = /[?&]bvid=([^&]+)/.exec(hash);
+      bvid = m ? decodeURIComponent(m[1]) : '';
 
-    // 这一页是"展开"的播放器 → 迷你条先收起来
-    miniVisible.set(false);
+      // 这一页是"展开"的播放器 → 迷你条先收起来
+      miniVisible.set(false);
 
-    if (!bvid) {
-      error = '缺少视频 ID';
+      if (!bvid) {
+        error = '缺少视频 ID';
+        loading = false;
+        return;
+      }
+
+      // 引擎里这一首现在什么状态 → 决定要不要起播
+      //
+      // ⚠️ 不能只看 "nowPlaying 是不是这首": 那只是"选中的是哪首",
+      // 暂停着的时候它也有值。真机上踩过: 同一首再进听视频页, 以为"已经在放了"
+      // 就跳过了起播, 进去是个哑巴播放器。
+      const st = currentTrackState(bvid);
+      if (st === 'playing' || st === 'loading') {
+        // 已经在放了 (或正在拉流) → 别打断
+        loadInfo(true);
+      } else if (st === 'paused') {
+        // 同一首, 暂停着 → 接着放 (从当前位置, 不回到开头)
+        loadInfo(true);
+        resumeTrack(bvid);
+      } else {
+        // 换了一首 / 还没开始 → 从头起播
+        loadInfo(false);
+      }
+    } catch (e) {
+      console.error('[listen] onMount 出错', e);
+      error = '出错了';
       loading = false;
-    } else if (cur && cur.bvid === bvid) {
-      // 从迷你条点回来的: 已经在放了, 不用重开
-      resumed = true;
-      loadInfo(true);
-    } else {
-      loadInfo(false);
     }
   });
 
@@ -113,7 +136,11 @@
       info = d;
       if (!onlyInfo) {
         // 直接用 URL 进听视频页 → 这首放到播放列表最顶上, 然后开始播
-        await playItemOnTop({
+        //
+        // ⚠️ **不 await**: 拉音频地址要好几秒, 等它才渲染的话页面会一直
+        // 卡在"加载中"。先把封面/标题显示出来, 声音在后台起播。
+        // (playItemOnTop 内部自己 catch 错误, 不会变成未处理的 rejection)
+        playItemOnTop({
           bvid: d.bvid || bvid,
           cid: d.cid,
           title: d.title,
@@ -272,6 +299,14 @@
           <span>{fmt(time)}</span>
           <span>{fmt(duration)}</span>
         </div>
+        <!--
+          整段缓存进度: 边下边播 m4s 时老 Gecko 把它当直播流 (快不进去),
+          快进时要把整段缓存下来换成整段播。把进度摆出来, 用户才知道
+          "按了快进在等什么", 而不是以为坏了。
+        -->
+        {#if $playState.cacheRatio > 0 && $playState.cacheRatio < 1}
+          <div class="cache">准备可快进的音频 {Math.round($playState.cacheRatio * 100)}%</div>
+        {/if}
       </div>
 
       <div class="keys">
@@ -368,6 +403,12 @@
     display: flex;
     justify-content: space-between;
     padding-top: 3px;
+    font-size: var(--md-sys-typescale-label-small-size);
+    color: var(--md-sys-color-on-surface-variant);
+  }
+
+  .cache {
+    padding-top: 2px;
     font-size: var(--md-sys-typescale-label-small-size);
     color: var(--md-sys-color-on-surface-variant);
   }

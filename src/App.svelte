@@ -32,8 +32,21 @@
   // 主 Tab 的路径 (都由 MainLayout 内部渲染, 路由表里走 "*" 兜底)
   const MAIN_PATHS = ["/home", "/following", "/profile"];
 
-  /** @type {HTMLAudioElement|null} */
-  let audioEl = null;
+  /**
+   * 全局媒体元素 (听视频用)
+   *
+   * ⚠️ 必须是 **<video>**, 不能用 <audio> —— 真机 (KaiOS 2.4 / Gecko 48) 实测:
+   *   同一个 DASH 的 m4s 纯音频地址
+   *     装进 <audio> → 被当成**直播流**: duration 跟着播放头走 (播到 40 秒报 40 秒),
+   *                   seekable 只有"已经播到的那一段" → 快进根本去不了
+   *     装进 <video> → 正常: duration=236、seekable=[[0,236]]、快进到 100 直接成功
+   *   根因是 <audio> 的媒体缓存不做 Range 请求, 碎片 MP4 (m4s) 只能被一段段解析,
+   *   于是解封装器看到多少就当多少 → 像直播。
+   *
+   * 这个流里**只有音频轨**, 所以 <video> 元素不会去解码任何画面, 照样省电。
+   */
+  /** @type {HTMLVideoElement|null} */
+  let mediaEl = null;
 
   // 路由表
   //
@@ -82,7 +95,7 @@
     // 音频元素交给播放引擎 —— 它**不能**属于听视频页:
     // 那个页面一最小化, 元素就被销毁, 声音会断。
     // 挂在根组件里, 跨路由不销毁, 迷你条浮着的时候声音照旧。
-    setAudioElement(audioEl);
+    setAudioElement(mediaEl);
 
     // 启动时预加载 WBI keys (即使未登录也需要, B站多数接口强制 WBI 签名)
     refreshWbiKeys();
@@ -118,8 +131,11 @@
   <Router {routes} />
   <!-- 迷你播放条: 听视频页最小化后浮在软键栏上方 -->
   <MiniPlayer />
-  <!-- 全局音频元素: 跨路由不销毁, 最小化之后声音不断 -->
-  <audio bind:this={audioEl} preload="metadata" audio-channel="content" style="display: none;"></audio>
+  <!-- 全局媒体元素: 跨路由不销毁, 最小化之后声音不断
+       注意: 老 Gecko 上 display:none 的媒体元素不会真的出声 (play() resolve 但停在暂停),
+       所以这里把它移到屏幕外而不是藏掉。
+       用 <video> 而不是 <audio> 的原因见上面 mediaEl 的注释。 -->
+  <video bind:this={mediaEl} id="media-engine" class="offscreen-media" preload="metadata" audio-channel="content"></video>
   <SoftkeyBar />
   <Toast />
 </div>

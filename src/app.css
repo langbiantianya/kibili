@@ -210,6 +210,30 @@ img {
   max-width: 100%;
 }
 
+/* ---- 移出可视区但保持"在文档里"的媒体元素 ----
+   老 Gecko (KaiOS 2.4 / Firefox 48) 上, 用 display:none 藏起来的
+   <audio> 调 play() 会 resolve, 但实际永远停在暂停态 —— 一点声音都没有。
+   所以后台播放用的音频元素不能 display:none, 只能"移到屏幕外":
+   仍然是可播放的媒体元素, 但不占布局也不可见。
+
+   ⚠️ display:block 不能省 —— Gecko 的 UA 样式表里有
+      audio:not([controls]) { display: none }
+   不显式写 display, 这个元素照样是 display:none, 照样不出声。
+
+   ⚠️ 位置也别用 left:-9999px —— 真机的布局检查会把这个盒子判成
+   "超出 240px 视口"。挪到左上角 (1x1 像素 + opacity 0.01) 既看不见,
+   又不越界。 */
+.offscreen-media {
+  display: block;
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0.01;
+  pointer-events: none;
+}
+
 /* ============================================
    5. Layout Utilities
    ============================================ */

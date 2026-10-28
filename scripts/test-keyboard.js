@@ -2072,6 +2072,57 @@ check('播放列表: 把某个视频放到最顶上 (已在列表里的挪到最
   replacePlaylist([], '');
 });
 
+check('safePlay: 老 Gecko 的 play() 不返回 Promise, 也不能让异常跑出去', async () => {
+  const { safePlay } = await import('../src/lib/player/media.js');
+
+  // 场景 1: play() 返回 undefined (KaiOS 2.4 / Gecko 48 就是这样)
+  // 直接写 el.play().catch(...) 会抛 "Cannot read property 'catch' of undefined"
+  const gecko = { paused: true, play() { this.paused = false; return undefined; } };
+  eq(await safePlay(gecko), true, '老 Gecko 上 play() 没抛就该算收下了');
+
+  // 场景 1b: 刚设的 src 还在加载 → play() 返回了媒体也还没开始播 (paused 还是 true)。
+  // 这时不能拿 paused 当"播起来了"的证据, 真正的证据是 'play' 事件。
+  const loading = { paused: true, play() { return undefined; } };
+  eq(await safePlay(loading), true, '还在加载时也算 play() 被接受了');
+
+  // 场景 2: play() 自己同步抛异常 → safePlay 兜住, 不往外抛
+  const boom = { paused: true, play() { throw new Error('boom'); } };
+  let failed = null;
+  eq(await safePlay(boom, e => { failed = e; }), false, 'play() 抛异常应该 resolve(false)');
+  ok(failed, 'play() 抛异常应该走 onFail 回调');
+
+  // 场景 3: 新版浏览器返回 Promise → 按 Promise 的结果算
+  const modern = {
+    paused: true,
+    play() { this.paused = false; return Promise.resolve(); }
+  };
+  eq(await safePlay(modern), true, '新版浏览器上应该 resolve(true)');
+
+  const rejected = {
+    paused: true,
+    play() { return Promise.reject(new Error('not allowed')); }
+  };
+  eq(await safePlay(rejected), false, 'play() 被拒应该 resolve(false)');
+
+  // 场景 4: 没有元素 → 不炸
+  eq(await safePlay(null), false, 'null 元素应该 resolve(false)');
+});
+
+check('safeSeek: 媒体还没准备好时设 currentTime 会抛, 兜住', async () => {
+  const { safeSeek } = await import('../src/lib/player/media.js');
+
+  const good = { currentTime: 0 };
+  eq(safeSeek(good, 42), true, '正常元素应该 seek 成功');
+  eq(good.currentTime, 42, 'currentTime 应该被设上');
+
+  const bad = {
+    set currentTime(v) { throw new Error('InvalidStateError'); },
+    get currentTime() { return 0; }
+  };
+  eq(safeSeek(bad, 10), false, '抛异常应该返回 false 而不是往外抛');
+  eq(safeSeek(null, 10), false, 'null 元素应该返回 false');
+});
+
 // ── 运行 ────────────────────────────────────────────────────────────────
 // 顺序执行 (测试之间共用全局的按键总线, 并发/交叠会互相污染)
 for (const t of tests) {

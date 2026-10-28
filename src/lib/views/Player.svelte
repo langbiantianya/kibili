@@ -12,8 +12,7 @@
   import Loading from '../components/Loading.svelte';
   import EmptyState from '../components/EmptyState.svelte';
 
-  let videoSrc = '';           // 视频流 URL (mp4 / m4s)
-  let audioSrc = '';           // 音频流 URL (m4s, 听视频模式)
+  let videoSrc = '';           // 视频流 URL (mp4, 自带音轨)
   let poster = '';
   let title = '';
   let loading = true;
@@ -79,29 +78,26 @@
    *
    * @param {string} bvid
    * @param {number} cid
-   * @returns {Promise<{src: string, audio: string}>}
+   * @returns {Promise<{src: string}>}
    */
   async function fetchStream(bvid, cid) {
     let src = '';
-    let audio = '';
-    // 1. 视频流: MP4 单流, 240P
+    // 视频流: MP4 单流, 240P
     try {
       src = await getPlayUrl(bvid, cid, DETAIL_QUALITY);
     } catch (e) {
       src = '';
     }
-    // 2. 听视频模式要独立音频 → 单独拉一次 DASH (只取音频)
-    //    MP4 单流拿不到时, 视频流也退回 DASH (那档可能比 240P 高, 但能播)
-    try {
-      const dash = await getDashUrls(bvid, cid, DETAIL_QUALITY);
-      if (dash) {
-        audio = dash.audioUrl;
-        if (!src && dash.videoUrl) src = dash.videoUrl;
+    // MP4 单流也没拿到时, 视频流退回 DASH (老设备上 m4s 播不了, 聊胜于无)
+    if (!src) {
+      try {
+        const dash = await getDashUrls(bvid, cid, DETAIL_QUALITY);
+        if (dash && dash.videoUrl) src = dash.videoUrl;
+      } catch (e) {
+        // ignore
       }
-    } catch (e) {
-      // DASH 拉取失败 (不影响 MP4 单流)
     }
-    return { src, audio };
+    return { src };
   }
 
   async function loadVideo() {
@@ -148,7 +144,6 @@
           return;
         }
         videoSrc = s.src;
-        audioSrc = s.audio;
 
         // 3. 状态 + 评论 (登录后才查)
         if ($isLogin) {
@@ -197,7 +192,6 @@
         return;
       }
       videoSrc = s.src;
-      audioSrc = s.audio;
     } catch (e) {
       streamError = e.message || '加载失败';
     } finally {
@@ -207,8 +201,8 @@
 
   // 听视频模式切入口 - 由 VideoPlayer 内部 * 键触发
   function onListenOn(e) {
-    if (!audioSrc) {
-      showToast('该视频无独立音频流');
+    if (!videoSrc) {
+      showToast('播放地址还没准备好');
       return;
     }
     resumeAt = e.detail || 0;
@@ -488,7 +482,6 @@
     {:else if meta}
       <VideoPlayer
         src={videoSrc}
-        audioSrc={audioSrc}
         {poster}
         {title}
         mode={playerMode}

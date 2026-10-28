@@ -33,7 +33,10 @@ export const playState = writable({
   time: 0,
   duration: 0,
   rate: 1,
-  loading: false
+  loading: false,
+  // 整段音频的缓存进度 (0~1): 老 Gecko 边下边播 m4s 时当直播流,
+  // 快不进去; 整段缓存下来换成整段播, 才能精确快进
+  cacheRatio: 0
 });
 
 /** 听视频页是否被"最小化"(迷你条要不要显示) */
