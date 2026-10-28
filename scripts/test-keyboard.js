@@ -2208,6 +2208,100 @@ check('播放模式: 下一首/上一首的算法 (顺序/列表循环/单曲/�
   eq(nextAction('shuffle', 0, 1, true).type, 'replay', '就一首 → 重播这一首');
 });
 
+// ── 音频缓存 (带上限, 最早缓存的先回收) ─────────────────────────────────
+check('音频缓存: 上限 / 最早优先回收 / 正在播的不删 / 单首超限先跳过', async () => {
+  const { cacheTrack, cacheGet, cacheSetActive, cacheStats, setCacheLimit, clearCache } =
+    await import('../src/lib/player/cache.js');
+
+  clearCache();
+  // 假 blob: URL (无头环境没有 URL.createObjectURL)
+  let seq = 0;
+  globalThis.URL = {
+    createObjectURL: () => 'blob:fake/' + (++seq),
+    revokeObjectURL: () => {}
+  };
+  globalThis.XMLHttpRequest = function () {
+    this.open = () => {};
+    this.send = () => {
+      const self = this;
+      setTimeout(() => {
+        self.status = 200;
+        // 假 blob: 大小 10 字节
+        self.response = { size: 10 };
+        if (self.onload) self.onload();
+      }, 0);
+    };
+  };
+
+  // 上限 30 字节 → 每首 10 字节, 最多存 3 首
+  setCacheLimit(30);
+  eq(cacheStats().limit, 30, '上限要按设置的来');
+
+  await cacheTrack('a', 'http://x/a');
+  await cacheTrack('b', 'http://x/b');
+  await cacheTrack('c', 'http://x/c');
+  eq(cacheStats().count, 3, '三首都在缓存里');
+  eq(cacheStats().size, 30, '占用 = 3 × 10');
+
+  // 再缓存一首 → 超了 → 从**最早缓存的开始**删
+  await cacheTrack('d', 'http://x/d');
+  eq(cacheStats().count, 3, '缓存满了还是 3 首 (最早的被回收了)');
+  eq(cacheGet('a'), '', '最早缓存的那首应该被回收了');
+  eq(cacheGet('b') !== '', true, 'b 还在');
+  eq(cacheGet('d') !== '', true, '刚缓存的 d 在');
+
+  // 正在播的那首不删
+  clearCache();
+  setCacheLimit(30);
+  cacheSetActive('keep');
+  await cacheTrack('keep', 'http://x/keep');
+  await cacheTrack('x1', 'http://x/x1');
+  await cacheTrack('x2', 'http://x/x2');
+  await cacheTrack('x3', 'http://x/x3');
+  eq(cacheGet('keep') !== '', true, '正在播的那首不能删 (删了声音会断)');
+  eq(cacheStats().count <= 3, true, '总数还是得压在上限里');
+
+  // 单首就超过上限 → 先跳过 (正在播, 留着), 等下一首缓存好时再回收它
+  clearCache();
+  setCacheLimit(30);
+  cacheSetActive('big');
+  globalThis.XMLHttpRequest = function () {
+    this.open = () => {};
+    this.send = () => {
+      const self = this;
+      setTimeout(() => {
+        self.status = 200;
+        self.response = { size: 100 };   // 单首 100 字节 > 30
+        if (self.onload) self.onload();
+      }, 0);
+    };
+  };
+  await cacheTrack('big', 'http://x/big');
+  eq(cacheGet('big') !== '', true, '超限的单首先留着 (正在播)');
+  eq(cacheStats().size, 100, '超限也要先留着');
+
+  // 换一首小的进来 → 这时再回收那个大的
+  globalThis.XMLHttpRequest = function () {
+    this.open = () => {};
+    this.send = () => {
+      const self = this;
+      setTimeout(() => {
+        self.status = 200;
+        self.response = { size: 10 };
+        if (self.onload) self.onload();
+      }, 0);
+    };
+  };
+  cacheSetActive('small');
+  await cacheTrack('small', 'http://x/small');
+  eq(cacheGet('big'), '', '下一首缓存好之后, 那个大的就该被回收了');
+  eq(cacheGet('small') !== '', true, '刚缓存的这首在');
+  eq(cacheStats().size <= 30, true, '回收后要小于上限');
+
+  clearCache();
+  eq(cacheStats().count, 0, '清完就没了');
+});
+
 // ── 运行 ────────────────────────────────────────────────────────────────
 // 顺序执行 (测试之间共用全局的按键总线, 并发/交叠会互相污染)
 for (const t of tests) {

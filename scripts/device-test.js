@@ -1308,14 +1308,19 @@ if (!only.length || only.indexOf('listen') >= 0) {
       'var mini=document.querySelector(".mini-player");' +
       'var t=document.querySelector(".listen .title");' +
       'var md=document.querySelector(".listen .mode");' +
+      'var ow=document.querySelector(".listen .owner");' +
       'return JSON.stringify({' +
       'cover: !!(img&&img.complete&&img.naturalWidth>0),' +
       'title: t?String(t.innerText||"").trim():"",' +
       // 页面上那个播放模式小标签
       'mode: md?String(md.innerText||"").trim():"",' +
+      // UP主: 切歌之后要跟着换 (不然界面上还是上一首的信息)
+      'owner: ow?String(ow.innerText||"").trim():"",' +
       'audio: !!a, paused: a?a.paused:true, rate: a?(a.playbackRate||1):0,' +
       'at: a?Math.round((a.currentTime||0)*10)/10:-1, dur: a?Math.round((a.duration||0)*10)/10:-1,' +
       'audioSrc: a?String(a.currentSrc||a.src||"").split("/").pop().slice(0,40):"",' +
+      // 整条流地址 (换歌之后要变)
+      'src: a?String(a.currentSrc||a.src||"").slice(0,120):"",' +
       // 快进失败时要看得见"能 seek 到哪": 老 Gecko 对 DASH 的 m4s 只能往后播
       'seekable: a&&a.seekable?a.seekable.length+"["+Math.round(a.seekable.start(0)*10)/10+"~"+Math.round(a.seekable.end(a.seekable.length-1)*10)/10+"]":"",' +
       'buffered: a&&a.buffered?a.buffered.length+"["+Math.round(a.buffered.start(0)*10)/10+"~"+Math.round(a.buffered.end(a.buffered.length-1)*10)/10+"]":"",' +
@@ -1343,6 +1348,25 @@ if (!only.length || only.indexOf('listen') >= 0) {
       press(14);
       await delay(1000);
     }
+    // ── 0) 先往播放列表里加第二首 ───────────────────────────────────
+    //
+    // 「更多 → 播放列表」里切歌是这一页的重点: 切完标题/UP主/封面都得跟着换。
+    // 播放列表得先有两首才切得动 → 先去视频详情页, 用菜单里的
+    // 「添加到播放列表」把另一首加进来 (走真实路径, 不塞假数据)。
+    await goto('#/player?bvid=BV1KMJt6gEhx');
+    await delay(9000);
+    press(158);                                  // 右软键 = 更多
+    await delay(1500);
+    const mv = await menuProbe();
+    if (!mv.open) fails.push('视频页没有展开菜单 (加第二首那步)');
+    // 「添加到播放列表」在第 6 项 (UP主页/播放控制/互动/分享/听视频/添加到播放列表)
+    for (let i = 0; i < 5; i++) { press(108); await delay(320); }
+    await delay(500);
+    press(352);
+    await delay(1500);
+    press(14);                                   // 关掉菜单
+    await delay(1200);
+
     // ── 1) 进听视频页 ─────────────────────────────────────────────
     //
     // ⚠️ 先离开再进来: 页面循环 (PAGES) 的最后一项就是听视频页, 循环收尾会把
@@ -1440,6 +1464,42 @@ if (!only.length || only.indexOf('listen') >= 0) {
       fails.push('页面上的播放模式标签应该变成「单曲循环」, 实际「' + p.mode + '」');
     }
     // 菜单已被叶子项的动作关掉了, 不用再按返回键
+
+    // ── 3c) 在「播放列表」里切歌 ─────────────────────────────────────
+    //
+    // 切完歌, 标题/UP主/封面/进度都要换成新那首 —— 不然界面上还摆着上一首的
+    // 信息 (标题是新的、UP主是旧的), 用户只会觉得"切歌没反应"。
+    const beforeTitle = p.title;
+    const beforeOwner = p.owner;
+    const beforeSrc = p.src;
+    press(158);                                 // 打开「更多」
+    await delay(1200);
+    press(108);                                 // → 播放列表
+    await delay(500);
+    press(352);                                 // 进三级菜单
+    await delay(1500);
+    m = await menuProbe();
+    const listItems = m.items || [];
+    if (listItems.length < 2) {
+      fails.push('播放列表里应该有两首才能切歌, 实际 ' + listItems.length + ' 首');
+    }
+    press(108);                                 // → 另一首
+    await delay(500);
+    press(352);                                 // 选中它 (菜单随之关闭)
+    await delay(8000);                          // 等它拉流 + 起播
+    p = await pageProbe();
+    if (p.title === beforeTitle) {
+      fails.push('切歌之后标题没换, 还是「' + p.title + '」');
+    }
+    if (p.owner === beforeOwner) {
+      fails.push('切歌之后 UP主没换, 还是「' + p.owner + '」');
+    }
+    if (!p.owner) fails.push('切歌之后 UP主是空的');
+    if (p.src && beforeSrc && p.src === beforeSrc) {
+      fails.push('切歌之后音频流没换 (还是同一条)');
+    }
+    if (p.paused) fails.push('切歌之后新歌应该在放');
+    if (shot('switch')) await screenshot(shot('switch'));
 
     // ── 4) 左软键 = 最小化 → 迷你条浮出来, 声音继续 ───────────────
     await pressJs('SoftLeft');

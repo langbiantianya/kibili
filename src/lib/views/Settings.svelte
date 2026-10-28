@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { onKey, moveFocus } from "../keyboard/index.js";
   import { showToast } from "../stores/ui.js";
-  import { settings } from "../stores/settings.js";
+  import { settings, DEFAULT_CACHE_LIMIT_MB } from "../stores/settings.js";
   import { navigate } from "../router/index.js";
 
   // 分辨率选项
@@ -13,11 +13,24 @@
     { label: "720P", value: 64 }
   ];
 
+  // 听视频的整段音频缓存上限 (MB)
+  // 缓存里存的是"为了能精确快进而整段下下来的音频", 不是视频。
+  const cacheLimitOptions = [
+    { label: "10MB", value: 10 },
+    { label: "25MB", value: 25 },
+    { label: "50MB", value: 50 },
+    { label: "100MB", value: 100 },
+    { label: "200MB", value: 200 }
+  ];
+
   let selectedQuality = $settings.quality || 16;
   let showDropdown = false;
+  let selectedCacheLimit = $settings.cacheLimit || DEFAULT_CACHE_LIMIT_MB;
+  let showCacheDropdown = false;
 
   function toggleDropdown() {
     showDropdown = !showDropdown;
+    showCacheDropdown = false;
   }
 
   function selectQuality(option) {
@@ -25,6 +38,18 @@
     settings.update(s => ({ ...s, quality: option.value }));
     showToast(`已设置为 ${option.label}`);
     showDropdown = false;
+  }
+
+  function toggleCacheDropdown() {
+    showCacheDropdown = !showCacheDropdown;
+    showDropdown = false;
+  }
+
+  function selectCacheLimit(option) {
+    selectedCacheLimit = option.value;
+    settings.update(s => ({ ...s, cacheLimit: option.value }));
+    showToast(`听视频缓存上限: ${option.label}`);
+    showCacheDropdown = false;
   }
 
   // 打开视频是否立刻播放
@@ -78,6 +103,29 @@
             >
               <span class="dropdown-label">{option.label}</span>
               {#if option.value === selectedQuality}
+                <span class="check">✓</span>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      {/if}
+      <!-- 听视频缓存限制: 整段音频缓存 (为了能精确快进而下的那一份) 的总上限 -->
+      <div class="menu-item" data-navable tabindex="0" on:click={toggleCacheDropdown}>
+        <span class="label">听视频缓存限制</span>
+        <span class="value">{cacheLimitOptions.find(c => c.value === selectedCacheLimit)?.label || '50MB'}</span>
+      </div>
+      {#if showCacheDropdown}
+        <div class="dropdown">
+          {#each cacheLimitOptions as option}
+            <div
+              class="dropdown-item"
+              class:selected={option.value === selectedCacheLimit}
+              data-navable
+              tabindex="0"
+              on:click={() => selectCacheLimit(option)}
+            >
+              <span class="dropdown-label">{option.label}</span>
+              {#if option.value === selectedCacheLimit}
                 <span class="check">✓</span>
               {/if}
             </div>

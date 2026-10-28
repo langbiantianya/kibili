@@ -17,7 +17,7 @@
 import { get } from 'svelte/store';
 import { getVideoInfo, getAudioUrl } from '../api/video.js';
 import { safePlay, safeSeek, seekableEnd, waitLoaded } from './media.js';
-import { fetchBlob, makeBlobUrl, revokeBlobUrl } from './cache.js';
+import { cacheTrack, cacheGet, cacheSetActive } from './cache.js';
 import { nextAction, prevAction } from './playmode.js';
 import { showToast } from '../stores/ui.js';
 import {
@@ -51,14 +51,42 @@ let switching = false;
 let streamUrl = '';
 
 /**
- * 整段缓存好的音频 (blob: URL)
+ * 这一首的缓存标识
  *
- * 边下边播 m4s 时老 Gecko 把它当直播流 (快不进去), 整段下下来换成整段播就行。
- * 见 player/cache.js。
+ * bvid + cid: 同一个视频的不同分 P (cid) 音频是不一样的, 得分开存。
+ *
+ * @param {any} item
+ * @returns {string}
  */
-let cachedBlobUrl = '';
-/** 正在缓存的 promise */
-let cachePromise = null;
+function trackKey(item) {
+  if (!item || !item.bvid) return '';
+  return item.bvid + '#' + (item.cid || '');
+}
+
+/**
+ * 时长归一化成秒
+ *
+ * 播放列表里的 duration 有两种: 推荐流给的是数字 (236),
+ * 投稿列表给的是 "4:32" 这种字符串 —— 后者直接用会算成 NaN。
+ *
+ * @param {any} d
+ * @returns {number} 秒; 认不出来返回 0
+ */
+function toSeconds(d) {
+  const n = Number(d);
+  if (isFinite(n) && n > 0) return n;
+  if (typeof d === 'string' && d.indexOf(':') > 0) {
+    const parts = d.split(':');
+    let s = 0;
+    for (let i = 0; i < parts.length; i++) {
+      const p = Number(parts[i]);
+      if (!isFinite(p)) return 0;
+      s = s * 60 + p;
+    }
+    return s > 0 ? s : 0;
+  }
+  return 0;
+}
 
 /**
  * 把根组件里的媒体元素交给引擎
@@ -188,7 +216,7 @@ async function loadAndPlay(item) {
     if (!cid) throw new Error('拿不到 cid');
 
     // 时长用 API 的 (元素报的 duration 在 m4s 上不可信)
-    trackDuration = item.duration || 0;
+    trackDuration = toSeconds(item.duration);
 
     // 听视频只要音频: DASH 的 **纯音频流** (m4s)。
     // 同样的时长只要 1/6 的流量 (真机实测: 4 分钟音频 m4s 约 1.85MB,
@@ -196,13 +224,18 @@ async function loadAndPlay(item) {
     const url = await getAudioUrl(item.bvid, cid);
     if (seq !== loadSeq) return;
     if (!url) throw new Error('拿不到音频地址');
-    el.src = url;
     streamUrl = url;
-    // 换歌了 → 上一首的整段缓存用不上了
-    dropCache();
+
+    // 换歌了 → 正在用的缓存换成这一首 (上一首的 blob: URL 没人用了, 可以回收)
+    const key = trackKey(item);
+    cacheSetActive(key);
+
+    // 这一首之前缓存过 → 直接播整段 (省一次拉流, 而且整段能精确快进)
+    const cached = cacheGet(key);
+    el.src = cached || url;
     el.playbackRate = 1;
     safeSeek(el, 0);
-    patchState({ rate: 1, duration: trackDuration });
+    patchState({ rate: 1, duration: trackDuration, cacheRatio: cached ? 1 : 0 });
     // play() 走 safePlay: 老 Gecko 的 play() 不返回 Promise, 而且可能同步抛。
     // 这里不自己判"播没播起来" —— 那是 'play' / 'pause' / 'error' 事件的事
     // (见 setAudioElement): 新设的 src 还在加载时, play() 返回了媒体也还没开始播。
@@ -212,8 +245,21 @@ async function loadAndPlay(item) {
     patchState({ loading: false, time: el.currentTime || 0 });
   } catch (e) {
     if (seq !== loadSeq) return;
+    // 换歌失败 → **把上一首停掉**。
+    // 不停的话: 界面上已经是新歌 (标题/封面都换了), 耳朵里还是上一首 ——
+    // 用户只会觉得"切歌没反应", 还以为菜单没点上。
+    stopCurrentAudio();
     patchState({ playing: false, loading: false });
+    showToast('这首播不了: ' + (e.message || '加载失败'));
   }
+}
+
+/** 停掉当前这一首 (换歌失败 / 退出播放时用) */
+function stopCurrentAudio() {
+  if (!el) return;
+  try { el.pause(); } catch (e) {}
+  try { el.src = ''; } catch (e) {}
+  streamUrl = '';
 }
 
 /** 播放 / 暂停切换 */
@@ -382,10 +428,12 @@ async function seekBeyond(t) {
   const rate = get(playState).rate || 1;
   patchState({ loading: true });
   try {
-    let u = cachedBlobUrl;
+    const key = trackKey(item);
+    // 已经缓存过这一首 → 直接拿 (不用重新下)
+    let u = cacheGet(key);
     if (!u) {
       // 整段下下来 (要下完才能精确跳) —— 进度摆在听视频页上
-      u = await cacheWholeTrack(streamUrl);
+      u = await cacheWholeTrack(key, streamUrl);
     }
     if (!u) {
       // 缓存失败 → 这条流只能往回跳 (不硬来)
@@ -409,40 +457,23 @@ async function seekBeyond(t) {
 /**
  * 整段缓存当前这条流 (为了能精确快进)
  *
- * @param {string} url
+ * 缓存由 player/cache.js 管: 有上限 (默认 50MB), 超了就从最早缓存的开始回收,
+ * 正在播的那首不删。同一下载不会下两遍。
+ *
+ * @param {string} key  这一首的缓存标识
+ * @param {string} url  流地址
  * @returns {Promise<string>} blob: URL, 失败返回空串
  */
-function cacheWholeTrack(url) {
-  if (cachePromise) return cachePromise;
-  if (!url) return Promise.resolve('');
+function cacheWholeTrack(key, url) {
+  if (!key || !url) return Promise.resolve('');
   patchState({ cacheRatio: 0 });
-  cachePromise = fetchBlob(url, r => patchState({ cacheRatio: r }))
-    .then(blob => {
-      const u = makeBlobUrl(blob);
-      // 下到一半换歌了 → 这份缓存作废 (别让上一首的音频顶上来)
-      if (url !== streamUrl) {
-        revokeBlobUrl(u);
-        return '';
-      }
-      cachedBlobUrl = u;
-      patchState({ cacheRatio: u ? 1 : 0 });
-      return u;
-    })
-    .catch(() => {
-      patchState({ cacheRatio: 0 });
-      return '';
-    });
-  return cachePromise;
-}
-
-/** 丢掉缓存好的整段音频 (换歌时) */
-function dropCache() {
-  if (cachedBlobUrl) {
-    revokeBlobUrl(cachedBlobUrl);
-    cachedBlobUrl = '';
-  }
-  cachePromise = null;
-  patchState({ cacheRatio: 0 });
+  return cacheTrack(key, url, r => {
+    // 只有正在下的这首还是当前这首, 才更新页面上的进度
+    if (key === trackKey(get(nowPlaying))) patchState({ cacheRatio: r });
+  }).then(u => {
+    patchState({ cacheRatio: u ? 1 : 0 });
+    return u;
+  });
 }
 
 /**
@@ -465,13 +496,15 @@ export function stopPlayback() {
     try { el.src = ''; } catch (e) {}
   }
   loadSeq++;
-  dropCache();
+  // 缓存**不删** —— 缓存是给"切回之前那首"用的, 由上限管着;
+  // 这里只是把"正在播"这个标记放开 (这一首现在没人用了, 可以被回收)。
+  cacheSetActive('');
   streamUrl = '';
   trackDuration = 0;
   advanced = false;
   nowPlaying.set(null);
   currentIndex.set(-1);
   miniVisible.set(false);
-  patchState({ playing: false, time: 0, duration: 0, rate: 1, loading: false });
+  patchState({ playing: false, time: 0, duration: 0, rate: 1, loading: false, cacheRatio: 0 });
   miniProgress.set(0);
 }

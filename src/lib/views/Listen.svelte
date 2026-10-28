@@ -46,6 +46,10 @@
 
   let bvid = '';
   let info = null;
+  /** info 现在对应的是哪一首 (切歌后要跟着换) */
+  let infoBvid = '';
+  /** 初次加载归 onMount 管; 加载完了才让"切歌跟着换"接管 */
+  let ready = false;
   let loading = true;
   let error = '';
   let status = { like: 0, coin: 0, fav: 0 };
@@ -56,9 +60,22 @@
   // 软键文案: 中键写的是"按下之后会做什么" (正在播 → 「暂停」)
   $: setSoftkeys('最小化', '更多', $playState.playing ? '暂停' : '播放');
 
-  // 封面跟着当前在放的那首走 (播放列表里切歌时封面跟着换)
+  // ── 页面显示的是"正在放的那首" ────────────────────────────────────
+  //
+  // ⚠️ 不能一直显示 URL 里那首的信息: 在「更多 → 播放列表」里切了歌之后,
+  // 标题/作者还钉在原来那首上 (界面上像没换歌, 耳朵里却是新歌)。
+  // 现在一切以引擎里"正在放的那首"为准, 换歌时把信息也换过来。
   $: cur = $nowPlaying;
-  $: coverUrl = cur && cur.pic ? biliImg(cur.pic, 192, 108, 'jpg') : '';
+  $: curBvid = cur && cur.bvid ? cur.bvid : bvid;
+  // 切歌了 → 悄悄把这一首的信息 (标题/UP主/时长) 换过来 (不闪"加载中")
+  $: if (ready && !error && curBvid && curBvid !== infoBvid) loadTrackInfo(curBvid, true, true);
+
+  $: title = (cur && cur.title) || (info && info.title) || '';
+  $: owner = (cur && cur.owner && cur.owner.name) || (info && info.owner ? info.owner.name : '') || '';
+  // 封面跟着正在放的那首走 (播放列表里切歌时封面跟着换)
+  $: coverUrl = cur && cur.pic
+    ? biliImg(cur.pic, 192, 108, 'jpg')
+    : (info && info.pic ? biliImg(info.pic, 192, 108, 'jpg') : '');
 
   // 进度百分比 (进度条和滑块共用)
   $: pct = duration > 0 ? Math.max(0, Math.min(100, (time / duration) * 100)) : 0;
@@ -110,17 +127,11 @@
       // 暂停着的时候它也有值。真机上踩过: 同一首再进听视频页, 以为"已经在放了"
       // 就跳过了起播, 进去是个哑巴播放器。
       const st = currentTrackState(bvid);
-      if (st === 'playing' || st === 'loading') {
-        // 已经在放了 (或正在拉流) → 别打断
-        loadInfo(true);
-      } else if (st === 'paused') {
-        // 同一首, 暂停着 → 接着放 (从当前位置, 不回到开头)
-        loadInfo(true);
-        resumeTrack(bvid);
-      } else {
-        // 换了一首 / 还没开始 → 从头起播
-        loadInfo(false);
-      }
+      // 已经在放 / 正在拉流 / 暂停着 → 都不用重新起播 (只取信息)
+      const onlyInfo = st === 'playing' || st === 'loading' || st === 'paused';
+      loadTrackInfo(bvid, onlyInfo).then(() => { ready = true; });
+      // 同一首, 暂停着 → 接着放 (从当前位置, 不回到开头)
+      if (st === 'paused') resumeTrack(bvid);
     } catch (e) {
       console.error('[listen] onMount 出错', e);
       error = '出错了';
@@ -135,15 +146,26 @@
   });
 
   /**
-   * 拉视频信息 (封面 / 标题 / 作者), 顺带起播
+   * 拉某首的信息 (标题 / 作者 / 时长), 顺带起播
    *
-   * @param {boolean} onlyInfo 只取信息, 不起播 (已经在放了)
+   * @param {string} bvidToLoad 拉哪一首
+   * @param {boolean} [onlyInfo] true = 只取信息, 不起播 (已经在放了)
+   * @param {boolean} [silent]   true = 不显示"加载中" (切歌时悄悄换)
    */
-  async function loadInfo(onlyInfo) {
-    loading = true;
-    error = '';
+  async function loadTrackInfo(bvidToLoad, onlyInfo, silent) {
+    if (!bvidToLoad) return;
+    // 先占位: 别重复拉同一首
+    infoBvid = bvidToLoad;
+    // 悄悄换 (切歌时) 不动 loading/error —— 拉不到就还用老信息,
+    // 别把整页换成"加载失败"
+    if (!silent) {
+      loading = true;
+      error = '';
+    }
     try {
-      const d = await getVideoInfo(bvid);
+      const d = await getVideoInfo(bvidToLoad);
+      // 期间又切歌了 → 这份信息不要了
+      if (bvidToLoad !== infoBvid) return;
       info = d;
       if (!onlyInfo) {
         // 直接用 URL 进听视频页 → 这首放到播放列表最顶上, 然后开始播
@@ -152,7 +174,7 @@
         // 卡在"加载中"。先把封面/标题显示出来, 声音在后台起播。
         // (playItemOnTop 内部自己 catch 错误, 不会变成未处理的 rejection)
         playItemOnTop({
-          bvid: d.bvid || bvid,
+          bvid: d.bvid || bvidToLoad,
           cid: d.cid,
           title: d.title,
           pic: d.pic,
@@ -162,12 +184,15 @@
       }
       // 互动状态 (登录了才查)
       if ($isLogin) {
-        getStatus(bvid).then(st => { status = st; }).catch(() => {});
+        getStatus(bvidToLoad).then(st => {
+          if (bvidToLoad === infoBvid) status = st;
+        }).catch(() => {});
       }
     } catch (e) {
-      error = e.message || '加载失败';
+      if (bvidToLoad !== infoBvid) return;
+      if (!silent) error = e.message || '加载失败';
     } finally {
-      loading = false;
+      if (bvidToLoad === infoBvid && !silent) loading = false;
     }
   }
 
@@ -309,9 +334,9 @@
 
       <!-- 歌名 / 作者 / 播放模式 -->
       <div class="meta">
-        <div class="title">{cur && cur.title ? cur.title : (info && info.title) || ''}</div>
+        <div class="title">{title}</div>
         <div class="sub">
-          <span class="owner">{info && info.owner ? info.owner.name : ''}</span>
+          <span class="owner">{owner}</span>
           <span class="mode">{modeLabel}</span>
         </div>
       </div>

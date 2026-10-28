@@ -17,6 +17,159 @@
 //   整段存成 Blob → dur=236,   seekable=[[0,236]]    (快进到 100 落点准确)
 //
 // ⚠️ 跨域: B 站的 CDN 允许跨域读这个音频地址 (实测 XHR 能拿到整段 1.85MB)。
+//
+// ── 缓存不是无限的 ────────────────────────────────────────────────────
+// 缓存是**多首一起存**的 (切回之前那首不用重新下), 但手机存储和内存都有限,
+// 所以有个上限 (默认 50MB, 设置里的「听视频缓存限制」可以改):
+//   · 缓存好新的一首之后, 占用超过上限 → 从**最早缓存的开始**删, 删到小于上限
+//   · 单首就超过上限 → 先留着 (它正在播, 删了就没声音了),
+//     等下一首缓存好的时候再回收它
+//   · 正在播的那首**不删** (revoke 掉正在播的 blob: URL, 声音会断)
+//
+// 缓存里的东西只在**这一次运行**里有效 (blob: URL 关掉应用就没了),
+// 所以不用管"清缓存"按钮, 应用重启自然就没了。
+
+/** 默认上限: 50MB */
+export const DEFAULT_CACHE_LIMIT = 50 * 1024 * 1024;
+
+/** 缓存条目: key → { url, size } (Map 保持插入顺序 = 最早缓存的在最前面) */
+const entries = new Map();
+/** 正在下的: key → Promise (同一首别下两遍) */
+const inflight = new Map();
+
+/** 现在的总占用 (字节) */
+let totalSize = 0;
+/** 上限 (字节) */
+let limitBytes = DEFAULT_CACHE_LIMIT;
+/** 正在播的那首 (别删) */
+let activeKey = '';
+
+/**
+ * 改缓存上限 (设置里改完立刻调这个)
+ *
+ * 改小了的话立刻回收 —— 免得用户改完 setting 缓存还占着一大块。
+ *
+ * @param {number} bytes 字节
+ */
+export function setCacheLimit(bytes) {
+  const n = Number(bytes);
+  limitBytes = isFinite(n) && n > 0 ? n : DEFAULT_CACHE_LIMIT;
+  evict(activeKey);
+}
+
+/** 现在的上限 (字节) */
+export function getCacheLimit() {
+  return limitBytes;
+}
+
+/**
+ * 缓存现在什么状况 (设置页/调试用)
+ *
+ * @returns {{count: number, size: number, limit: number, active: string}}
+ */
+export function cacheStats() {
+  return {
+    count: entries.size,
+    size: totalSize,
+    limit: limitBytes,
+    active: activeKey
+  };
+}
+
+/**
+ * 正在播的是哪首 (这一首的缓存不会被回收)
+ *
+ * 换歌时要调: 换完之后上一首的 blob: URL 就没人用了, 可以回收。
+ *
+ * @param {string} key
+ */
+export function cacheSetActive(key) {
+  activeKey = key || '';
+}
+
+/**
+ * 这一首之前缓存过吗? 有的话给出它的 blob: URL
+ *
+ * @param {string} key
+ * @returns {string} 没有缓存返回空串
+ */
+export function cacheGet(key) {
+  if (!key) return '';
+  const e = entries.get(key);
+  if (!e) return '';
+  // 命中 → 挪到最后 (最近用过的, 最后被回收)
+  entries.delete(key);
+  entries.set(key, e);
+  return e.url;
+}
+
+/**
+ * 整段缓存一条音频
+ *
+ * @param {string} key  这一首的标识 (bvid#cid)
+ * @param {string} url  流地址
+ * @param {(ratio: number) => void} [onProgress] 下载进度 (0~1)
+ * @returns {Promise<string>} blob: URL; 失败返回空串
+ */
+export function cacheTrack(key, url, onProgress) {
+  if (!key || !url) return Promise.resolve('');
+  // 已经缓存好了 → 直接给
+  const hit = cacheGet(key);
+  if (hit) return Promise.resolve(hit);
+  // 正在下 → 等它下完, 别下两遍
+  const running = inflight.get(key);
+  if (running) return running;
+
+  const p = fetchBlob(url, onProgress)
+    .then(blob => {
+      if (!blob) return '';
+      const u = makeBlobUrl(blob);
+      if (!u) return '';
+      entries.set(key, { url: u, size: blob.size || 0 });
+      totalSize += blob.size || 0;
+      // 刚缓存好的这首先留着, 别的按"最早缓存的先删"回收
+      evict(key);
+      return u;
+    })
+    .catch(() => '')
+    .then(u => {
+      inflight.delete(key);
+      return u;
+    });
+
+  inflight.set(key, p);
+  return p;
+}
+
+/**
+ * 回收: 占用超过上限 → 从最早缓存的开始删, 删到小于上限
+ *
+ * @param {string} [keepKey] 这首刚缓存好 / 正在播的, 先留着
+ */
+function evict(keepKey) {
+  if (totalSize <= limitBytes) return;
+  const keys = [];
+  entries.forEach((v, k) => keys.push(k));
+  for (let i = 0; i < keys.length; i++) {
+    if (totalSize <= limitBytes) break;
+    const k = keys[i];
+    // 正在播的、刚缓存好的, 都先留着
+    if (k === keepKey || k === activeKey) continue;
+    const e = entries.get(k);
+    if (!e) continue;
+    revokeBlobUrl(e.url);
+    totalSize -= e.size || 0;
+    entries.delete(k);
+  }
+}
+
+/** 全清 (退出播放/调试用) */
+export function clearCache() {
+  entries.forEach(e => revokeBlobUrl(e.url));
+  entries.clear();
+  inflight.clear();
+  totalSize = 0;
+}
 
 /**
  * 把一个 URL 整个下载成 Blob
