@@ -175,7 +175,9 @@
           action: () => changeTab($following.activeTab === 0 ? 1 : 0),
         },
         // 只有视频 Tab 才有视频可加 (动态 Tab 里是动态, 不是视频)
-        ...($following.activeTab === 1 ? [{
+        // ⚠️ activeTab: 0 = 视频, 1 = 动态 —— 条件别写反 (写反了就成了
+        //    动态 Tab 才有这个入口, 而动态根本不是视频, 加不进去)
+        ...($following.activeTab === 0 ? [{
           label: '添加到播放列表',
           action: () => addFocusedToPlaylist($following.videos),
         }] : []),
