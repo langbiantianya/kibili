@@ -126,6 +126,32 @@ export function replacePlaylist(items, label) {
 }
 
 /**
+ * 从播放列表里删掉第 index 项
+ *
+ * ⚠️ 正在放的那首被删掉时: **声音不停** (正在听的歌不该突然没声),
+ * 只是它不在列表里了 (currentIndex 置 -1, 下一首从头接)。
+ *
+ * @param {number} index
+ * @returns {boolean} 有没有删掉
+ */
+export function removeFromPlaylist(index) {
+  let removed = false;
+  playlist.update(p => {
+    if (index < 0 || index >= p.items.length) return p;
+    const items = p.items.slice();
+    items.splice(index, 1);
+    removed = true;
+    return { ...p, items: items };
+  });
+  if (!removed) return false;
+  // 正在放的那首的下标跟着挪
+  const cur = get(currentIndex);
+  if (cur === index) currentIndex.set(-1);        // 删的就是正在放的这首
+  else if (cur > index) currentIndex.set(cur - 1); // 后面的往前挪了一位
+  return true;
+}
+
+/**
  * 把一批视频**并进**播放列表末尾 (已经在里面的跳过, 不重复加)
  *
  * @param {Array} items
@@ -145,15 +171,31 @@ export function appendToPlaylist(items) {
 }
 
 /**
- * 播放列表里删掉一项
+ * 把第 index 项往上/往下挪一格
  *
  * @param {number} index
+ * @param {number} delta -1 往上 / +1 往下
+ * @returns {boolean} 有没有挪动 (到头了就是 false)
  */
-export function removeFromPlaylist(index) {
-  playlist.update(p => ({
-    ...p,
-    items: p.items.filter((v, i) => i !== index)
-  }));
+export function moveInPlaylist(index, delta) {
+  const to = index + delta;
+  if (index < 0 || delta === 0) return false;
+  let moved = false;
+  playlist.update(p => {
+    if (index >= p.items.length || to < 0 || to >= p.items.length) return p;
+    const items = p.items.slice();
+    const tmp = items[index];
+    items[index] = items[to];
+    items[to] = tmp;
+    moved = true;
+    return { ...p, items: items };
+  });
+  if (!moved) return false;
+  // 挪动只影响这两项的下标
+  const cur = get(currentIndex);
+  if (cur === index) currentIndex.set(to);
+  else if (cur === to) currentIndex.set(index);
+  return true;
 }
 
 /**

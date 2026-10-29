@@ -1471,7 +1471,7 @@ if (!only.length || only.indexOf('listen') >= 0) {
     await delay(1500);
     m = await menuProbe();
     if (!m.open) fails.push('按右软键没有展开菜单');
-    const wantListen = 'UP 主页,播放列表,播放模式,上一首,下一首,点赞,投币,收藏,一键三连,查看评论,退出播放';
+    const wantListen = 'UP 主页,播放控制,播放列表,播放模式,互动,分享,查看评论,退出播放,退出应用';
     if ((m.items || []).join(',') !== wantListen) {
       fails.push('听视频菜单的项不对: ' + (m.items || []).join(','));
     }
@@ -1479,9 +1479,9 @@ if (!only.length || only.indexOf('listen') >= 0) {
 
     // ── 3b) 播放模式 (三级菜单) ────────────────────────────────────
     //
-    // 菜单还开着: 往下移到第 3 项「播放模式」→ 中键进去, 看那四种模式,
+    // 菜单还开着: 往下移到第 4 项「播放模式」→ 中键进去, 看那四种模式,
     // 当前的那个要带 ✓; 选一项之后要存进 localStorage, 页面上的小标签也要跟着变。
-    for (let i = 0; i < 2; i++) { press(108); await delay(320); }
+    for (let i = 0; i < 3; i++) { press(108); await delay(320); }
     await delay(400);
     press(352);
     await delay(1500);
@@ -1517,6 +1517,8 @@ if (!only.length || only.indexOf('listen') >= 0) {
     const beforeSrc = p.src;
     press(158);                                 // 打开「更多」
     await delay(1200);
+    press(108);                                 // → 播放控制
+    await delay(400);
     press(108);                                 // → 播放列表
     await delay(500);
     press(352);                                 // 进三级菜单
@@ -1528,7 +1530,16 @@ if (!only.length || only.indexOf('listen') >= 0) {
     }
     press(108);                                 // → 另一首
     await delay(500);
-    press(352);                                 // 选中它 (菜单随之关闭)
+    press(352);                                 // 选中它 → 进**四级菜单**
+    await delay(1500);
+    m = await menuProbe();
+    // 四级菜单: 立刻播放 / 从播放列表删除 / 向上移动 / 向下移动
+    const subItems = (m.items || []).join(',');
+    if (subItems !== '立刻播放,从播放列表删除,向上移动,向下移动') {
+      fails.push('播放列表里每一首的四级菜单项不对: ' + subItems);
+    }
+    if (shot('playlist-sub')) await screenshot(shot('playlist-sub'));
+    press(352);                                 // 选中「立刻播放」 (菜单随之关闭)
     await delay(8000);                          // 等它拉流 + 起播
     p = await pageProbe();
     if (p.title === beforeTitle) {

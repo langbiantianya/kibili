@@ -418,12 +418,17 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    /* 挤不下时让前面的先让位, 当前这级多露几个字 (四级菜单的面包屑有三级) */
+    flex-shrink: 3;
+    min-width: 2em;
   }
 
   .menu-crumb.current {
     font-size: var(--md-sys-typescale-title-medium-size);
     font-weight: var(--md-sys-typescale-title-medium-weight);
     color: var(--md-sys-color-on-surface);
+    flex-shrink: 1;
+    min-width: 3em;
   }
 
   .menu-sep {

@@ -1981,30 +1981,113 @@ check('播放列表: 加一项 / 重复不加 / 整个替换', async () => {
   replacePlaylist([], '');
 });
 
-check('听视频菜单: 11 个入口, 播放列表空着时置灰', async () => {
+check('听视频菜单: 9 个入口, 播放列表空着时置灰', async () => {
   const { buildListenMenu } = await import('../src/lib/menu/listenMenu.js');
   const m = buildListenMenu({});
-  eq(m.items.length, 11, '听视频菜单应该有 11 项');
+  eq(m.items.length, 9, '听视频菜单应该有 9 项');
   eq(m.items[0].label, 'UP 主页', '第一项是 UP 主页');
-  eq(m.items[1].label, '播放列表', '第二项是播放列表');
-  eq(m.items[1].disabled, true, '播放列表空着应该置灰');
-  eq(m.items[2].label, '播放模式', '第三项是播放模式');
-  eq(m.items[3].label, '上一首', '第四项是上一首');
-  eq(m.items[3].disabled, true, '列表空着 → 上一首置灰');
-  eq(m.items[4].label, '下一首', '第五项是下一首');
-  eq(m.items[4].disabled, true, '列表空着 → 下一首置灰');
-  eq(m.items[5].label, '点赞', '第六项是点赞');
-  eq(m.items[10].label, '退出播放', '最后一项是退出播放');
+  eq(m.items[1].label, '播放控制', '第二项是播放控制 (三级菜单)');
+  eq(m.items[2].label, '播放列表', '第三项是播放列表');
+  eq(m.items[2].disabled, true, '播放列表空着应该置灰');
+  eq(m.items[3].label, '播放模式', '第四项是播放模式');
+  eq(m.items[4].label, '互动', '第五项是互动');
+  eq(m.items[5].label, '分享', '第六项是分享');
+  eq(m.items[6].label, '查看评论', '第七项是查看评论');
+  eq(m.items[7].label, '退出播放', '第八项是退出播放');
+  eq(m.items[8].label, '退出应用', '最后一项是退出应用');
+
+  // 播放控制的副提示要写这一页方向键的实际绑定 (后两项是切歌, 没有对应按键)
+  eq(m.items[1].items.slice(0, 4).map(i => i.hint).join(','), '→ 键,← 键,↑ 键,↓ 键', '播放控制的副提示');
+  eq(m.items[1].items[4].label, '上一首', '播放控制里有上一首');
+  eq(m.items[1].items[5].label, '下一首', '播放控制里有下一首');
 
   const m2 = buildListenMenu({
     playlist: [{ title: '第一首' }, { title: '第二首' }],
     currentIndex: 1
   });
-  eq(m2.items[1].disabled, false, '有歌就不该置灰');
-  eq(m2.items[3].disabled, false, '有歌 → 上一首不该置灰');
-  eq(m2.items[4].disabled, false, '有歌 → 下一首不该置灰');
-  eq(m2.items[1].items.length, 2, '三级菜单该有 2 首');
-  eq(m2.items[1].items[1].label, '✓ 第二首', '当前这首要用 ✓ 标出来');
+  eq(m2.items[2].disabled, false, '有歌就不该置灰');
+  eq(m2.items[2].items.length, 2, '三级菜单该有 2 首');
+  eq(m2.items[2].items[1].label, '✓ 第二首', '当前这首要用 ✓ 标出来');
+});
+
+check('听视频菜单: 播放列表里每一首都有四级菜单 (播放/删除/上移/下移)', async () => {
+  const { buildListenMenu } = await import('../src/lib/menu/listenMenu.js');
+  let picked = -1, removed = -1, moved = null;
+  const m = buildListenMenu({
+    playlist: [{ title: '第一首' }, { title: '第二首' }, { title: '第三首' }],
+    currentIndex: 1,
+    onPick: i => { picked = i; },
+    onRemove: i => { removed = i; },
+    onMove: (i, d) => { moved = { i: i, d: d }; }
+  });
+  const list = m.items[2].items;
+  eq(list.length, 3, '三级菜单该有 3 首');
+  // 第二首 → 四个动作
+  const sub = list[1].items;
+  eq(sub.length, 4, '四级菜单该有 4 项');
+  eq(sub.map(i => i.label).join(','), '立刻播放,从播放列表删除,向上移动,向下移动', '四项的顺序');
+  // 第一首: 向上移动要灰着 (已经在最上面了)
+  eq(list[0].items[2].disabled, true, '第一首不能往上挪');
+  eq(list[0].items[3].disabled, false, '第一首能往下挪');
+  // 最后一首: 向下移动要灰着
+  eq(list[2].items[3].disabled, true, '最后一首不能往下挪');
+  eq(list[2].items[2].disabled, false, '最后一首能往上挪');
+
+  sub[0].action();
+  eq(picked, 1, '立刻播放要回调那首的下标');
+  sub[1].action();
+  eq(removed, 1, '删除要回调那首的下标');
+  sub[2].action();
+  eq(moved.i, 1, '上移要回调那首的下标');
+  eq(moved.d, -1, '上移的 delta 是 -1');
+  sub[3].action();
+  eq(moved.d, 1, '下移的 delta 是 1');
+});
+
+check('播放列表: 删掉/挪动之后 currentIndex 要跟着对', async () => {
+  const { playlist, currentIndex, removeFromPlaylist, moveInPlaylist, addToPlaylist } =
+    await import('../src/lib/stores/player.js');
+  const { get } = await import('svelte/store');
+  // 清空后放三首
+  playlist.set({ items: [], label: '' });
+  addToPlaylist({ bvid: 'B1', title: '一' });
+  addToPlaylist({ bvid: 'B2', title: '二' });
+  addToPlaylist({ bvid: 'B3', title: '三' });
+  eq(get(playlist).items.length, 3, '三首都在');
+
+  // 删掉正在放的前面那首 → 下标要往前挪
+  currentIndex.set(2);
+  eq(removeFromPlaylist(0), true, '删第一首应该成功');
+  eq(get(playlist).items.length, 2, '剩两首');
+  eq(get(currentIndex), 1, '正在放的那首的下标要往前挪一位');
+
+  // 删掉正在放的那首 → 声音不停, 但它不在列表里了
+  currentIndex.set(1);
+  eq(removeFromPlaylist(1), true, '删正在放的那首应该成功');
+  eq(get(playlist).items.length, 1, '剩一首');
+  eq(get(currentIndex), -1, '删掉正在放的那首 → 下标置 -1');
+
+  // 上下挪动
+  playlist.set({ items: [], label: '' });
+  addToPlaylist({ bvid: 'B1', title: '一' });
+  addToPlaylist({ bvid: 'B2', title: '二' });
+  addToPlaylist({ bvid: 'B3', title: '三' });
+  // 正在放的是第二首 (B2)
+  currentIndex.set(1);
+  eq(moveInPlaylist(2, -1), true, '第三首能往上挪');
+  eq(get(playlist).items.map(v => v.bvid).join(','), 'B1,B3,B2', '挪完的顺序');
+  // B3 插到了 B2 原来的位置 → B2 往后挪了一位
+  eq(get(currentIndex), 2, '别人插到前面 → 正在放的那首下标要往后挪');
+  eq(moveInPlaylist(0, -1), false, '第一首不能再往上挪');
+  eq(moveInPlaylist(2, 1), false, '最后一首不能再往下挪');
+  eq(moveInPlaylist(1, -1), true, '第二首能往上挪');
+  eq(get(playlist).items.map(v => v.bvid).join(','), 'B3,B1,B2', '挪完的顺序');
+  eq(get(currentIndex), 2, '这次挪的不是正在放的那首 → 下标不变');
+  // 挪的就是正在放的那首 → 下标跟着它走
+  currentIndex.set(2);
+  eq(moveInPlaylist(2, -1), true, '正在放的那首能往上挪');
+  eq(get(playlist).items.map(v => v.bvid).join(','), 'B3,B2,B1', '挪完的顺序');
+  eq(get(currentIndex), 1, '挪的是正在放的那首 → 下标跟着挪');
 });
 
 check('听视频菜单: 播放模式四项, 当前那个用 ✓ 标出', async () => {
@@ -2014,11 +2097,10 @@ check('听视频菜单: 播放模式四项, 当前那个用 ✓ 标出', async (
     playMode: 'shuffle',
     onPlayMode: id => { got = id; }
   });
-  const sub = m.items[2].items;
+  const sub = m.items[3].items;
   eq(sub.length, 4, '播放模式该有 4 项');
   eq(sub.map(i => i.label).join(','), '单曲循环,列表循环,顺序播放,✓ 随机播放', '四项的顺序 (当前那个带 ✓)');
-  eq(sub[3].label, '✓ 随机播放', '当前模式要用 ✓ 标出来');
-  eq(m.items[2].hint, '随机播放', '右边的小字写当前模式');
+  eq(m.items[3].hint, '随机播放', '右边的小字写当前模式');
   sub[0].action();
   eq(got, 'repeat-one', '点某一项要回调那项的模式 id');
 });

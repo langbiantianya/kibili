@@ -297,7 +297,9 @@ export function softkeyMenuActivate() {
     softkeyMenu.update(cur => ({
       ...cur,
       stack: cur.stack.concat([{
-        title: item.label || '',
+        // 这一级的标题: 菜单项可以自带 title (比如四级菜单用歌名当标题,
+        // 不带 "✓ " 这种前缀); 没写就用项的文案
+        title: item.title || item.label || '',
         items: item.items,
         parentIndex: cur.index
       }]),

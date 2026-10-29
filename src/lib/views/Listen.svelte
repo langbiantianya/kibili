@@ -32,7 +32,7 @@
   import { playModeLabel } from '../player/playmode.js';
   import {
     playlist, nowPlaying, playState, currentIndex, miniVisible,
-    playMode, setPlayMode
+    playMode, setPlayMode, removeFromPlaylist, moveInPlaylist
   } from '../stores/player.js';
   import {
     playItemOnTop, playIndex, togglePlay, seekBy, setRate, stopPlayback,
@@ -88,6 +88,12 @@
     const m = Math.floor(t / 60);
     const s = Math.floor(t % 60);
     return m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  /** 歌名太长时截一下 (提示里用) */
+  function shortTitle(title) {
+    const t = String(title || '');
+    return t.length > 10 ? t.slice(0, 10) + '…' : t;
   }
 
   /** 需要登录的动作统一走这里 */
@@ -210,12 +216,14 @@
   function onToggle() { togglePlay(); }
 
   // ── 互动 ────────────────────────────────────────────────────────────
+  //
+  // ⚠️ 互动的是**正在放的那首** (切过歌之后, URL 里那首已经不是当前这首了)
   async function doLike() {
     if (!needLogin()) return;
     const old = status.like;
     status = { ...status, like: old ? 0 : 1 };
     try {
-      await likeVideo(bvid, !old);
+      await likeVideo(curBvid, !old);
       showToast(status.like ? '✓ 已点赞' : '已取消点赞');
     } catch (e) {
       status = { ...status, like: old };
@@ -228,7 +236,7 @@
     const old = status.coin;
     status = { ...status, coin: 1 };
     try {
-      await coinVideo(bvid, 1);
+      await coinVideo(curBvid, 1);
       showToast('✓ 已投币');
     } catch (e) {
       status = { ...status, coin: old };
@@ -241,8 +249,8 @@
     const old = status.fav;
     status = { ...status, fav: old ? 0 : 1 };
     try {
-      if (old) await unfavVideo(bvid);
-      else await favVideo(bvid);
+      if (old) await unfavVideo(curBvid);
+      else await favVideo(curBvid);
       showToast(status.fav ? '✓ 已收藏' : '已取消收藏');
     } catch (e) {
       status = { ...status, fav: old };
@@ -253,7 +261,7 @@
   async function doTriple() {
     if (!needLogin()) return;
     try {
-      await tripleAction(bvid);
+      await tripleAction(curBvid);
       status = { ...status, like: 1, coin: 1, fav: 1 };
       showToast('✓ 一键三连');
     } catch (e) {
@@ -263,7 +271,7 @@
 
   function openComments() {
     const aid = (info && info.aid) || '';
-    navigate('/listen-comments?bvid=' + encodeURIComponent(bvid) + '&aid=' + aid);
+    navigate('/listen-comments?bvid=' + encodeURIComponent(curBvid) + '&aid=' + aid);
   }
 
   function doExit() {
@@ -271,20 +279,41 @@
     navigate(-1);
   }
 
+  // ── 播放列表的四级菜单动作 ──────────────────────────────────────────
+  //
+  // 从播放列表里删掉一首 / 把它往上往下挪一格。
+  // 挪动和删除都要把 currentIndex 跟着挪 —— 不然"正在放的是第几首"就错了
+  // (在 store 里处理, 见 stores/player.js)。
+  function onRemove(i) {
+    const title = (get(playlist).items[i] || {}).title || '这一首';
+    if (removeFromPlaylist(i)) showToast('已从播放列表删除: ' + shortTitle(title));
+  }
+
+  function onMove(i, delta) {
+    if (moveInPlaylist(i, delta)) {
+      showToast(delta < 0 ? '已上移' : '已下移');
+    }
+  }
+
   // ── 菜单 (右软键) ───────────────────────────────────────────────────
   function buildMenu() {
     const p = get(playlist);
     return buildListenMenu({
       ownerMid: info && info.owner ? info.owner.mid : 0,
+      bvid: curBvid,
       playlist: p.items,
       currentIndex: $currentIndex,
       playMode: $playMode,
       liked: !!status.like,
       onAuthor: mid => { if (mid) navigate('/user?uid=' + mid); },
       onPick: i => { playIndex(i); },
+      onRemove: onRemove,
+      onMove: onMove,
       onPlayMode: id => {
         if (setPlayMode(id)) showToast('播放模式: ' + playModeLabel(id));
       },
+      onSeek: sec => seekBy(sec),
+      onVolume: d => requestSystemVolume(d),
       onPrev: onPrev,
       onNext: onNext,
       onLike: doLike,
