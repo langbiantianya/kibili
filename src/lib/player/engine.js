@@ -277,7 +277,12 @@ async function loadAndPlay(item) {
     cacheSetActive(key);
 
     // 这一首之前缓存过 → 直接播整段 (省一次拉流, 而且整段能精确快进)
-    const cached = cacheGet(key);
+    //
+    // ⚠️ **要 await**: 缓存现在存在 IndexedDB 里, 得从磁盘读出来才能用。
+    // (以前是内存里的 blob: URL, 现在是异步的了)
+    const cached = await cacheGet(key);
+    // 读盘要一会儿, 期间用户可能已经换歌了 → 别把上一首挂上去
+    if (seq !== loadSeq) return;
     const src = cached || url;
     el.src = src;
     curSrcUrl = src;   // 记下现在挂的是哪条流 (media error 事件要靠它分辨是谁的错)
@@ -475,7 +480,8 @@ async function seekBeyond(t) {
   try {
     const key = trackKey(item);
     // 已经缓存过这一首 → 直接拿 (不用重新下)
-    let u = cacheGet(key);
+    // ⚠️ cacheGet 现在是异步的 (数据在 IndexedDB 里, 得从磁盘读)
+    let u = await cacheGet(key);
     if (!u) {
       // 整段下下来 (要下完才能精确跳) —— 进度摆在听视频页上
       u = await cacheWholeTrack(key, streamUrl);
@@ -486,6 +492,9 @@ async function seekBeyond(t) {
       handleFailure(loadSeqNow, '这条音频没法缓存');
       return;
     }
+    // 读盘要一会儿, 期间可能已经换歌了 → 别把上一首的音频挂上去
+    const now = get(nowPlaying);
+    if (!now || now.bvid !== item.bvid) return;
     // 换成整段音频: 时长和"能跳到的范围"这时才算得对
     el.src = u;
     curSrcUrl = u;   // 现在挂的是整段缓存 (换源时旧流被取消的错不算失败)
@@ -528,7 +537,9 @@ function cacheWholeTrack(key, url) {
  * 正在播的那首**不清**: 它正被媒体元素用着, revoke 掉那个 blob: URL 声音会断。
  * 想连它一起清, 先「退出播放」。
  *
- * @returns {{freed: number, count: number}} 清掉了多少字节 / 几首
+ * ⚠️ 现在是**异步**的: 缓存在 IndexedDB 里, 删除也要走事务。
+ *
+ * @returns {Promise<{freed: number, count: number}>} 清掉了多少字节 / 几首
  */
 export function clearAudioCache() {
   return clearCache(true);

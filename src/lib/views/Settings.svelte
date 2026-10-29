@@ -66,18 +66,21 @@
   }
 
   // 清缓存: 正在播的那首不清 (它正被媒体元素用着, revoke 掉声音会断)
+  //
+  // ⚠️ 现在缓存在 IndexedDB 里, 删除要走事务 → 是异步的
   function clearCacheNow() {
     const before = $cacheInfo;
-    const r = clearAudioCache();
-    if (!r.count) {
-      // 一首都没缓存过 / 只剩正在播的那首 (清不掉)
-      showToast(before.count ? "正在播的那首没法清, 退出播放后再清" : "缓存本来就是空的");
-      return;
-    }
-    showToast(
-      "已清理 " + r.count + " 首 (" + fmtMB(r.freed) + ")" +
-      ($cacheInfo.count ? ", 正在播的那首还留着" : "")
-    );
+    clearAudioCache().then(r => {
+      if (!r.count) {
+        // 一首都没缓存过 / 只剩正在播的那首 (清不掉)
+        showToast(before.count ? "正在播的那首没法清, 退出播放后再清" : "缓存本来就是空的");
+        return;
+      }
+      showToast(
+        "已清理 " + r.count + " 首 (" + fmtMB(r.freed) + ")" +
+        ($cacheInfo.count ? ", 正在播的那首还留着" : "")
+      );
+    });
   }
 
   // 打开视频是否立刻播放

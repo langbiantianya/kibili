@@ -1385,6 +1385,13 @@ if (!only.length || only.indexOf('listen') >= 0) {
     if (r.exception) return '';
     return String(r.result || '');
   };
+  // 在应用里跑一段 JS (evaluateJS 按语句执行, 顶层不能写 return → 包一层 IIFE)
+  const evalJs = async body => {
+    const text = '(function(){' + body + '})()';
+    const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+    if (r.exception) throw new Error('注入脚本异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
+    return r.result;
+  };
 
   try {
     // 可能残留着上一轮用例开着的菜单 (上一轮被杀在菜单打开的状态) →
@@ -1524,6 +1531,16 @@ if (!only.length || only.indexOf('listen') >= 0) {
     const beforeTitle = p.title;
     const beforeOwner = p.owner;
     const beforeSrc = p.src;
+    // ⚠️ 切到**另一首**: 页面显示的是"引擎里正在放的那首" (可能是上一轮用例
+    // 留下的), 所以不能无脑往下挪一格 —— 那一格可能就是正在放的这首,
+    // 切过去标题当然不变。得先从播放列表里挑一首标题跟当前不一样的。
+    const plItems = JSON.parse(await evalJs(
+      'try{var pl=JSON.parse(localStorage.getItem("player:playlist:v1")||"{\\"items\\":[]}");' +
+      'return JSON.stringify((pl.items||[]).map(function(it){return String(it.title||"");}));}catch(e){return "[]";}'));
+    let target = -1;
+    for (let i = 0; i < plItems.length; i++) {
+      if (plItems[i] && plItems[i] !== beforeTitle) { target = i; break; }
+    }
     press(158);                                 // 打开「更多」
     await delay(1200);
     press(108);                                 // → 播放控制
@@ -1537,7 +1554,11 @@ if (!only.length || only.indexOf('listen') >= 0) {
     if (listItems.length < 2) {
       fails.push('播放列表里应该有两首才能切歌, 实际 ' + listItems.length + ' 首');
     }
-    press(108);                                 // → 另一首
+    if (target < 0) {
+      fails.push('播放列表里没有跟当前不同的另一首, 切不了歌');
+    } else {
+      for (let i = 0; i < target; i++) { press(108); await delay(320); }
+    }
     await delay(500);
     press(352);                                 // 选中它 → 进**四级菜单**
     await delay(1500);
@@ -1549,7 +1570,7 @@ if (!only.length || only.indexOf('listen') >= 0) {
     }
     if (shot('playlist-sub')) await screenshot(shot('playlist-sub'));
     press(352);                                 // 选中「立刻播放」 (菜单随之关闭)
-    await delay(8000);                          // 等它拉流 + 起播
+    await delay(10000);                         // 等它拉流 + 起播
     p = await pageProbe();
     if (p.title === beforeTitle) {
       fails.push('切歌之后标题没换, 还是「' + p.title + '」');
@@ -1782,6 +1803,196 @@ if (!only.length || only.indexOf('listen-failskip') >= 0) {
   } catch (e) {
     results.push({ page: 'listen-failskip', fails: [String(e.message)] });
     console.log('✗ ' + 'listen-failskip'.padEnd(16) + String(e.message));
+  }
+}
+
+// 真机: 听视频的整段缓存存在 IndexedDB 里
+//
+// 验这几件事:
+//   1. 用的真是 IndexedDB (不是内存兜底)
+//   2. 缓存进去的音频在 IndexedDB 里能查到 (blob 的大小对得上)
+//   3. **应用重载之后还在** —— 这正是换 IndexedDB 的意义 (以前是内存, 一关就没)
+//   4. 「清理听视频缓存」能把 IndexedDB 里的记录真删掉
+//
+// 造缓存走的是应用自己的 cacheTrack() (快进时那条路), 不是往库里硬塞数据。
+if (!only.length || only.indexOf('listen-cache') >= 0) {
+  const fails = [];
+  const shot = name => (shotDir ? path.join(shotDir, 'listen-cache-' + name + '.png') : '');
+  const evalJs = async body => {
+    const text = '(function(){' + body + '})()';
+    const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+    if (r.exception) throw new Error('注入脚本异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
+    return r.result;
+  };
+  // 直接查 IndexedDB 里的东西 (绕开应用, 确认数据真的落在库里)
+  //
+  // ⚠️ 游标事件里要读 **ev.target.result** (游标本身), 不是 ev.result ——
+  // Gecko 48 的 IDB 成功事件是普通 Event, ev.result 是 undefined,
+  // 照着写就会把"有记录"看成"一条都没有"。
+  const idbProbe = async () => {
+    await evalJs(
+      'window.__idb={};var P=window.__idb;' +
+      'var req=indexedDB.open("bili-audio-cache",1);' +
+      'req.onsuccess=function(e){var db=e.target.result;' +
+      'if(!db.objectStoreNames.contains("tracks")){P.noStore=1;P.done=1;return;}' +
+      'var t=db.transaction(["tracks","meta"],"readonly");' +
+      'var cm=t.objectStore("meta").count();var ct=t.objectStore("tracks").count();' +
+      'var n=0,size=0;' +
+      'cm.onsuccess=function(){P.metaCount=cm.result;};' +
+      'ct.onsuccess=function(){P.trackCount=ct.result;};' +
+      'var c=t.objectStore("meta").index("ts").openCursor();' +
+      'c.onsuccess=function(ev){var cu=ev.target.result;' +
+      'if(!cu){P.tracks=n;P.size=size;P.done=1;return;}' +
+      'n++;size+=(cu.value.size||0);cu["continue"]();};' +
+      'var g=t.objectStore("tracks").openCursor();var blobSize=-1;' +
+      'g.onsuccess=function(ev){var cu=ev.target.result;' +
+      'if(!cu){P.blobSize=blobSize;return;}' +
+      'if(cu.value.blob)blobSize=cu.value.blob.size;cu["continue"]();};' +
+      '};req.onerror=function(){P.err=1;P.done=1;};' +
+      'return "查询中";');
+    for (let i = 0; i < 20; i++) {
+      await delay(700);
+      const r = await evalJs('return JSON.stringify(window.__idb||{});');
+      let o = {};
+      try { o = JSON.parse(r); } catch (e) { continue; }
+      if (o.done) return o;
+    }
+    return {};
+  };
+  try {
+    // ── 0) 放一首, 拿到它的流地址 ───────────────────────────────────
+    //
+    // ⚠️ 听视频页**不自动播** → 得按中键起播。
+    // 中键是"播放/暂停"切换: 万一进来之前声音本来就在放, 这一下反而给暂停了,
+    // 所以按完看一眼有没有流, 没有就再按一下。
+    //
+    // 用 BV1Smni6BEvQ (别用 BV1ZqpE6uEKd —— 那个被听视频用例快进过, 缓存在库里,
+    // 元素上挂的是 blob: URL, 拿不到原始流地址了)。
+    const cacheBvid = 'BV1Smni6BEvQ';
+    await goto('#/listen?bvid=' + cacheBvid);
+    await delay(15000);
+    press(352);                  // 中键 = 播放
+    await delay(15000);
+    let srcNow = await evalJs('var e=document.querySelector("#media-engine");return String(e&&(e.currentSrc||e.src)||"");');
+    if (!srcNow) {
+      press(352);                // 再按一下 (刚才那下是"暂停", 这下才是"播放")
+      await delay(15000);
+    }
+    const info = JSON.parse(await evalJs(
+      'var e=document.querySelector("#media-engine");' +
+      'var pl=JSON.parse(localStorage.getItem("player:playlist:v1")||"{\\"items\\":[]}");' +
+      'var bvid=' + JSON.stringify(cacheBvid) + ',cid=0;' +
+      'for(var i=0;i<(pl.items||[]).length;i++){if(pl.items[i].bvid===bvid){cid=pl.items[i].cid||0;}}' +
+      'return JSON.stringify({url:String(e&&(e.currentSrc||e.src)||""),cid:cid});'));
+    // blob: 也认 —— 那说明这首之前缓存过, 元素上挂的是缓存里那份 (新功能!)
+    if (!info.url || (info.url.indexOf('.m4s') < 0 && info.url.indexOf('blob:') < 0)) {
+      fails.push('没拿到音频流地址: ' + String(info.url).slice(0, 60));
+    }
+    if (!info.cid) fails.push('播放列表里没找到这一首的 cid');
+    const key = cacheBvid + '#' + info.cid;
+
+    // ── 1) 用应用自己的 cacheTrack 把整段缓存进去 ────────────────────
+    await evalJs(
+      'window.__cacheRes={state:"start"};' +
+      'window.__audioCache.track(' + JSON.stringify(key) + ',' + JSON.stringify(info.url) + ')' +
+      '.then(function(u){window.__cacheRes.state="done";window.__cacheRes.url=String(u||"").slice(0,40);},' +
+      'function(e){window.__cacheRes.state="err";window.__cacheRes.err=String(e);});' +
+      'return "开始缓存";');
+    let done = false;
+    for (let i = 0; i < 30; i++) {
+      await delay(1500);
+      const r = JSON.parse(await evalJs('return JSON.stringify(window.__cacheRes||{});'));
+      if (r.state === 'done') { done = true; break; }
+      if (r.state === 'err') { fails.push('缓存失败: ' + r.err); break; }
+    }
+    if (!done) fails.push('整段缓存没在预期时间内完成');
+
+    // ── 2) 后端是 IndexedDB, 而且数据真在库里 ───────────────────────
+    const backend = await evalJs('return String(window.__audioCache.backend());');
+    if (backend !== 'idb') {
+      fails.push('缓存后端应该是 IndexedDB, 实际「' + backend + '」');
+    }
+    const stats = JSON.parse(await evalJs('return JSON.stringify(window.__audioCache.stats());'));
+    if (!(stats.count >= 1)) fails.push('缓存里应该有一首, 实际 ' + stats.count);
+    if (!(stats.size > 0)) fails.push('缓存占用应该是正的, 实际 ' + stats.size);
+    const idb1 = await idbProbe();
+    if (!(idb1.tracks >= 1)) {
+      fails.push('IndexedDB 的 tracks 仓里应该有记录, 实际 ' + idb1.tracks);
+    }
+    if (!(idb1.blobSize > 0)) {
+      fails.push('IndexedDB 里存的 blob 大小应该是正的, 实际 ' + idb1.blobSize);
+    }
+    if (idb1.size && stats.size && Math.abs(idb1.size - stats.size) > 1024) {
+      fails.push('应用里记的占用和库里对不上: ' + stats.size + ' vs ' + idb1.size);
+    }
+    if (shot('stored')) await screenshot(shot('stored'));
+
+    // ── 3) 清理: 正在播的那首留着, 别的那首真被删掉 ───────────────────
+    //
+    // ⚠️ 顺序有讲究: 得**正在播**的时候清 —— 正在播的那首正被媒体元素用着,
+    // revoke 掉那个 blob: URL 声音会断, 所以清理的时候要留着它。
+    await evalJs(
+      'window.__audioCache.track("probe-other#1",' + JSON.stringify(info.url) + ')' +
+      '.then(function(){},function(){});return "再缓存一首";');
+    await delay(12000);
+    const idbBefore = await idbProbe();
+    if (!(idbBefore.trackCount >= 2)) {
+      fails.push('清理前库里应该有两首, 实际 ' + idbBefore.trackCount);
+    }
+    await evalJs('window.__cacheRes={state:"start"};' +
+      'window.__audioCache.clear(true).then(function(r){window.__cacheRes.state="done";' +
+      'window.__cacheRes.count=r.count;},function(e){window.__cacheRes.state="err";});' +
+      'return "开始清理";');
+    for (let i = 0; i < 20; i++) {
+      await delay(700);
+      const r = JSON.parse(await evalJs('return JSON.stringify(window.__cacheRes||{});'));
+      if (r.state === 'done' || r.state === 'err') break;
+    }
+    const idb3 = await idbProbe();
+    if (idb3.trackCount !== 1) {
+      fails.push('清理后库里应该只剩正在播的那首 (1 首), 实际 ' + idb3.trackCount);
+    }
+    const stats3 = JSON.parse(await evalJs('return JSON.stringify(window.__audioCache.stats());'));
+    if (stats3.count !== 1) {
+      fails.push('清理后占用应该是 1 首 (正在播的那首), 实际 ' + stats3.count);
+    }
+
+    // ── 4) 应用重载 → 缓存还在 (这是换 IndexedDB 的意义) ─────────────
+    await evalJs('location.reload(); return "重载";');
+    await delay(14000);
+    const stats2 = JSON.parse(await evalJs('return JSON.stringify(window.__audioCache.stats());'));
+    const backend2 = await evalJs('return String(window.__audioCache.backend());');
+    if (backend2 !== 'idb') {
+      fails.push('重载之后后端还是「' + backend2 + '」, 不该变成内存兜底');
+    }
+    if (!(stats2.count >= 1)) {
+      fails.push('重载之后缓存应该还在 (实际 ' + stats2.count + ' 首) —— IndexedDB 没扛住');
+    }
+    const idb2 = await idbProbe();
+    if (!(idb2.tracks >= 1)) {
+      fails.push('重载之后 IndexedDB 里应该还有记录, 实际 ' + idb2.tracks);
+    }
+
+    // ── 5) 全清 (先退出播放才做得到) → 库里应该空了 ──────────────────
+    await evalJs('window.__audioCache.clear(false).then(function(){},function(){});return "全清";');
+    await delay(5000);
+    const idb4 = await idbProbe();
+    if (idb4.trackCount) {
+      fails.push('全清之后 IndexedDB 里应该没记录了, 实际还有 ' + idb4.trackCount + ' 首');
+    }
+    const stats4 = JSON.parse(await evalJs('return JSON.stringify(window.__audioCache.stats());'));
+    if (stats4.count) {
+      fails.push('全清之后占用应该是 0 首, 实际 ' + stats4.count);
+    }
+
+    results.push({ page: 'listen-cache', fails });
+    console.log((fails.length ? '✗' : '✓') + ' ' + 'listen-cache'.padEnd(16) +
+      (fails.length ? fails.join(' | ') :
+        '缓存存 IndexedDB + 重载后还在 + 能清掉 全通过 (' +
+        (idb1.blobSize || 0) + ' 字节)'));
+  } catch (e) {
+    results.push({ page: 'listen-cache', fails: [String(e.message)] });
+    console.log('✗ ' + 'listen-cache'.padEnd(16) + String(e.message));
   }
 }
 
