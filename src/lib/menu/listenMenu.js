@@ -5,7 +5,7 @@
 //
 //   UP 主页                ← 直接执行
 //   播放控制 ▸             ← 三级菜单 (副提示写的就是这一页方向键的实际绑定)
-//     快进 / 快退 / 音量加 / 音量减
+//     上一首 / 下一首 / 快退 / 快进 / 音量加 / 音量减 / 2 倍速
 //   播放列表 ▸             ← 三级菜单: 列表里的每一首
 //     └ 每一首再进**四级菜单**: 立刻播放 / 从播放列表删除 / 向上移动 / 向下移动
 //   播放模式 ▸             ← 三级菜单 (当前那个用 ✓ 标出)
@@ -54,6 +54,8 @@ function shortTitle(title) {
  * @param {Function}[o.onVolume]        调音量: (+1 / -1) => void
  * @param {Function}[o.onPrev]          上一首: () => void
  * @param {Function}[o.onNext]          下一首: () => void
+ * @param {number}  [o.rate]            当前倍速 (1 / 2) —— 「2 倍速」开关的副提示要用
+ * @param {Function}[o.onToggleSpeed]   2 倍速开关: () => void
  * @param {Function}[o.onLike]          点赞/取消: () => void
  * @param {Function}[o.onCoin]          投币: () => void
  * @param {Function}[o.onFav]           收藏/取消: () => void
@@ -68,6 +70,10 @@ export function buildListenMenu(o) {
   const list = Array.isArray(opt.playlist) ? opt.playlist : [];
   const mode = opt.playMode || DEFAULT_PLAY_MODE;
   const bvid = opt.bvid || '';
+  // 菜单里「快进 / 快退」一次跳多少秒 (和页面上的 SEEK_STEP 一致)
+  const step = typeof opt.seekStep === 'number' ? opt.seekStep : 10;
+  // 当前倍速 (1 / 2) —— 「2 倍速」那项的副提示要写当前状态
+  const rate = Number(opt.rate) || 1;
 
   const items = [
     {
@@ -77,15 +83,24 @@ export function buildListenMenu(o) {
       action: () => { if (typeof opt.onAuthor === 'function') opt.onAuthor(opt.ownerMid); }
     },
     {
-      // 副提示写的是**这一页方向键的实际绑定** (听视频页: ← → 快退快进, ↑↓ 音量)
+      // 副提示写的是**这一页方向键的实际绑定**
+      // (听视频页: ← 短按上一首 / → 短按下一首, 长按 ← 快退 / 长按 → 快进, ↑↓ 音量)
       label: '播放控制',
       items: [
-        { label: '快进', hint: '→ 键', action: () => { if (typeof opt.onSeek === 'function') opt.onSeek(10); } },
-        { label: '快退', hint: '← 键', action: () => { if (typeof opt.onSeek === 'function') opt.onSeek(-10); } },
+        { label: '上一首', hint: '← 键', action: run(opt.onPrev) },
+        { label: '下一首', hint: '→ 键', action: run(opt.onNext) },
+        { label: '快退', hint: '长按 ← 键', action: () => { if (typeof opt.onSeek === 'function') opt.onSeek(-step); } },
+        { label: '快进', hint: '长按 → 键', action: () => { if (typeof opt.onSeek === 'function') opt.onSeek(step); } },
         { label: '音量加', hint: '↑ 键', action: () => { if (typeof opt.onVolume === 'function') opt.onVolume(1); } },
         { label: '音量减', hint: '↓ 键', action: () => { if (typeof opt.onVolume === 'function') opt.onVolume(-1); } },
-        { label: '上一首', action: run(opt.onPrev) },
-        { label: '下一首', action: run(opt.onNext) }
+        {
+          // 2 倍速: 原来绑在「长按 → 键」上 (按住 2 倍速, 松手恢复 1 倍),
+          // 那个键位现在给了快进 → 挪进菜单做成**开关**。
+          // 副提示写的是"按下之后会怎么样", 和软键栏一个写法。
+          label: '2 倍速',
+          hint: rate >= 2 ? '切到 1 倍速' : '切到 2 倍速',
+          action: run(opt.onToggleSpeed)
+        }
       ]
     },
     {

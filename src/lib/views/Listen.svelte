@@ -8,11 +8,11 @@
   //     大封面 → 歌名(粗) + 作者(小) + 播放模式 → 进度条(带小圆点滑块)
   //     + 已播/总时长 → 播放控制行 (上一首 / 播放暂停 / 下一首) → 键位提示
   //   下面用方向键控制:
-  //     ←  快退 10 秒      →  快进 10 秒
-  //     →  长按 = 2 倍速 (松手恢复 1 倍)
-  //     ↑  系统音量+       ↓  系统音量−
+  //     ←  短按 = 上一首    长按 = 快退 (按住不放一直退)
+  //     →  短按 = 下一首    长按 = 快进 (按住不放一直进)
+  //     ↑  系统音量+         ↓  系统音量−
   //   左软键 = 最小化 (收起这一页, 底部浮一条迷你条, 声音继续)
-  //   右软键 = 更多 (二级菜单: UP主页/播放列表/播放模式/上一首/下一首/互动/评论/退出)
+  //   右软键 = 更多 (二级菜单: UP主页/播放控制/播放列表/播放模式/互动/分享/评论/退出)
   //
   // ── 声音从哪来 ──────────────────────────────────────────────────────
   //   音频元素**不在这一页** —— 它挂在根组件 (App.svelte) 里, 跨路由不销毁,
@@ -35,14 +35,20 @@
     playMode, setPlayMode, removeFromPlaylist, moveInPlaylist
   } from '../stores/player.js';
   import {
-    playItemOnTop, playIndex, togglePlay, seekBy, setRate, stopPlayback,
+    playItemOnTop, playIndex, togglePlay, seekBy, toggleSpeed, stopPlayback,
     nextTrack, prevTrack
   } from '../player/engine.js';
   import { buildListenMenu } from '../menu/listenMenu.js';
   import { biliImg } from '../utils/platform.js';
 
-  // 一次快进/快退多少秒
+  // 菜单里那个「快进 / 快退」一次跳多少秒
   const SEEK_STEP = 10;
+  // **按住不放**时每跳一次多少秒
+  //
+  // ⚠️ 和上面的 SEEK_STEP 不是一回事:
+  //   菜单里按一下「快进」 = 一次跳 10 秒 (用户明确按了, 大步走)
+  //   长按方向键 = 按住搓带, 每 0.8 秒跳 5 秒 (细一点, 好定位)
+  const HOLD_SEEK_STEP = 5;
 
   let bvid = '';
   let info = null;
@@ -339,9 +345,16 @@
         if (setPlayMode(id)) showToast('播放模式: ' + playModeLabel(id));
       },
       onSeek: sec => seekBy(sec),
+      seekStep: SEEK_STEP,
       onVolume: d => requestSystemVolume(d),
       onPrev: onPrev,
       onNext: onNext,
+      // 2 倍速开关 (原来绑在「长按 → 键」上, 那个键位给了快进之后挪进菜单)
+      rate: $playState.rate,
+      onToggleSpeed: () => {
+        const r = toggleSpeed();
+        showToast(r >= 2 ? '2 倍速' : '1 倍速');
+      },
       onLike: doLike,
       onCoin: doCoin,
       onFav: doFav,
@@ -355,11 +368,20 @@
   onMount(() => {
     // 右软键不自己绑: 软键栏的兜底作用域接管它 (菜单挂在 opts.menu 上)
     return onKey('listen', {
-      Left: { press: () => seekBy(-SEEK_STEP) },
+      // ← 短按 = 上一首, 长按 = 快退 (按住不放一直退)
+      //
+      // ⚠️ 按键框架的规矩: press 在**松手**时触发, long 在按住 400ms 后触发,
+      // 长按触发过就**不再**触发 press —— 所以短按/长按不会一起动手。
+      // long 触发之后每 800ms 重复一次 (框架默认的 repeat 间隔),
+      // 也就是"按住不放, 每 0.8 秒跳 5 秒"。
+      Left: {
+        press: () => onPrev(),
+        long: () => seekBy(-HOLD_SEEK_STEP)
+      },
+      // → 短按 = 下一首, 长按 = 快进 (按住不放一直进)
       Right: {
-        press: () => seekBy(SEEK_STEP),
-        long: () => setRate(2),      // 长按 → 键 = 2 倍速
-        release: () => setRate(1)    // 松手恢复
+        press: () => onNext(),
+        long: () => seekBy(HOLD_SEEK_STEP)
       },
       Up: () => { requestSystemVolume(+1); },
       Down: () => { requestSystemVolume(-1); },
@@ -437,9 +459,9 @@
 
       <!-- 键位提示: 只留软键栏里没有的那几条 -->
       <div class="keys">
-        <div class="krow"><span class="kk">← →</span><span class="kv">快退 / 快进 10 秒</span></div>
+        <div class="krow"><span class="kk">← →</span><span class="kv">上一首 / 下一首</span></div>
+        <div class="krow"><span class="kk">长按</span><span class="kv">← 快退 / → 快进 5 秒</span></div>
         <div class="krow"><span class="kk">↑ ↓</span><span class="kv">音量加 / 减</span></div>
-        <div class="krow"><span class="kk">长按 →</span><span class="kv">2 倍速</span></div>
       </div>
     {/if}
   </div>

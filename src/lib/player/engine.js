@@ -41,6 +41,16 @@ let failStreak = 0;
 const MAX_FAIL_SKIP = 3;
 
 /**
+ * 当前倍速 (1 或 2)
+ *
+ * ⚠️ **跨切歌保持**: 2 倍速现在是「更多 → 播放控制」里的一个开关
+ * (原来绑在「长按 → 键」上, 按住 2 倍速松手恢复 1 倍; 那个键位给了快进之后
+ * 改成了开关)。开关就该像个设置 —— 用户开了 2 倍速, 下一首接着 2 倍速播,
+ * 不能又悄悄变回 1 倍 (那菜单里的开关会骗人)。
+ */
+let speedRate = 1;
+
+/**
  * 当前这一首的时长 (秒)
  *
  * ⚠️ **用 API 给的值, 不用元素报的 duration**: 老 Gecko (Gecko 48) 对这条
@@ -286,9 +296,9 @@ async function loadAndPlay(item) {
     const src = cached || url;
     el.src = src;
     curSrcUrl = src;   // 记下现在挂的是哪条流 (media error 事件要靠它分辨是谁的错)
-    el.playbackRate = 1;
+    el.playbackRate = speedRate;   // 用户开的 2 倍速, 切歌后接着用
     safeSeek(el, 0);
-    patchState({ rate: 1, duration: trackDuration, cacheRatio: cached ? 1 : 0 });
+    patchState({ rate: speedRate, duration: trackDuration, cacheRatio: cached ? 1 : 0 });
     // play() 走 safePlay: 老 Gecko 的 play() 不返回 Promise, 而且可能同步抛。
     // 这里不自己判"播没播起来" —— 那是 'play' / 'pause' / 'error' 事件的事
     // (见 setAudioElement): 新设的 src 还在加载时, play() 返回了媒体也还没开始播。
@@ -546,16 +556,35 @@ export function clearAudioCache() {
 }
 
 /**
- * 倍速 (长按 → 键 = 2 倍速, 松手恢复 1 倍)
+ * 倍速 (只有 1 倍和 2 倍)
  *
  * @param {number} rate
  */
-export function setRate(rate) {
-  if (!el) return;
+function setRate(rate) {
+  const r = rate >= 2 ? 2 : 1;
+  speedRate = r;
+  if (!el) {
+    patchState({ rate: r });
+    return;
+  }
   try {
-    el.playbackRate = rate;
+    el.playbackRate = r;
   } catch (e) {}
-  patchState({ rate });
+  patchState({ rate: r });
+}
+
+/**
+ * 2 倍速开关 (菜单「更多 → 播放控制 › 2 倍速」走这条)
+ *
+ * 原来这个功能是「长按 → 键」按住 2 倍速、松手恢复 1 倍 —— 那个键位
+ * 现在给了快进, 改成一个**开关**: 按一下切到 2 倍速, 再按一下切回来。
+ *
+ * @returns {number} 现在的倍速 (1 或 2)
+ */
+export function toggleSpeed() {
+  const next = (get(playState).rate || speedRate) >= 2 ? 1 : 2;
+  setRate(next);
+  return next;
 }
 
 /** 停止播放并清掉"正在播放" */
@@ -575,6 +604,8 @@ export function stopPlayback() {
   nowPlaying.set(null);
   currentIndex.set(-1);
   miniVisible.set(false);
+  // 退出播放 = 停了 → 倍速也回到 1 倍 (下次再播从头来, 别一上来就 2 倍速)
+  speedRate = 1;
   patchState({ playing: false, time: 0, duration: 0, rate: 1, loading: false, cacheRatio: 0 });
   miniProgress.set(0);
 }

@@ -264,6 +264,57 @@ async function pressJs(key) {
   await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
 }
 
+/**
+ * 按住一个方向键 (长按), 看位置有没有真的跳
+ *
+ * ⚠️ **不能只看"位置变大了"**: 正常播放是 1 秒/秒, 位置一直在涨 ——
+ * 那样什么都能"证明"快进了。真正能证明快进的是这两种迹象:
+ *
+ *   1. 位置跳到了**墙钟前面** (比"按下到现在经过的时间"还多)
+ *      → 直接 seek 成功了 (整段已经在缓存里, 直接跳)
+ *   2. 位置**掉到了墙钟后面**, 而且正好落在"按下那一刻 + 步长"上
+ *      → 走的是"整段缓存"那条路 (老 Gecko 把边下边播的 m4s 当直播流,
+ *        往后跳不了 → 先把整段下下来换源, 再跳到按下时算出来的落点)
+ *
+ * @param {Function} probe  页面探针 (返回 {at, paused, dur, ...})
+ * @param {number} key      Linux 键码 (←105 →106)
+ * @param {number} dir      +1 快进 / -1 快退
+ * @param {number} step     一次跳多少秒
+ * @returns {Promise<{ok: boolean, at: number, at0: number, how: string}>}
+ */
+async function holdSeek(probe, key, dir, step) {
+  const before = await probe();
+  const at0 = before.at;
+  const t0 = Date.now();
+  let maxAt = at0;
+  keyDown(key);
+  await delay(700);        // 长按阈值 400ms → 触发一次; 800ms 的重复还没到
+  keyUp(key);
+  for (let i = 0; i < 45; i++) {
+    await delay(800);
+    const q = await probe();
+    if (q.at > maxAt) maxAt = q.at;
+    const elapsed = (Date.now() - t0) / 1000;
+    const adv = q.at - at0;
+    if (dir > 0) {
+      // 1) 位置跳到了墙钟前面 → 直接 seek 成功
+      if (adv > elapsed + 1) {
+        return { ok: true, at: q.at, at0: at0, how: '直接跳过去' };
+      }
+      // 2) 位置掉到墙钟后面, 而且落在目标位置 (at0 + 步长) 上 → 整段缓存那条路
+      if (!q.paused && elapsed > adv + 1 && Math.abs(adv - step) < 3) {
+        return { ok: true, at: q.at, at0: at0, how: '缓存后落在目标位置' };
+      }
+    } else {
+      // 快退: 位置往回走就算数 (往回 seek 一直在能跳的范围里, 不用下整段)
+      if (-adv >= step - 2) {
+        return { ok: true, at: q.at, at0: at0, how: '往回跳' };
+      }
+    }
+  }
+  return { ok: false, at: maxAt, at0: at0, how: '位置没动' };
+}
+
 const sock = await connect();
 let buf = Buffer.alloc(0);
 let waiters = [];
@@ -1446,41 +1497,24 @@ if (!only.length || only.indexOf('listen') >= 0) {
     if (!p.title) fails.push('标题是空的');
     if (shot('page')) await screenshot(shot('page'));
 
-    // ── 2) → 快进 10 秒 ───────────────────────────────────────────
+    // ── 2) 长按 → 快进 5 秒 ───────────────────────────────────────
     //
     // ⚠️ 老 Gecko (Gecko 48) 边下边播 DASH 的 m4s 纯音频时, 会把它当**直播流**:
     //   duration 跟着播放头走, seekable 只有"已经播到的那一段" → 快不进去。
     //   应用的做法: 快进时把整段缓存下来, 换成整段播 (解封装器一次拿到整个文件,
     //   时长和可跳范围都算得对) → 落点就准了。
-    //   真机实测: 整段缓存完 (1.85MB) 后, 位置准确落到 +10 秒。
     //
-    // 所以这里要**轮询等它落点** (要先下完整段), 而不是死等两秒。
+    // 所以这里要**轮询等它落点** (可能要现下整段), 而不是死等两秒。
+    //
+    // ⚠️ 现在 → 键**短按 = 下一首, 长按 = 快进**, 所以这里必须**按住**:
+    // 短按一下就换成下一首了, 不是快进。
     const at0 = p.at;
-    press(106);           // 右方向键 (Linux input: ←105 ↑103 ↓108 →106)
-    let moved = false;
-    for (let i = 0; i < 16; i++) {
-      await delay(1500);
-      p = await pageProbe();
-      if (p.at >= at0 + 8) { moved = true; break; }
+    const fwd = await holdSeek(pageProbe, 106, +1, 5);
+    if (!fwd.ok) {
+      fails.push('长按 → 应该快进 5 秒, 实际 ' + at0 + ' → ' + fwd.at +
+        ' (' + fwd.how + ', 可seek ' + p.seekable + ', 已缓冲 ' + p.buffered + ', 缓存 ' + (p.cache || '无') + ')');
     }
-    if (!moved) {
-      fails.push('按 → 应该快进 10 秒, 实际 ' + at0 + ' → ' + p.at +
-        ' (可seek ' + p.seekable + ', 已缓冲 ' + p.buffered + ', 缓存 ' + (p.cache || '无') + ')');
-    }
-
-    // 长按 → 键 = 2 倍速。倍速只在**按住期间**生效, 松手就恢复 1 倍,
-    // 所以要在还按着的时候读 playbackRate (长按阈值 400ms, 按住 700ms 足够)。
-    keyDown(106);
-    await delay(700);
     p = await pageProbe();
-    const rateDuring = p.rate;
-    keyUp(106);
-    await delay(600);
-    p = await pageProbe();
-    if (rateDuring < 1.5) {
-      fails.push('长按 → 键应该变 2 倍速, 实际 ' + rateDuring);
-    }
-    if (p.rate > 1.5) fails.push('松开后倍速应该恢复 1 倍, 实际 ' + p.rate);
 
     // ── 3) 右软键菜单 ─────────────────────────────────────────────
     press(158);
@@ -1624,10 +1658,212 @@ if (!only.length || only.indexOf('listen') >= 0) {
     results.push({ page: 'listen', fails });
     console.log((fails.length ? '✗' : '✓') + ' ' + 'listen'.padEnd(16) +
       (fails.length ? fails.join(' | ') :
-        '听视频: 封面+进度条+放音 + 快进/2倍速 + 二级菜单 + 播放模式 + 最小化迷你条 + 「正在播放」 全通过'));
+        '听视频: 封面+进度条+放音 + 长按快进 + 二级菜单 + 播放模式 + 最小化迷你条 + 「正在播放」 全通过'));
   } catch (e) {
     results.push({ page: 'listen', fails: [String(e.message)] });
     console.log('✗ ' + 'listen'.padEnd(16) + String(e.message));
+  }
+}
+
+// 真机: 听视频页的方向键 (短按切歌 / 长按快进快退) + 菜单里的 2 倍速 + 播放模式持久化
+//
+//   1. ← 短按 = 上一首, → 短按 = 下一首 (标题跟着换)
+//   2. 长按 ← = 快退, 长按 → = 快进 (按住不动每 0.8 秒跳 5 秒)
+//   3. 「更多 › 播放控制 › 2 倍速」是个开关 (按一下 2 倍, 再按一下回来)
+//   4. 播放模式存进 localStorage, **重载应用之后还在**; 没存过就是顺序播放
+if (!only.length || only.indexOf('listen-keys') >= 0) {
+  const fails = [];
+  const shot = name => (shotDir ? path.join(shotDir, 'listen-keys-' + name + '.png') : '');
+  const pageProbe = async () => {
+    const text = '(function(){' +
+      'var e=document.querySelector("#media-engine");' +
+      'var t=document.querySelector(".listen .title");' +
+      'var md=document.querySelector(".listen .mode");' +
+      'return JSON.stringify({' +
+      'title: t?String(t.innerText||"").trim():"",' +
+      'mode: md?String(md.innerText||"").trim():"",' +
+      'paused: e?e.paused:true, rate: e?(e.playbackRate||1):0,' +
+      'at: e?Math.round((e.currentTime||0)*10)/10:-1,' +
+      'dur: e?Math.round((e.duration||0)*10)/10:-1,' +
+      'src: e?String(e.currentSrc||e.src||"").slice(0,120):""});' +
+      '})()';
+    const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+    if (r.exception) throw new Error('页面探针异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
+    return JSON.parse(r.result);
+  };
+  const menuProbe = async () => {
+    const text = '(function(){return (\n' + MENU_PROBE + '\n);})()';
+    const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+    if (r.exception) throw new Error('菜单探针异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
+    return JSON.parse(r.result);
+  };
+  const modeProbe = async () => {
+    const text = '(function(){try{return String(localStorage.getItem("player:playmode:v1")||"");}catch(e){return "";}})()';
+    const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+    if (r.exception) return '';
+    return String(r.result || '');
+  };
+  const evalJs = async body => {
+    const text = '(function(){' + body + '})()';
+    const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+    if (r.exception) throw new Error('注入脚本异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
+    return r.result;
+  };
+  // 在「更多 › 播放控制」三级菜单里选第 index 项 (0 起)
+  const pickInPlayback = async index => {
+    press(158);                    // 更多
+    await delay(1400);
+    press(108);                    // → 播放控制
+    await delay(500);
+    press(352);                    // 进三级菜单
+    await delay(1400);
+    for (let i = 0; i < index; i++) { press(108); await delay(320); }
+    await delay(400);
+    press(352);                    // 选中 (菜单随之关闭)
+    await delay(1200);
+  };
+  try {
+    // ── 0) 从详情页的「听视频」进来 → 这首在放 ─────────────────────
+    //
+    // ⚠️ 用详情页这个入口: 听视频页显示的是"引擎里正在放的那首",
+    // 直接 goto 听视频页再按中键, 引擎在放别的歌时只会"播放/暂停那首", 不会切歌。
+    await goto('#/player?bvid=BV1ZqpE6uEKd');
+    await delay(9000);
+    press(158);
+    await delay(1500);
+    const mv = await menuProbe();
+    const li = (mv.items || []).map((t, i) => (t.indexOf('听视频') >= 0 ? i : -1)).filter(i => i >= 0)[0];
+    if (li === undefined) {
+      fails.push('视频页菜单里没有「听视频」: ' + (mv.items || []).join(','));
+    } else {
+      for (let i = 0; i < li; i++) { press(108); await delay(320); }
+      await delay(400);
+      press(352);
+      await delay(16000);
+    }
+    let p = await pageProbe();
+    if (p.paused) fails.push('前置: 这首没在放');
+    if (!p.title) fails.push('前置: 标题是空的');
+    const title0 = p.title;
+
+    // ── 1) → 短按 = 下一首 ─────────────────────────────────────────
+    press(106);
+    let title1 = '';
+    for (let i = 0; i < 20; i++) {
+      await delay(1000);
+      p = await pageProbe();
+      title1 = p.title;
+      if (title1 && title1 !== title0) break;
+    }
+    if (!title1 || title1 === title0) {
+      fails.push('短按 → 应该切到下一首, 标题还是「' + (title1 || p.title) + '」');
+    }
+    if (shot('next')) await screenshot(shot('next'));
+
+    // ── 2) ← 短按 = 上一首 ─────────────────────────────────────────
+    press(105);
+    let title2 = '';
+    for (let i = 0; i < 20; i++) {
+      await delay(1000);
+      p = await pageProbe();
+      title2 = p.title;
+      if (title2 && title2 !== title1) break;
+    }
+    if (!title2 || title2 === title1) {
+      fails.push('短按 ← 应该切回上一首, 标题还是「' + (title2 || p.title) + '」');
+    }
+    if (title0 && title2 !== title0) {
+      // 上一首应该回到刚才那首 (顺序播放模式下就是列表里的上一项)
+      fails.push('短按 ← 之后应该回到第一首「' + title0 + '」, 实际「' + title2 + '」');
+    }
+
+    // ── 3) 长按 → = 快进 (按住不动每 0.8 秒跳 5 秒) ────────────────
+    //
+    // ⚠️ 要先让它真的放起来 (位置 > 8 秒), 不然快退没有回旋的余地。
+    for (let i = 0; i < 20; i++) {
+      p = await pageProbe();
+      if (p.at > 8) break;
+      await delay(1000);
+    }
+    const fwd = await holdSeek(pageProbe, 106, +1, 5);
+    if (!fwd.ok) {
+      fails.push('长按 → 应该快进 5 秒, 实际 ' + fwd.at0 + ' → ' + fwd.at + ' (' + fwd.how + ')');
+    }
+    if (shot('fwd')) await screenshot(shot('fwd'));
+
+    // ── 4) 长按 ← = 快退 ───────────────────────────────────────────
+    const back = await holdSeek(pageProbe, 105, -1, 5);
+    if (!back.ok) {
+      fails.push('长按 ← 应该快退 5 秒, 实际 ' + back.at0 + ' → ' + back.at + ' (' + back.how + ')');
+    }
+
+    // ── 5) 「更多 › 播放控制 › 2 倍速」是个开关 ─────────────────────
+    //
+    // 2 倍速原来绑在「长按 → 键」上, 那个键位给了快进 → 挪进菜单做开关。
+    await pickInPlayback(6);
+    p = await pageProbe();
+    if (p.rate < 1.5) {
+      fails.push('菜单里打开「2 倍速」应该变成 2 倍速, 实际 ' + p.rate);
+    }
+    if (shot('speed')) await screenshot(shot('speed'));
+    await pickInPlayback(6);
+    p = await pageProbe();
+    if (p.rate > 1.5) {
+      fails.push('再按一次「2 倍速」应该回到 1 倍速, 实际 ' + p.rate);
+    }
+
+    // ── 6) 播放模式: 存进 localStorage, 重载之后还在 ───────────────
+    //
+    // 选「列表循环」(不是默认值) —— 选默认值的话, 就算没存住也看不出来。
+    press(158);                    // 更多
+    await delay(1400);
+    for (let i = 0; i < 3; i++) { press(108); await delay(320); }
+    await delay(400);
+    press(352);                    // 进「播放模式」三级菜单
+    await delay(1400);
+    press(108);                    // → 列表循环
+    await delay(400);
+    press(352);                    // 选中 (存进 localStorage)
+    await delay(1500);
+    const saved = await modeProbe();
+    if (saved.indexOf('repeat-list') < 0) {
+      fails.push('选完播放模式应该存成 repeat-list, 实际 ' + saved);
+    }
+    p = await pageProbe();
+    if (p.mode !== '列表循环') {
+      fails.push('页面上的播放模式标签应该变成「列表循环」, 实际「' + p.mode + '」');
+    }
+    // 重载应用 → 模式应该还在 (这正是"持久化"的意思)
+    await evalJs('location.reload(); return "重载";');
+    await delay(14000);
+    const saved2 = await modeProbe();
+    if (saved2.indexOf('repeat-list') < 0) {
+      fails.push('重载之后播放模式应该还在 (repeat-list), 实际 ' + saved2);
+    }
+    p = await pageProbe();
+    if (p.mode !== '列表循环') {
+      fails.push('重载之后页面上的播放模式标签还是「' + p.mode + '」');
+    }
+    // 没存过 → 默认顺序播放
+    await evalJs('try{localStorage.removeItem("player:playmode:v1");}catch(e){}return "清了";');
+    await evalJs('location.reload(); return "重载";');
+    await delay(14000);
+    const saved3 = await modeProbe();
+    if (saved3.indexOf('order') < 0) {
+      fails.push('没存过播放模式时应该默认顺序播放, 实际 ' + saved3);
+    }
+    p = await pageProbe();
+    if (p.mode !== '顺序播放') {
+      fails.push('默认的播放模式标签应该是「顺序播放」, 实际「' + p.mode + '」');
+    }
+
+    results.push({ page: 'listen-keys', fails });
+    console.log((fails.length ? '✗' : '✓') + ' ' + 'listen-keys'.padEnd(16) +
+      (fails.length ? fails.join(' | ') :
+        '←→ 短按切歌 + 长按快进快退 + 菜单 2 倍速开关 + 播放模式持久化 全通过'));
+  } catch (e) {
+    results.push({ page: 'listen-keys', fails: [String(e.message)] });
+    console.log('✗ ' + 'listen-keys'.padEnd(16) + String(e.message));
   }
 }
 

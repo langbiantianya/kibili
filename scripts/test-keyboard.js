@@ -1996,18 +1996,39 @@ check('听视频菜单: 9 个入口, 播放列表空着时置灰', async () => {
   eq(m.items[7].label, '退出播放', '第八项是退出播放');
   eq(m.items[8].label, '退出应用', '最后一项是退出应用');
 
-  // 播放控制的副提示要写这一页方向键的实际绑定 (后两项是切歌, 没有对应按键)
-  eq(m.items[1].items.slice(0, 4).map(i => i.hint).join(','), '→ 键,← 键,↑ 键,↓ 键', '播放控制的副提示');
-  eq(m.items[1].items[4].label, '上一首', '播放控制里有上一首');
-  eq(m.items[1].items[5].label, '下一首', '播放控制里有下一首');
+  // 播放控制的副提示要写这一页方向键的实际绑定:
+  //   ← 短按上一首 / → 短按下一首, 长按 ← 快退 / 长按 → 快进, ↑↓ 音量
+  const ctl = m.items[1].items;
+  eq(ctl.map(i => i.label).join(','),
+    '上一首,下一首,快退,快进,音量加,音量减,2 倍速', '播放控制里的项');
+  eq(ctl.map(i => i.hint).join(','),
+    '← 键,→ 键,长按 ← 键,长按 → 键,↑ 键,↓ 键,切到 2 倍速', '播放控制的副提示');
+  eq(ctl[2].label, '快退', '播放控制里有快退');
+  eq(ctl[3].label, '快进', '播放控制里有快进');
 
-  const m2 = buildListenMenu({
+  // 「2 倍速」是开关: 副提示写按下之后会怎么样
+  eq(ctl[6].label, '2 倍速', '播放控制里有 2 倍速');
+  eq(ctl[6].hint, '切到 2 倍速', '现在是 1 倍速 → 副提示写切到 2 倍速');
+  let toggled = 0;
+  const m2 = buildListenMenu({ rate: 2, onToggleSpeed: () => { toggled++; } });
+  eq(m2.items[1].items[6].hint, '切到 1 倍速', '现在是 2 倍速 → 副提示写切到 1 倍速');
+  m2.items[1].items[6].action();
+  eq(toggled, 1, '点「2 倍速」要回调那个开关');
+
+  // 快进/快退的步长: 菜单里传 seekStep, 没传就是 10 秒
+  let seeked = [];
+  const m3 = buildListenMenu({ seekStep: 7, onSeek: s => { seeked.push(s); } });
+  m3.items[1].items[2].action();
+  m3.items[1].items[3].action();
+  eq(seeked.join(','), '-7,7', '菜单里的快退/快退按 seekStep 走');
+
+  const m4 = buildListenMenu({
     playlist: [{ title: '第一首' }, { title: '第二首' }],
     currentIndex: 1
   });
-  eq(m2.items[2].disabled, false, '有歌就不该置灰');
-  eq(m2.items[2].items.length, 2, '三级菜单该有 2 首');
-  eq(m2.items[2].items[1].label, '✓ 第二首', '当前这首要用 ✓ 标出来');
+  eq(m4.items[2].disabled, false, '有歌就不该置灰');
+  eq(m4.items[2].items.length, 2, '三级菜单该有 2 首');
+  eq(m4.items[2].items[1].label, '✓ 第二首', '当前这首要用 ✓ 标出来');
 });
 
 check('听视频菜单: 播放列表里每一首都有四级菜单 (播放/删除/上移/下移)', async () => {
