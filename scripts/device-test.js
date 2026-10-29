@@ -1365,8 +1365,11 @@ if (!only.length || only.indexOf('listen') >= 0) {
       // 整条流地址 (换歌之后要变)
       'src: a?String(a.currentSrc||a.src||"").slice(0,120):"",' +
       // 快进失败时要看得见"能 seek 到哪": 老 Gecko 对 DASH 的 m4s 只能往后播
-      'seekable: a&&a.seekable?a.seekable.length+"["+Math.round(a.seekable.start(0)*10)/10+"~"+Math.round(a.seekable.end(a.seekable.length-1)*10)/10+"]":"",' +
-      'buffered: a&&a.buffered?a.buffered.length+"["+Math.round(a.buffered.start(0)*10)/10+"~"+Math.round(a.buffered.end(a.buffered.length-1)*10)/10+"]":"",' +
+      //
+      // ⚠️ **必须判空**: 还没起播的时候元素上没有流, seekable/buffered 是空的,
+      // 对空的 TimeRanges 调 start(0) 会抛 IndexSizeError (整个探针就崩了)。
+      'seekable: (function(){try{var s=a&&a.seekable;if(!s||!s.length)return "";return s.length+"["+Math.round(s.start(0)*10)/10+"~"+Math.round(s.end(s.length-1)*10)/10+"]";}catch(e){return "";}})(),' +
+      'buffered: (function(){try{var s=a&&a.buffered;if(!s||!s.length)return "";return s.length+"["+Math.round(s.start(0)*10)/10+"~"+Math.round(s.end(s.length-1)*10)/10+"]";}catch(e){return "";}})(),' +
       // 整段缓存的进度 (页面上那句"准备可快进的音频 xx%")
       'cache: (function(){var c=document.querySelector(".listen .cache");return c?String(c.innerText||"").trim():"";})(),' +
       'mini: !!mini, hash: location.hash});' +
@@ -1425,7 +1428,13 @@ if (!only.length || only.indexOf('listen') >= 0) {
     if (m.bar.right !== '更多') fails.push('听视频页右软键应该是「更多」实际「' + m.bar.right + '」');
     if (!p.cover) fails.push('封面图没加载出来');
     if (!p.audio) fails.push('页面里没有全局媒体元素');
-    if (p.paused) fails.push('声音没在放 (媒体元素是暂停的)');
+    // 直接开链接进听视频页 → **不自动播** (只有详情页的「听视频」才会自动播)
+    if (!p.paused) fails.push('直接进听视频页不该自动播, 实际已经在放了');
+    // 按中键 (播放) 才开始放
+    press(352);
+    await delay(15000);
+    p = await pageProbe();
+    if (p.paused) fails.push('按中键之后应该开始放 (媒体元素还是暂停的)');
     if (p.at <= 0) fails.push('播放进度没走 (t=' + p.at + ')');
     if (!p.title) fails.push('标题是空的');
     if (shot('page')) await screenshot(shot('page'));
@@ -1601,6 +1610,299 @@ if (!only.length || only.indexOf('listen') >= 0) {
   }
 }
 
+// 真机: 某首放不了 / 整段缓存失败 → 自动跳到下一首
+//
+// 怎么造出"缓存失败": 把 XMLHttpRequest 打一个补丁 —— 下载 .m4s 的那个请求
+// 装作网络断了 (直接触发 onerror)。
+//
+// 为什么只坑 .m4s: 缓存那层 (player/cache.js 的 fetchBlob) 用的是普通
+// XMLHttpRequest, 而 API 那层用的是 XHR({mozSystem:true}) 打 api.bilibili.com。
+// 只对 .m4s 的地址下手 → API 不受影响, 下一首照样能拉地址、照样能播。
+//
+// 走的真实路径: 快进 → 位置在 seekable 之外 → 整段缓存 → 下载失败 →
+// handleFailure → 自动跳下一首 (和用户点「下一首」是同一套引擎逻辑)。
+if (!only.length || only.indexOf('listen-failskip') >= 0) {
+  const fails = [];
+  const shot = name => (shotDir ? path.join(shotDir, 'listen-failskip-' + name + '.png') : '');
+  const pageProbe = async () => {
+    const text = '(function(){' +
+      'var e=document.querySelector("#media-engine");' +
+      'var t=document.querySelector(".listen .title");' +
+      'return JSON.stringify({' +
+      'title: t?String(t.innerText||"").trim():"",' +
+      'paused: e?e.paused:true,' +
+      'at: e?Math.round((e.currentTime||0)*10)/10:-1,' +
+      'src: e?String(e.currentSrc||e.src||"").slice(0,120):"",' +
+      // 能 seek 到哪 (快进靠它判断要不要整段缓存)
+      'seekable: (function(){try{var s=e&&e.seekable;if(!s||!s.length)return "";' +
+      'return s.length+"["+Math.round(s.start(0)*10)/10+"~"+Math.round(s.end(s.length-1)*10)/10+"]";}catch(x){return "";}})(),' +
+      'hash: location.hash});' +
+      '})()';
+    const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+    if (r.exception) throw new Error('页面探针异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
+    return JSON.parse(r.result);
+  };
+  const menuProbe = async () => {
+    const text = '(function(){return (\n' + MENU_PROBE + '\n);})()';
+    const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+    if (r.exception) throw new Error('菜单探针异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
+    return JSON.parse(r.result);
+  };
+  // evaluateJS 是按语句执行的, 顶层不能写 return → 整体包一层 IIFE
+  const evalJs = async body => {
+    const text = '(function(){' + body + '})()';
+    const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+    if (r.exception) throw new Error('注入脚本异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
+    return r.result;
+  };
+  // 提示只显示 2 秒, 设备上一来一回就得一两秒 → 装个观察器在页面里截住它
+  const WATCH_TOAST =
+    'window.__toastSeen="";' +
+    'if(!window.__toastObs){window.__toastObs=new MutationObserver(function(){' +
+    'var c=document.querySelector(".toast");if(c){var t=String(c.innerText||"").trim();' +
+    'if(t)window.__toastSeen=t;}});' +
+    'window.__toastObs.observe(document.body,{childList:true,subtree:true,characterData:true});}' +
+    'return true;';
+  const READ_TOAST = 'return String(window.__toastSeen||"");';
+  const BREAK_XHR =
+    'if(!window.__xhrOrig){' +
+    'window.__xhrOrig={open:XMLHttpRequest.prototype.open,send:XMLHttpRequest.prototype.send};' +
+    'XMLHttpRequest.prototype.open=function(m,u){try{this.__brk=String(u).indexOf(".m4s")>=0;}catch(e){}' +
+    'return window.__xhrOrig.open.apply(this,arguments);};' +
+    'XMLHttpRequest.prototype.send=function(){try{if(this.__brk){window.__hit=(window.__hit||0)+1;' +
+    'var s=this;setTimeout(function(){try{if(s.onerror)s.onerror();}catch(e){}},20);return;}}catch(e){}' +
+    'return window.__xhrOrig.send.apply(this,arguments);};' +
+    '}return true;';
+  const RESTORE_XHR =
+    'if(window.__xhrOrig){XMLHttpRequest.prototype.open=window.__xhrOrig.open;' +
+    'XMLHttpRequest.prototype.send=window.__xhrOrig.send;window.__xhrOrig=null;}' +
+    'window.__hit=0;return true;';
+  try {
+    // ── 0) 播放列表里得有第二首, 跳过去才有东西可跳 ──────────────────
+    // 「添加到播放列表」在视频页菜单的第 6 项
+    await goto('#/player?bvid=BV1KMJt6gEhx');
+    await delay(9000);
+    press(158);
+    await delay(1500);
+    const mv = await menuProbe();
+    const ai = (mv.items || []).map((t, i) => (t.indexOf('添加到播放列表') >= 0 ? i : -1)).filter(i => i >= 0)[0];
+    if (ai === undefined) {
+      fails.push('视频页菜单里没有「添加到播放列表」: ' + (mv.items || []).join(','));
+    } else {
+      for (let i = 0; i < ai; i++) { press(108); await delay(320); }
+      await delay(400);
+      press(352);
+      await delay(1500);
+      press(14);
+      await delay(1200);
+    }
+
+    // ── 1) 从详情页的「听视频」进来 → 这首在放 (而且排在播放列表最顶上) ──
+    //
+    // ⚠️ 必须用详情页这个入口: 只有它会把歌**置顶** (playItemOnTop)。
+    // 置顶了才有"下一首"在后面 —— 顺序播放模式下最后一首失败是"停", 不是"跳"。
+    //
+    // ⚠️ 用的是一首**这次会话里没放过**的歌 (BV1Smni6BEvQ):
+    // 老 Gecko 对刚拉下来的 m4s 会当成"直播流" (可 seek 的末端 = 播放头),
+    // 这时候按 → 才会走"整段缓存"那条路; 放过一遍之后浏览器 HTTP 缓存里有它,
+    // 可 seek 的范围就成了整段, 按 → 只会直接 seek, 造不出"缓存失败"。
+    await goto('#/player?bvid=BV1Smni6BEvQ');
+    await delay(9000);
+    press(158);
+    await delay(1500);
+    const mv2 = await menuProbe();
+    const li = (mv2.items || []).map((t, i) => (t.indexOf('听视频') >= 0 ? i : -1)).filter(i => i >= 0)[0];
+    if (li === undefined) {
+      fails.push('视频页菜单里没有「听视频」: ' + (mv2.items || []).join(','));
+    } else {
+      for (let i = 0; i < li; i++) { press(108); await delay(320); }
+      await delay(400);
+      press(352);
+      await delay(6000);
+      // 提示观察器要在切歌**之前**装好: 切歌本身不该冒出"跳到下一首"
+      await evalJs(WATCH_TOAST);
+      await delay(12000);
+      const badToast = await evalJs(READ_TOAST);
+      if (badToast.indexOf('跳到下一首') >= 0) {
+        fails.push('正常切歌不该提示「跳到下一首」, 实际: ' + badToast);
+      }
+    }
+    const before = await pageProbe();
+    if (before.paused) fails.push('前置: 这首没在放 (后面没法验"跳下一首")');
+    if (!before.title) fails.push('前置: 标题是空的');
+
+    // ── 2) 把 .m4s 的下载打断 → 快进时的整段缓存必然失败 ─────────────
+    await evalJs(BREAK_XHR);
+
+    // ── 3) 按 → 键快进 → 位置在 seekable 之外 → 去整段缓存 → 下载失败 ──
+    press(106);
+    let toast = '';
+    let after = before;
+    for (let i = 0; i < 30; i++) {
+      await delay(700);
+      toast = await evalJs(READ_TOAST);
+      after = await pageProbe();
+      if (toast.indexOf('跳到下一首') >= 0) break;
+      if (after.title && after.title !== before.title) break;
+    }
+
+    // ── 4) 自动跳到下一首 ────────────────────────────────────────────
+    if (toast.indexOf('跳到下一首') < 0) {
+      // 兜底: 这一版 Gecko 把整段都算成可 seek 的 → 快进走的是直接 seek,
+      // 压根没去缓存。这时改用"媒体元素报错"这条路 (同一套 handleFailure)。
+      await evalJs('var e=document.querySelector("#media-engine");if(e)e.dispatchEvent(new Event("error"));return true;');
+      for (let i = 0; i < 20; i++) {
+        await delay(700);
+        toast = await evalJs(READ_TOAST);
+        after = await pageProbe();
+        if (toast.indexOf('跳到下一首') >= 0) break;
+        if (after.title && after.title !== before.title) break;
+      }
+    }
+    if (toast.indexOf('跳到下一首') < 0) {
+      fails.push('放不了应该提示「跳到下一首」, 实际提示: ' + (toast || '(没抓到提示)'));
+    }
+    if (!after.title || after.title === before.title) {
+      fails.push('放不了之后应该自动跳到下一首 (标题还是「' + after.title + '」)');
+    }
+    if (after.src && before.src && after.src === before.src) {
+      fails.push('跳到下一首之后音频流没换 (还是同一条)');
+    }
+    if (shot('skip')) await screenshot(shot('skip'));
+
+    // 收尾: 把补丁撤掉 (别影响后面的用例), 声音也停掉
+    await evalJs(RESTORE_XHR);
+    await goto('#/home');
+    await delay(2500);
+
+    results.push({ page: 'listen-failskip', fails });
+    console.log((fails.length ? '✗' : '✓') + ' ' + 'listen-failskip'.padEnd(16) +
+      (fails.length ? fails.join(' | ') :
+        '放不了 → 提示「跳到下一首」+ 真的换歌 全通过 (' + toast + ')'));
+  } catch (e) {
+    results.push({ page: 'listen-failskip', fails: [String(e.message)] });
+    console.log('✗ ' + 'listen-failskip'.padEnd(16) + String(e.message));
+  }
+}
+
+// 真机: 进听视频页的规矩
+//
+//   1. 只有从**视频详情页**的「听视频」进去才自动播
+//   2. 暂停着进去 → 还是暂停 (别自己接着播); 放着进去 → 还在放 (别打断)
+//   3. 别的入口 (直接开链接 / 「我的」页) 一律不自动播
+if (!only.length || only.indexOf('listen-entry') >= 0) {
+  const fails = [];
+  const shot = name => (shotDir ? path.join(shotDir, 'listen-entry-' + name + '.png') : '');
+  const probe = async () => {
+    const text = '(function(){' +
+      'var e=document.querySelector("#media-engine");' +
+      'return JSON.stringify({' +
+      'enginePaused: e?e.paused:true,' +
+      'engineT: e?Math.round((e.currentTime||0)*10)/10:-1,' +
+      'hash: location.hash});' +
+      '})()';
+    const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+    if (r.exception) throw new Error('探针异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
+    return JSON.parse(r.result);
+  };
+  const menuProbe = async () => {
+    const text = '(function(){return (\n' + MENU_PROBE + '\n);})()';
+    const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+    if (r.exception) throw new Error('菜单探针异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
+    return JSON.parse(r.result);
+  };
+  try {
+    // ── 0) 先把声音停在"暂停"这个确定的状态 ─────────────────────────
+    //
+    // 后面两步分别要验"暂停着进去还是暂停"和"放着进去还在放",
+    // 起点得是确定的。进听视频页按中键能暂停 (引擎里还挂着流, 只是停着)。
+    await goto('#/listen?bvid=BV1ZqpE6uEKd');
+    await delay(16000);
+    let p = await probe();
+    if (!p.enginePaused) {
+      press(352);                 // 中键 = 暂停
+      await delay(2500);
+      p = await probe();
+    }
+    if (!p.enginePaused) fails.push('前置: 没法把声音停下来 (后面没法验"保持暂停")');
+
+    // ── 1) 直接开链接进听视频页 → 不自动播 ──────────────────────────
+    await goto('#/home');
+    await delay(3000);
+    await goto('#/listen?bvid=BV1ZqpE6uEKd');
+    await delay(8000);
+    p = await probe();
+    if (!p.enginePaused) {
+      fails.push('直接进听视频页不该自动播 (声音本来是暂停的, 进来还是在放)');
+    }
+    if (shot('no-autoplay')) await screenshot(shot('no-autoplay'));
+
+    // ── 2) 暂停着离开再回来 → 还是暂停 ─────────────────────────────
+    await goto('#/home');
+    await delay(4000);
+    await goto('#/listen?bvid=BV1ZqpE6uEKd');
+    await delay(6000);
+    p = await probe();
+    if (!p.enginePaused) {
+      fails.push('暂停着离开再回来, 应该还是暂停 (不该自己接着播)');
+    }
+
+    // ── 3) 从详情页的「听视频」进去 → 自动播 ──────────────────────
+    await goto('#/player?bvid=BV1ZqpE6uEKd');
+    await delay(9000);
+    press(158);                  // 右软键 = 更多
+    await delay(1500);
+    const mv = await menuProbe();
+    if (!mv.open) {
+      fails.push('视频页没有展开菜单 (听视频那步)');
+    } else {
+      // 「听视频」在菜单里 (UP主页/播放控制/互动/分享/听视频/...)
+      const mi = (mv.items || []).map((t, i) => (t.indexOf('听视频') >= 0 ? i : -1)).filter(i => i >= 0)[0];
+      if (mi === undefined) {
+        fails.push('视频页菜单里没有「听视频」: ' + (mv.items || []).join(','));
+      } else {
+        for (let i = 0; i < mi; i++) { press(108); await delay(320); }
+        await delay(400);
+        press(352);              // 选中「听视频」→ 跳听视频页 + 开始放
+        await delay(20000);
+        p = await probe();
+        if (p.hash.indexOf('/listen') < 0) {
+          fails.push('点「听视频」应该跳到听视频页, 实际 ' + p.hash);
+        }
+        if (p.enginePaused) {
+          fails.push('从详情页点「听视频」进来应该自动播 (实际是暂停的)');
+        }
+        if (p.engineT <= 0) {
+          fails.push('自动播之后进度应该走 (t=' + p.engineT + ')');
+        }
+        if (shot('autoplay')) await screenshot(shot('autoplay'));
+      }
+    }
+
+    // ── 4) 放着的时候离开再回来 → 还在放 ───────────────────────────
+    await goto('#/home');
+    await delay(4000);
+    await goto('#/listen?bvid=BV1ZqpE6uEKd');
+    await delay(6000);
+    p = await probe();
+    if (p.enginePaused) {
+      fails.push('放着的时候离开再回来, 应该还在放 (不该被停掉)');
+    }
+
+    // 收尾: 把声音停掉
+    await goto('#/home');
+    await delay(2500);
+
+    results.push({ page: 'listen-entry', fails });
+    console.log((fails.length ? '✗' : '✓') + ' ' + 'listen-entry'.padEnd(16) +
+      (fails.length ? fails.join(' | ') :
+        '只有详情页「听视频」自动播 + 暂停保持暂停 / 播放保持播放 全通过'));
+  } catch (e) {
+    results.push({ page: 'listen-entry', fails: [String(e.message)] });
+    console.log('✗ ' + 'listen-entry'.padEnd(16) + String(e.message));
+  }
+}
+
 // 真机: 听视频放到最小化之后, 又去播视频 → 听视频要停, 迷你条要收
 //
 // 不这样的话就是**两路声音叠在一起**: 听视频那条 m4s 还在放, 视频页的
@@ -1629,11 +1931,23 @@ if (!only.length || only.indexOf('listen-video') >= 0) {
   };
   try {
     // 1) 进听视频页, 让它放起来
+    //
+    // ⚠️ 听视频页**不自动播** (只有详情页的「听视频」才会自动播) → 按中键起播。
+    // 但中键是"播放/暂停"切换: 万一进来之前声音本来就在放, 这一下反而给暂停了。
+    // 所以按一下 → 等 → 还是暂停着就再按一下 (那说明刚才是在放, 这下给暂停了)。
     await goto('#/home');
     await delay(3000);
     await goto('#/listen?bvid=BV1ZqpE6uEKd');
     await delay(16000);
     let p = await probe();
+    press(352);
+    await delay(16000);
+    p = await probe();
+    if (p.enginePaused) {
+      press(352);
+      await delay(16000);
+      p = await probe();
+    }
     if (p.enginePaused) fails.push('听视频页里声音没在放');
 
     // 2) 最小化 → 迷你条浮出来

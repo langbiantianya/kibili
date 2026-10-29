@@ -447,6 +447,9 @@
     if (!bvid) return;
     // 详情页点「听视频」→ 这首放到播放列表**最顶上**, 然后开始播,
     // 再跳到听视频页 (页面进来时已经在放了, 不会又从头起一次)
+    //
+    // ⚠️ **整个应用里只有这一条路会自动播** —— 听视频页自己不会起播
+    // (直接开链接 / 「我的」页进去都保持原样: 放着就放着, 暂停就暂停)。
     playItemOnTop({
       bvid: bvid,
       cid: meta && meta.cid,
@@ -454,7 +457,7 @@
       pic: meta && meta.pic,
       owner: meta && meta.owner ? { mid: meta.owner.mid, name: meta.owner.name } : null,
       duration: meta && meta.duration
-    });
+    }, true);
     navigate('/listen?bvid=' + encodeURIComponent(bvid));
   }
 

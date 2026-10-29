@@ -36,7 +36,7 @@
   } from '../stores/player.js';
   import {
     playItemOnTop, playIndex, togglePlay, seekBy, setRate, stopPlayback,
-    currentTrackState, resumeTrack, nextTrack, prevTrack
+    nextTrack, prevTrack
   } from '../player/engine.js';
   import { buildListenMenu } from '../menu/listenMenu.js';
   import { biliImg } from '../utils/platform.js';
@@ -68,7 +68,7 @@
   $: cur = $nowPlaying;
   $: curBvid = cur && cur.bvid ? cur.bvid : bvid;
   // 切歌了 → 悄悄把这一首的信息 (标题/UP主/时长) 换过来 (不闪"加载中")
-  $: if (ready && !error && curBvid && curBvid !== infoBvid) loadTrackInfo(curBvid, true, true);
+  $: if (ready && !error && curBvid && curBvid !== infoBvid) loadTrackInfo(curBvid, true);
 
   $: title = (cur && cur.title) || (info && info.title) || '';
   $: owner = (cur && cur.owner && cur.owner.name) || (info && info.owner ? info.owner.name : '') || '';
@@ -127,17 +127,17 @@
         return;
       }
 
-      // 引擎里这一首现在什么状态 → 决定要不要起播
+      // ── 这一页**不自动播** ──────────────────────────────────────
       //
-      // ⚠️ 不能只看 "nowPlaying 是不是这首": 那只是"选中的是哪首",
-      // 暂停着的时候它也有值。真机上踩过: 同一首再进听视频页, 以为"已经在放了"
-      // 就跳过了起播, 进去是个哑巴播放器。
-      const st = currentTrackState(bvid);
-      // 已经在放 / 正在拉流 / 暂停着 → 都不用重新起播 (只取信息)
-      const onlyInfo = st === 'playing' || st === 'loading' || st === 'paused';
-      loadTrackInfo(bvid, onlyInfo).then(() => { ready = true; });
-      // 同一首, 暂停着 → 接着放 (从当前位置, 不回到开头)
-      if (st === 'paused') resumeTrack(bvid);
+      // 只有从视频详情页的「听视频」进来才会自动播 —— 那边已经调过
+      // playItemOnTop() 了 (点了就开始放), 这一页进来时音频已经在放了。
+      // 别的入口 (直接开链接 / 「我的」页的「听视频」/「正在播放」菜单) 进来:
+      //   正在放  → 接着放 (别打断)
+      //   暂停着  → 就**保持暂停** (原来会自己接着播, 不对)
+      //   还没放  → 也不自动播, 按中键 (播放) 才开始
+      //
+      // 所以这里只取信息, 一个字都不碰引擎的播放状态。
+      loadTrackInfo(bvid).then(() => { ready = true; });
     } catch (e) {
       console.error('[listen] onMount 出错', e);
       error = '出错了';
@@ -152,13 +152,15 @@
   });
 
   /**
-   * 拉某首的信息 (标题 / 作者 / 时长), 顺带起播
+   * 拉某首的信息 (标题 / 作者 / 时长)
+   *
+   * ⚠️ **只取信息, 不起播** —— 这一页任何时候都不会自己开始播。
+   * 起播只有两个地方: 视频详情页点「听视频」(那边自己放), 和用户按中键。
    *
    * @param {string} bvidToLoad 拉哪一首
-   * @param {boolean} [onlyInfo] true = 只取信息, 不起播 (已经在放了)
    * @param {boolean} [silent]   true = 不显示"加载中" (切歌时悄悄换)
    */
-  async function loadTrackInfo(bvidToLoad, onlyInfo, silent) {
+  async function loadTrackInfo(bvidToLoad, silent) {
     if (!bvidToLoad) return;
     // 先占位: 别重复拉同一首
     infoBvid = bvidToLoad;
@@ -173,21 +175,6 @@
       // 期间又切歌了 → 这份信息不要了
       if (bvidToLoad !== infoBvid) return;
       info = d;
-      if (!onlyInfo) {
-        // 直接用 URL 进听视频页 → 这首放到播放列表最顶上, 然后开始播
-        //
-        // ⚠️ **不 await**: 拉音频地址要好几秒, 等它才渲染的话页面会一直
-        // 卡在"加载中"。先把封面/标题显示出来, 声音在后台起播。
-        // (playItemOnTop 内部自己 catch 错误, 不会变成未处理的 rejection)
-        playItemOnTop({
-          bvid: d.bvid || bvidToLoad,
-          cid: d.cid,
-          title: d.title,
-          pic: d.pic,
-          owner: d.owner ? { mid: d.owner.mid, name: d.owner.name } : null,
-          duration: d.duration
-        });
-      }
       // 互动状态 (登录了才查)
       if ($isLogin) {
         getStatus(bvidToLoad).then(st => {
@@ -213,7 +200,38 @@
   // 触屏机型直接点, 不能触屏的机型走菜单, 两条路都在。
   function onPrev() { prevTrack(); }
   function onNext() { nextTrack(false); }
-  function onToggle() { togglePlay(); }
+  function onToggle() { onPlayPause(); }
+
+  /**
+   * 播放 / 暂停
+   *
+   * 引擎里正在放的不是页面显示的这一首 → **先切到这一首再播**。
+   * 不然按了播放, 耳朵里响的还是别的歌 (界面上写的是这一首)。
+   */
+  function onPlayPause() {
+    const cur = get(nowPlaying);
+    if (cur && cur.bvid === curBvid) {
+      togglePlay();
+      return;
+    }
+    // 播放列表里有这首 → 播列表里那一项 (不动列表顺序)
+    const items = get(playlist).items;
+    const idx = items.findIndex(v => v.bvid === curBvid);
+    if (idx >= 0) {
+      playIndex(idx, true);
+      return;
+    }
+    // 列表里没有 → 直接放它, 并放到列表最顶上
+    // (和视频详情页的「听视频」一个做法)
+    playItemOnTop({
+      bvid: curBvid,
+      cid: (info && info.cid) || (cur && cur.cid) || 0,
+      title: (cur && cur.title) || (info && info.title) || '',
+      pic: (cur && cur.pic) || (info && info.pic) || '',
+      owner: (cur && cur.owner) || (info && info.owner ? { mid: info.owner.mid, name: info.owner.name } : null),
+      duration: (cur && cur.duration) || (info && info.duration) || 0
+    }, true);
+  }
 
   // ── 互动 ────────────────────────────────────────────────────────────
   //
@@ -306,7 +324,7 @@
       playMode: $playMode,
       liked: !!status.like,
       onAuthor: mid => { if (mid) navigate('/user?uid=' + mid); },
-      onPick: i => { playIndex(i); },
+      onPick: i => { playIndex(i, true); },
       onRemove: onRemove,
       onMove: onMove,
       onPlayMode: id => {
@@ -337,8 +355,10 @@
       },
       Up: () => { requestSystemVolume(+1); },
       Down: () => { requestSystemVolume(-1); },
-      // 中键 = 播放 / 暂停 (自动播放被系统拦下时, 也靠这一键起播)
-      Enter: { press: () => togglePlay() },
+      // 中键 = 播放 / 暂停
+      // (这一页进来不自动播, 起播就靠这一键; 引擎里放的不是这一首时,
+      //  先切到这一首再播)
+      Enter: { press: () => onPlayPause() },
       SoftLeft: minimize
     }, { softkeys: true, menu: () => buildMenu() });
   });

@@ -2290,6 +2290,38 @@ check('播放模式: 下一首/上一首的算法 (顺序/列表循环/单曲/�
   eq(nextAction('shuffle', 0, 1, true).type, 'replay', '就一首 → 重播这一首');
 });
 
+// ── 某首放不了 → 自动跳到下一首 ─────────────────────────────────────────
+check('放不了的歌: 自动跳下一首 (顺序到头就停 / 单曲当下一首 / 随机避开这首)', async () => {
+  const { failJumpIndex } = await import('../src/lib/player/failjump.js');
+
+  // 中间/前面失败 → 往下走一首
+  eq(failJumpIndex('order', 0, 3), 1, '顺序播放: 第 0 首放不了 → 跳第 1 首');
+  eq(failJumpIndex('order', 1, 3), 2, '顺序播放: 第 1 首放不了 → 跳第 2 首');
+  eq(failJumpIndex('repeat-list', 0, 3), 1, '列表循环: 第 0 首放不了 → 跳第 1 首');
+
+  // 顺序播放: 最后一首放不了 → 到头了, 停 (不绕回第一首)
+  eq(failJumpIndex('order', 2, 3), -1, '顺序播放: 最后一首放不了 → 停');
+
+  // 列表循环: 最后一首放不了 → 绕回第一首
+  eq(failJumpIndex('repeat-list', 2, 3), 0, '列表循环: 最后一首放不了 → 绕回第一首');
+
+  // 单曲循环: 也当下一首处理 (反复播一首放不了的歌没意义)
+  eq(failJumpIndex('repeat-one', 0, 3), 1, '单曲循环: 第 0 首放不了 → 跳第 1 首');
+  eq(failJumpIndex('repeat-one', 2, 3), 0, '单曲循环: 最后一首放不了 → 绕回第一首');
+
+  // 随机播放: 别又挑中放不了的这首
+  eq(failJumpIndex('shuffle', 1, 3, () => 0.99) !== 1, true, '随机播放: 不该又挑中当前这首');
+  eq(failJumpIndex('shuffle', 1, 3, () => 0.5) !== 1, true, '随机播放: 也不该挑中当前这首');
+  eq(failJumpIndex('shuffle', 0, 3, () => 0.9) < 3, true, '随机播放: 下标得在列表里');
+
+  // 边界
+  eq(failJumpIndex('order', 0, 0), -1, '列表空着 → 停');
+  eq(failJumpIndex('order', -1, 3), 0, '还没开始 → 从第一首放');
+  eq(failJumpIndex('order', 5, 3), 0, '当前下标越界 → 从第一首放');
+  eq(failJumpIndex('order', 0, 1), -1, '就一首 + 顺序播放 → 放不了就停');
+  eq(failJumpIndex('repeat-list', 0, 1), 0, '就一首 + 列表循环 → 还是它 (靠连着失败计数兜底)');
+});
+
 // ── 音频缓存 (带上限, 最早缓存的先回收) ─────────────────────────────────
 check('音频缓存: 上限 / 最早优先回收 / 正在播的不删 / 单首超限先跳过', async () => {
   const { cacheTrack, cacheGet, cacheSetActive, cacheStats, setCacheLimit, clearCache } =

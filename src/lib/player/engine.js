@@ -19,6 +19,7 @@ import { getVideoInfo, getAudioUrl } from '../api/video.js';
 import { safePlay, safeSeek, seekableEnd, waitLoaded } from './media.js';
 import { cacheTrack, cacheGet, cacheSetActive, clearCache } from './cache.js';
 import { nextAction, prevAction } from './playmode.js';
+import { failJumpIndex } from './failjump.js';
 import { showToast } from '../stores/ui.js';
 import {
   playlist, nowPlaying, playState, currentIndex, miniVisible, miniProgress,
@@ -30,6 +31,14 @@ let el = null;
 let bound = false;
 /** 拉流时的请求序号 (用户连点换歌时, 只认最后一次) */
 let loadSeq = 0;
+/** 当前这一轮加载的序号 (给事件回调判断"是不是这次出的错") */
+let loadSeqNow = 0;
+/** 已经处理过的失败 (同一次加载只跳一次, 别跳两下) */
+let failedSeq = -1;
+/** 连着几首放不了 (连着失败太多就停, 别一直跳) */
+let failStreak = 0;
+/** 连着几首放不了就停下来 */
+const MAX_FAIL_SKIP = 3;
 
 /**
  * 当前这一首的时长 (秒)
@@ -49,6 +58,15 @@ let switching = false;
 
 /** 当前在播的流地址 (要整段缓存时用) */
 let streamUrl = '';
+
+/**
+ * 媒体元素上现在挂着的是哪个地址
+ *
+ * 用来判断"媒体元素报的这个错, 是不是当前这一首的错":
+ * 换歌时旧流被取消 (老 Gecko 会报成错, 不是中断)、主动停掉时的空 src ——
+ * 这两种都不能当成"这首放不了", 更不能跳歌。
+ */
+let curSrcUrl = '';
 
 /**
  * 这一首的缓存标识
@@ -109,7 +127,21 @@ export function setAudioElement(e) {
       advanced = true;
       nextTrack(true);
     });
-    el.addEventListener('error', () => { patchState({ playing: false, loading: false }); });
+    el.addEventListener('error', () => {
+      patchState({ playing: false, loading: false });
+      // ⚠️ 这条错**不一定**是"当前这一首放不了" —— 分两种, 别搞错了:
+      //
+      //   1. 换歌时旧流被取消 (老 Gecko 把"中断"报成错) → 不是失败, 忽略
+      //   2. 主动停掉时的空 src → 不是失败, 忽略
+      //
+      // 这两种要是当成失败, 后果是**每次切歌都自己跳到下一首** (听着像坏了)。
+      // 真判据: 媒体元素上报的错码 + 现在挂着的地址是不是当前这一首的。
+      const err = el.error;
+      if (err && err.code === 1) return;              // 1 = MEDIA_ERR_ABORTED (被取消)
+      if (!curSrcUrl || el.src !== curSrcUrl) return;  // 不是当前这一首的流
+      // 媒体元素报错 (流拉不下来 / 解不开) → 当成"这首放不了", 跳下一首
+      handleFailure(loadSeqNow, '播放出错');
+    });
   }
 }
 
@@ -128,6 +160,12 @@ function onTimeUpdate() {
     : (el.duration && isFinite(el.duration) ? el.duration : 0);
   patchState({ time, duration, playing: !el.paused });
   miniProgress.set(duration > 0 ? Math.min(1, time / duration) : 0);
+  // 位置在往前走 → 这首**真的放起来了** → 之前连着失败的计数作废。
+  //
+  // ⚠️ 只能在这儿清, 不能在"拉流成功"的时候清: 老 Gecko 的 play() 不返回
+  // Promise, safePlay 一调用就"成功"了 —— 流根本拉不下来的时候它也返回成功。
+  // 在那儿清的话, 连着放不了的歌会一直清成 0, 列表循环里就永远停不下来。
+  failStreak = 0;
 }
 
 function onDurationChange() {
@@ -144,11 +182,14 @@ function onDurationChange() {
  * 播列表里的第 index 项
  *
  * @param {number} index
+ * @param {boolean} [manual] true = 用户自己点的 (菜单里点歌 / 按播放键)
+ *   → 连着失败的计数清零 (用户主动换歌, 是一次新的尝试, 不是自动跳过)
  */
-export async function playIndex(index) {
+export async function playIndex(index, manual) {
   const items = get(playlist).items;
   if (index < 0 || index >= items.length) return;
   const item = items[index];
+  if (manual) failStreak = 0;
   currentIndex.set(index);
   nowPlaying.set(item);
   await loadAndPlay(item);
@@ -158,8 +199,9 @@ export async function playIndex(index) {
  * 直接播某一个视频 (不在播放列表里也能播, 比如从详情页跳过来)
  *
  * @param {Object} item { bvid, cid, title, pic, owner, duration }
+ * @param {boolean} [manual] 见 playIndex
  */
-export async function playItem(item) {
+export async function playItem(item, manual) {
   if (!item || !item.bvid) return;
   const items = get(playlist).items;
   const at = items.findIndex(v => v.bvid === item.bvid);
@@ -168,6 +210,7 @@ export async function playItem(item) {
   } else {
     currentIndex.set(-1);
   }
+  if (manual) failStreak = 0;
   nowPlaying.set(item);
   await loadAndPlay(item);
 }
@@ -179,8 +222,9 @@ export async function playItem(item) {
  * 后面的歌顺着往后排, 播完接着往下走。
  *
  * @param {Object} item { bvid, cid, title, pic, owner, duration }
+ * @param {boolean} [manual] 见 playIndex
  */
-export async function playItemOnTop(item) {
+export async function playItemOnTop(item, manual) {
   if (!item || !item.bvid) return;
   const it = {
     bvid: item.bvid,
@@ -190,6 +234,7 @@ export async function playItemOnTop(item) {
     owner: item.owner || null,
     duration: item.duration || 0
   };
+  if (manual) failStreak = 0;
   moveToPlaylistTop(it);
   currentIndex.set(0);
   nowPlaying.set(it);
@@ -204,6 +249,7 @@ export async function playItemOnTop(item) {
 async function loadAndPlay(item) {
   if (!el) return;
   const seq = ++loadSeq;
+  loadSeqNow = seq;
   patchState({ loading: true });
   advanced = false;
   try {
@@ -232,7 +278,9 @@ async function loadAndPlay(item) {
 
     // 这一首之前缓存过 → 直接播整段 (省一次拉流, 而且整段能精确快进)
     const cached = cacheGet(key);
-    el.src = cached || url;
+    const src = cached || url;
+    el.src = src;
+    curSrcUrl = src;   // 记下现在挂的是哪条流 (media error 事件要靠它分辨是谁的错)
     el.playbackRate = 1;
     safeSeek(el, 0);
     patchState({ rate: 1, duration: trackDuration, cacheRatio: cached ? 1 : 0 });
@@ -242,16 +290,54 @@ async function loadAndPlay(item) {
     const ok = await safePlay(el);
     if (seq !== loadSeq) return;
     if (!ok) throw new Error('播不起来');
+    // ⚠️ 这里**不能**清 failStreak: 老 Gecko 的 play() 一调用就返回"成功",
+    // 流根本拉不下来的时候它也成功 (真判据是 'error' 事件)。
+    // 真正放起来了 (位置在走) 是 onTimeUpdate 里清的。
     patchState({ loading: false, time: el.currentTime || 0 });
   } catch (e) {
     if (seq !== loadSeq) return;
-    // 换歌失败 → **把上一首停掉**。
-    // 不停的话: 界面上已经是新歌 (标题/封面都换了), 耳朵里还是上一首 ——
-    // 用户只会觉得"切歌没反应", 还以为菜单没点上。
-    stopCurrentAudio();
     patchState({ playing: false, loading: false });
-    showToast('这首播不了: ' + (e.message || '加载失败'));
+    // 这首放不了 → 自动跳到下一首 (别卡在这一首上)
+    // (跳不动的时候, handleFailure 自己会把声音停掉)
+    handleFailure(seq, '这首播不了');
   }
+}
+
+/**
+ * 某首放不了 → 自动跳到下一首
+ *
+ * @param {number} seq  出错的那一轮加载的序号
+ * @param {string} reason 提示文案
+ * @returns {boolean} 有没有跳走
+ */
+function handleFailure(seq, reason) {
+  if (seq !== loadSeq) return false;   // 不是当前这一轮 (已经被新的加载顶掉了)
+  if (failedSeq === seq) return false;  // 同一次失败只处理一次 (别跳两下)
+  failedSeq = seq;
+  failStreak++;
+  if (failStreak > MAX_FAIL_SKIP) {
+    // 连着几首都放不了 → 停下来, 别在列表里空转
+    patchState({ playing: false, loading: false });
+    showToast('连着 ' + failStreak + ' 首放不了, 停了');
+    stopCurrentAudio();
+    return false;
+  }
+  // 该跳到哪一首 (规则在 player/failjump.js 里, 有自测):
+  //   顺序播放 → 到最后一首就停 (不绕回第一首)
+  //   单曲循环 → 也当下一首处理 (反复播一首放不了的歌没意义)
+  const items = get(playlist).items;
+  const idx = failJumpIndex(get(playMode), get(currentIndex), items.length);
+  if (idx < 0) {
+    // 没下一首了 (顺序播放到头了 / 列表空着)
+    //
+    // ⚠️ 提示语要说准: 说"跳到下一首"结果没跳, 用户会以为按错了。
+    showToast(reason + ', 没下一首了');
+    stopCurrentAudio();
+    return false;
+  }
+  showToast(reason + ', 跳到下一首');
+  playIndex(idx);
+  return true;
 }
 
 /** 停掉当前这一首 (换歌失败 / 退出播放时用) */
@@ -259,19 +345,22 @@ function stopCurrentAudio() {
   if (!el) return;
   try { el.pause(); } catch (e) {}
   try { el.src = ''; } catch (e) {}
+  curSrcUrl = '';   // src 清了 → 元素随后报的错不算"某首放不了"
   streamUrl = '';
 }
 
 /** 播放 / 暂停切换 */
 export function togglePlay() {
   if (!el) return;
+  // 用户自己按的 → 连着失败的计数清零 (这是一次新的尝试)
+  failStreak = 0;
   if (!el.src) {
     // 还没开始播: 从当前项开始
     const idx = get(currentIndex);
-    if (idx >= 0) playIndex(idx);
+    if (idx >= 0) playIndex(idx, true);
     else {
       const items = get(playlist).items;
-      if (items.length) playIndex(0);
+      if (items.length) playIndex(0, true);
     }
     return;
   }
@@ -295,6 +384,8 @@ export function togglePlay() {
 export function nextTrack(auto) {
   const items = get(playlist).items;
   if (!items.length) return;
+  // 用户手动点的「下一首」→ 连着失败的计数清零 (一次新的尝试)
+  if (!auto) failStreak = 0;
   const act = nextAction(get(playMode), get(currentIndex), items.length, !!auto);
   if (act.type === 'stop') {
     // 顺序播放: 播到最后一首就停在这儿
@@ -306,20 +397,21 @@ export function nextTrack(auto) {
     replayCurrent();
     return;
   }
-  playIndex(act.index);
+  playIndex(act.index, !auto);
 }
 
 /** 上一首 */
 export function prevTrack() {
   const items = get(playlist).items;
   if (!items.length) return;
+  failStreak = 0;   // 用户手动点的 → 连着失败的计数清零
   const act = prevAction(get(playMode), get(currentIndex), items.length);
   if (act.type === 'stop') return;
   if (act.type === 'replay') {
     replayCurrent();
     return;
   }
-  playIndex(act.index);
+  playIndex(act.index, true);
 }
 
 /**
@@ -339,53 +431,6 @@ function replayCurrent() {
   safePlay(el).then(ok => {
     patchState({ playing: ok && !el.paused, time: 0 });
   });
-}
-
-/**
- * 引擎里"这一首"现在是什么状态
- *
- * 进入听视频页时要知道该怎么办:
- *   'playing'  正在放   → 什么都不用做 (别打断)
- *   'loading'  正在拉流 → 等着就行 (别重复拉一次)
- *   'paused'   暂停着 → 接着放 (从当前位置, 不回到开头)
- *   'none'     不是这首/还没开始 → 从头起播
- *
- * ⚠️ 不能只看 nowPlaying: 那只是"当前选中的是哪首", 暂停着的时候它也有值。
- * 真机上就踩过这个坑: 同一个 bvid 再进听视频页, 因为 nowPlaying 还指着它,
- * 页面以为"已经在放了"就跳过了起播 → 进去是个哑巴播放器。
- *
- * @param {string} bvid
- * @returns {'playing'|'loading'|'paused'|'none'}
- */
-export function currentTrackState(bvid) {
-  const cur = get(nowPlaying);
-  if (!cur || cur.bvid !== bvid) return 'none';
-  if (get(playState).loading) return 'loading';
-  if (!el || !el.src) return 'none';
-  return el.paused ? 'paused' : 'playing';
-}
-
-/**
- * 接着放引擎里这一首 (还在, 只是暂停了) —— 不重新拉流, 也不回到开头
- *
- * @param {string} bvid
- * @returns {boolean} 有没有可接着放的
- */
-export function resumeTrack(bvid) {
-  if (!el || !el.src) return false;
-  const cur = get(nowPlaying);
-  if (!cur || cur.bvid !== bvid) return false;
-  const restart = () => {
-    patchState({ playing: false });
-    const again = get(nowPlaying);
-    if (again && again.bvid === bvid) loadAndPlay(again);
-  };
-  // 播不起来 (地址过期 / 老 Gecko 抽风) → 重新拉一遍接着放
-  safePlay(el, restart).then(ok => {
-    // 元素是加载好的, 这会儿 el.paused 是准的
-    if (ok) patchState({ playing: !el.paused });
-  });
-  return true;
 }
 
 /**
@@ -436,13 +481,14 @@ async function seekBeyond(t) {
       u = await cacheWholeTrack(key, streamUrl);
     }
     if (!u) {
-      // 缓存失败 → 这条流只能往回跳 (不硬来)
-      // 说一声, 不然用户按了快进没反应, 只当是坏了
-      showToast('这条音频暂时没法快进');
+      // 整段缓存不下来 → 这首没法精确快进 → 按用户要求跳到下一首
+      // (说一声, 不然用户按了快进没反应, 只当是坏了)
+      handleFailure(loadSeqNow, '这条音频没法缓存');
       return;
     }
     // 换成整段音频: 时长和"能跳到的范围"这时才算得对
     el.src = u;
+    curSrcUrl = u;   // 现在挂的是整段缓存 (换源时旧流被取消的错不算失败)
     await waitLoaded(el, 15000);
     safeSeek(el, t);
     await safePlay(el);
@@ -507,6 +553,7 @@ export function stopPlayback() {
     try { el.pause(); } catch (e) {}
     try { el.src = ''; } catch (e) {}
   }
+  curSrcUrl = '';
   loadSeq++;
   // 缓存**不删** —— 缓存是给"切回之前那首"用的, 由上限管着;
   // 这里只是把"正在播"这个标记放开 (这一首现在没人用了, 可以被回收)。

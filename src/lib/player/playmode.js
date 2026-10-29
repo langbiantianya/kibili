@@ -137,7 +137,7 @@ export function prevAction(mode, cur, len) {
  * @param {Function} [rnd]
  * @returns {number}
  */
-function pickRandom(len, cur, rnd) {
+export function pickRandom(len, cur, rnd) {
   const r = typeof rnd === 'function' ? rnd : Math.random;
   let idx = Math.floor(r() * len);
   if (!isFinite(idx) || idx < 0) idx = 0;
