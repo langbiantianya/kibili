@@ -6,7 +6,7 @@
   // ── 页面干什么 ──────────────────────────────────────────────────────
   //   布局参考塞班手机自带的音乐播放器 (Nokia 那套):
   //     大封面 → 歌名(粗) + 作者(小) + 播放模式 → 进度条(带小圆点滑块)
-  //     + 已播/总时长 → 播放控制行 (上一首 / 播放暂停 / 下一首) → 键位提示
+  //     + 已播/总时长 → 播放控制行 (上一首 / 播放暂停 / 下一首, 上下带音量 +/- 提示)
   //   下面用方向键控制:
   //     ←  短按 = 上一首    长按 = 快退 (按住不放一直退)
   //     →  短按 = 下一首    长按 = 快进 (按住不放一直进)
@@ -440,28 +440,28 @@
         {/if}
       </div>
 
-      <!-- 播放控制行: 上一首 / 播放·暂停 / 下一首 -->
-      <div class="controls">
-        <div class="ctl" role="button" tabindex="-1" on:click={onPrev} aria-label="上一首">
-          <span class="ic prev"><i class="bar"></i><i class="tri-l"></i></span>
+      <!-- 播放控制行: 上一首 / 播放·暂停 / 下一首
+           上下那两个 +/− 是**音量提示**: ↑ 键加音量, ↓ 键减音量。
+           放在这一行的正上/正下, 一眼能对上"上 = 加, 下 = 减"。
+           符号用 CSS 画 —— 设备字体里不一定有 +/− 这些字形。 -->
+      <div class="controls-wrap">
+        <div class="vol-hint"><i class="plus"></i></div>
+        <div class="controls">
+          <div class="ctl" role="button" tabindex="-1" on:click={onPrev} aria-label="上一首">
+            <span class="ic prev"><i class="bar"></i><i class="tri-l"></i></span>
+          </div>
+          <div class="ctl main" role="button" tabindex="-1" on:click={onToggle} aria-label="播放或暂停">
+            {#if $playState.playing}
+              <span class="ic pause"><i class="bar"></i><i class="bar"></i></span>
+            {:else}
+              <span class="ic play"><i class="tri-r"></i></span>
+            {/if}
+          </div>
+          <div class="ctl" role="button" tabindex="-1" on:click={onNext} aria-label="下一首">
+            <span class="ic next"><i class="tri-r"></i><i class="bar"></i></span>
+          </div>
         </div>
-        <div class="ctl main" role="button" tabindex="-1" on:click={onToggle} aria-label="播放或暂停">
-          {#if $playState.playing}
-            <span class="ic pause"><i class="bar"></i><i class="bar"></i></span>
-          {:else}
-            <span class="ic play"><i class="tri-r"></i></span>
-          {/if}
-        </div>
-        <div class="ctl" role="button" tabindex="-1" on:click={onNext} aria-label="下一首">
-          <span class="ic next"><i class="tri-r"></i><i class="bar"></i></span>
-        </div>
-      </div>
-
-      <!-- 键位提示: 只留软键栏里没有的那几条 -->
-      <div class="keys">
-        <div class="krow"><span class="kk">← →</span><span class="kv">上一首 / 下一首</span></div>
-        <div class="krow"><span class="kk">长按</span><span class="kv">← 快退 / → 快进 5 秒</span></div>
-        <div class="krow"><span class="kk">↑ ↓</span><span class="kv">音量加 / 减</span></div>
+        <div class="vol-hint"><i class="minus"></i></div>
       </div>
     {/if}
   </div>
@@ -616,12 +616,58 @@
   }
 
   /* ---- 播放控制行 ---- */
+  .controls-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 10px;
+    flex-shrink: 0;
+  }
+
   .controls {
     display: flex;
     align-items: center;
     justify-content: center;
-    padding-top: 12px;
     flex-shrink: 0;
+  }
+
+  /* 音量提示: 播放控制行正上方的 +, 正下方的 −
+     (↑ 键加音量, ↓ 键减音量 —— 上下摆正好对上方向键)
+     符号用 CSS 画: 一横是 −, 一横一竖是 + (不吃字体字形)。 */
+  .vol-hint {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 15px;
+    color: var(--md-sys-color-on-surface-variant);
+    opacity: 0.75;
+  }
+
+  .vol-hint i {
+    position: relative;
+    display: block;
+    width: 11px;
+    height: 11px;
+  }
+
+  .vol-hint i::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 4.5px;
+    width: 11px;
+    height: 2px;
+    background: currentColor;
+  }
+
+  .vol-hint i.plus::after {
+    content: '';
+    position: absolute;
+    left: 4.5px;
+    top: 0;
+    width: 2px;
+    height: 11px;
+    background: currentColor;
   }
 
   /* 用 div + role=button, 不用 <button>:
@@ -687,30 +733,5 @@
 
   .ic.next .bar {
     margin-left: 2px;
-  }
-
-  /* ---- 键位提示 ---- */
-  .keys {
-    padding: 8px 0 4px;
-    flex-shrink: 0;
-  }
-
-  .krow {
-    display: flex;
-    align-items: baseline;
-    padding: 1px 0;
-    font-size: var(--md-sys-typescale-label-small-size);
-  }
-
-  .kk {
-    flex: 0 0 46px;
-    font-weight: 600;
-    color: var(--md-sys-color-on-surface);
-  }
-
-  .kv {
-    flex: 1 1 auto;
-    min-width: 0;
-    color: var(--md-sys-color-on-surface-variant);
   }
 </style>
