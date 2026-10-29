@@ -1824,6 +1824,12 @@ if (!only.length || only.indexOf('listen-cache') >= 0) {
     if (r.exception) throw new Error('注入脚本异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
     return r.result;
   };
+  const menuProbe = async () => {
+    const text = '(function(){return (\n' + MENU_PROBE + '\n);})()';
+    const r = await withActor(a => req(a, 'evaluateJS', { text }, DEFAULT_TIMEOUT));
+    if (r.exception) throw new Error('菜单探针异常: ' + JSON.stringify(r.exception.preview || r.exception).slice(0, 200));
+    return JSON.parse(r.result);
+  };
   // 直接查 IndexedDB 里的东西 (绕开应用, 确认数据真的落在库里)
   //
   // ⚠️ 游标事件里要读 **ev.target.result** (游标本身), 不是 ev.result ——
@@ -1860,23 +1866,45 @@ if (!only.length || only.indexOf('listen-cache') >= 0) {
     return {};
   };
   try {
-    // ── 0) 放一首, 拿到它的流地址 ───────────────────────────────────
+    // ── 0) 让引擎真的在放这一首 ─────────────────────────────────────
     //
-    // ⚠️ 听视频页**不自动播** → 得按中键起播。
-    // 中键是"播放/暂停"切换: 万一进来之前声音本来就在放, 这一下反而给暂停了,
-    // 所以按完看一眼有没有流, 没有就再按一下。
+    // ⚠️ **不能**只 goto 听视频页再按中键: 听视频页显示的是"引擎里正在放的那首",
+    // 引擎在放别的歌时中键只是"播放/暂停那首", 不会切到 URL 里这首
+    // (真机踩过: 用例以为在放 BV1Smni6BEvQ, 引擎其实还在放 BV1ZqpE6uEKd,
+    //  后头「清理时留着正在播的那首」留了个不在库里的 key, 库里被清得一首不剩)。
+    // 用**详情页的「听视频」**才是真正"放这首"的入口 (playItemOnTop: 置顶 + 起播)。
     //
     // 用 BV1Smni6BEvQ (别用 BV1ZqpE6uEKd —— 那个被听视频用例快进过, 缓存在库里,
     // 元素上挂的是 blob: URL, 拿不到原始流地址了)。
     const cacheBvid = 'BV1Smni6BEvQ';
-    await goto('#/listen?bvid=' + cacheBvid);
-    await delay(15000);
-    press(352);                  // 中键 = 播放
-    await delay(15000);
-    let srcNow = await evalJs('var e=document.querySelector("#media-engine");return String(e&&(e.currentSrc||e.src)||"");');
-    if (!srcNow) {
-      press(352);                // 再按一下 (刚才那下是"暂停", 这下才是"播放")
-      await delay(15000);
+    await goto('#/player?bvid=' + cacheBvid);
+    await delay(9000);
+    press(158);                  // 右软键 = 更多
+    await delay(1500);
+    const mv = await menuProbe();
+    const li = (mv.items || []).map((t, i) => (t.indexOf('听视频') >= 0 ? i : -1)).filter(i => i >= 0)[0];
+    if (li === undefined) {
+      fails.push('视频页菜单里没有「听视频」: ' + (mv.items || []).join(','));
+    } else {
+      for (let i = 0; i < li; i++) { press(108); await delay(320); }
+      await delay(400);
+      press(352);                // 选中「听视频」→ 置顶 + 起播
+      await delay(18000);
+    }
+    // 等引擎真的把**这一首**认成"正在播" (active = bvid#cid)
+    //
+    // ⚠️ 必须等: 引擎里换歌是异步的 (要拉地址), 拉地址失败还会**自动跳下一首**
+    // (放不了 → 跳下一首, 这是听视频的规矩)。要是没等它认准, 拿到的 active
+    // 可能是别的歌 → 后面"清理时留着正在播的那首"就留着个不在库里的 key,
+    // 库里会被清得一首不剩, 白白判失败。
+    let active = '';
+    for (let i = 0; i < 12; i++) {
+      active = await evalJs('var s=window.__audioCache.stats();return String(s.active||"");');
+      if (active.indexOf(cacheBvid + '#') === 0) break;
+      await delay(2500);
+    }
+    if (active.indexOf(cacheBvid + '#') !== 0) {
+      fails.push('起播之后引擎没认到这一首 (active=「' + active + '」)');
     }
     const info = JSON.parse(await evalJs(
       'var e=document.querySelector("#media-engine");' +
@@ -1889,7 +1917,8 @@ if (!only.length || only.indexOf('listen-cache') >= 0) {
       fails.push('没拿到音频流地址: ' + String(info.url).slice(0, 60));
     }
     if (!info.cid) fails.push('播放列表里没找到这一首的 cid');
-    const key = cacheBvid + '#' + info.cid;
+    // 用**引擎自己的** active 当缓存 key —— 它就是"正在播的那首"的唯一口径
+    const key = active || (cacheBvid + '#' + info.cid);
 
     // ── 1) 用应用自己的 cacheTrack 把整段缓存进去 ────────────────────
     await evalJs(
@@ -1939,6 +1968,9 @@ if (!only.length || only.indexOf('listen-cache') >= 0) {
     if (!(idbBefore.trackCount >= 2)) {
       fails.push('清理前库里应该有两首, 实际 ' + idbBefore.trackCount);
     }
+    // 清之前先把"引擎认为正在播的是哪首"记下来 —— 万一剩下的不是 1 首,
+    // 得能看出是"应用没认对正在播的那首"还是"库里本来就没东西"
+    const activeBefore = await evalJs('var s=window.__audioCache.stats();return String(s.active||"");');
     await evalJs('window.__cacheRes={state:"start"};' +
       'window.__audioCache.clear(true).then(function(r){window.__cacheRes.state="done";' +
       'window.__cacheRes.count=r.count;},function(e){window.__cacheRes.state="err";});' +
@@ -1950,11 +1982,13 @@ if (!only.length || only.indexOf('listen-cache') >= 0) {
     }
     const idb3 = await idbProbe();
     if (idb3.trackCount !== 1) {
-      fails.push('清理后库里应该只剩正在播的那首 (1 首), 实际 ' + idb3.trackCount);
+      fails.push('清理后库里应该只剩正在播的那首 (1 首), 实际 ' + idb3.trackCount +
+        ' (正在播的是「' + activeBefore + '」, 缓存的 key 是「' + key + '」)');
     }
     const stats3 = JSON.parse(await evalJs('return JSON.stringify(window.__audioCache.stats());'));
     if (stats3.count !== 1) {
-      fails.push('清理后占用应该是 1 首 (正在播的那首), 实际 ' + stats3.count);
+      fails.push('清理后占用应该是 1 首 (正在播的那首), 实际 ' + stats3.count +
+        ' (正在播的是「' + activeBefore + '」)');
     }
 
     // ── 4) 应用重载 → 缓存还在 (这是换 IndexedDB 的意义) ─────────────

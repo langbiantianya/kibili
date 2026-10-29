@@ -205,15 +205,23 @@
   /**
    * 播放 / 暂停
    *
-   * 引擎里正在放的不是页面显示的这一首 → **先切到这一首再播**。
-   * 不然按了播放, 耳朵里响的还是别的歌 (界面上写的是这一首)。
+   * ⚠️ 这一页显示的是**引擎里正在放的那首** (标题/封面都跟着引擎走),
+   * 所以中键就是"播放/暂停" —— 按的到底是哪一首, 界面上写着, 耳朵里也是它。
+   *
+   * ⚠️ URL 里那个 bvid 只在**什么都没在放**的时候才是起播的目标
+   * (从详情页「听视频」进来时引擎早就在放了, 走不到这一支)。
+   * 曾经这里写的是"引擎里放的不是这一首就先切到这一首" —— 那段是**死代码**:
+   * curBvid 是从 nowPlaying 派生出来的 (引擎在放什么就显示什么),
+   * cur.bvid === curBvid 恒成立, 那个分支永远进不去。
    */
   function onPlayPause() {
     const cur = get(nowPlaying);
-    if (cur && cur.bvid === curBvid) {
+    // 引擎里已经挂着歌 (放着或暂停着) → 中键就是"播放/暂停"
+    if (cur && cur.bvid) {
       togglePlay();
       return;
     }
+    // 什么都没在放 → 起播这一页显示的那首 (URL 里的 bvid)
     // 播放列表里有这首 → 播列表里那一项 (不动列表顺序)
     const items = get(playlist).items;
     const idx = items.findIndex(v => v.bvid === curBvid);
